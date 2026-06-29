@@ -1,0 +1,172 @@
+
+Table users {
+  id int [pk, increment]
+  full_name varchar(100) [not null]
+  email varchar(100) [unique, not null]
+  phone varchar(15) [unique]
+  password_hash text [not null]
+  role varchar(20) [not null]
+  zone_id int
+  is_active boolean [default: true]
+  created_at datetime
+}
+
+Table zones {
+  id int [pk, increment]
+  zone_code varchar(20) [unique, not null]
+  zone_name varchar(100) [not null]
+  center_lat float
+  center_lng float
+  coverage_radius_m int
+}
+
+Table complaint_categories {
+  id int [pk, increment]
+  category_name varchar(100) [unique, not null]
+  description text
+  sla_hours int [not null]
+}
+
+Table complaint_clusters {
+  id int [pk, increment]
+  category_id int [not null]
+  zone_id int [not null]
+  centroid_lat float
+  centroid_lng float
+  report_count int
+  severity_boost int
+}
+
+Table complaints {
+  id int [pk, increment]
+  complaint_code varchar(30) [unique, not null]
+  citizen_id int [not null]
+  zone_id int [not null]
+  category_id int [not null]
+  cluster_id int
+  title varchar(255)
+  description text [not null]
+  latitude float [not null]
+  longitude float [not null]
+  status varchar(40)
+  severity varchar(20)
+  severity_score int
+  sla_due_at datetime
+  created_at datetime
+  updated_at datetime
+  resolved_at datetime
+  closed_at datetime
+}
+
+Table complaint_evidence {
+  id int [pk, increment]
+  complaint_id int [not null]
+  file_path text [not null]
+  ai_confidence float
+  review_status varchar(30)
+  reviewed_by int
+  review_reason text
+  created_at datetime
+}
+
+Table status_history {
+  id int [pk, increment]
+  complaint_id int [not null]
+  old_status varchar(40)
+  new_status varchar(40) [not null]
+  changed_by int [not null]
+  remark text
+  created_at datetime
+}
+
+Table complaint_assignments {
+  id int [pk, increment]
+  complaint_id int [not null]
+  officer_id int [not null]
+  assigned_at datetime
+  completed_at datetime
+}
+
+Table complaint_notes {
+  id int [pk, increment]
+  complaint_id int [not null]
+  author_id int [not null]
+  note_text text [not null]
+  created_at datetime
+}
+
+Table complaint_upvotes {
+  id int [pk, increment]
+  complaint_id int [not null]
+  citizen_id int [not null]
+  created_at datetime
+
+  indexes {
+    (complaint_id, citizen_id) [unique]
+  }
+}
+
+Table points_ledger {
+  id int [pk, increment]
+  citizen_id int [not null]
+  complaint_id int
+  points_change int [not null]
+  reason text [not null]
+  created_at datetime
+}
+
+Table badges {
+  id int [pk, increment]
+  badge_name varchar(100) [unique, not null]
+  description text
+  threshold_points int
+}
+
+Table citizen_badges {
+  id int [pk, increment]
+  citizen_id int [not null]
+  badge_id int [not null]
+  earned_at datetime
+}
+
+Table notifications {
+  id int [pk, increment]
+  user_id int [not null]
+  title varchar(255)
+  message text
+  is_read boolean
+  created_at datetime
+}
+
+Ref: users.zone_id > zones.id
+
+Ref: complaints.citizen_id > users.id
+Ref: complaints.zone_id > zones.id
+Ref: complaints.category_id > complaint_categories.id
+Ref: complaints.cluster_id > complaint_clusters.id
+
+Ref: complaint_clusters.zone_id > zones.id
+Ref: complaint_clusters.category_id > complaint_categories.id
+
+Ref: complaint_evidence.complaint_id > complaints.id
+Ref: complaint_evidence.reviewed_by > users.id
+
+Ref: status_history.complaint_id > complaints.id
+Ref: status_history.changed_by > users.id
+
+Ref: complaint_assignments.complaint_id > complaints.id
+Ref: complaint_assignments.officer_id > users.id
+
+Ref: complaint_notes.complaint_id > complaints.id
+Ref: complaint_notes.author_id > users.id
+
+Ref: complaint_upvotes.complaint_id > complaints.id
+Ref: complaint_upvotes.citizen_id > users.id
+
+Ref: points_ledger.citizen_id > users.id
+Ref: points_ledger.complaint_id > complaints.id
+
+Ref: citizen_badges.citizen_id > users.id
+Ref: citizen_badges.badge_id > badges.id
+
+Ref: notifications.user_id > users.id

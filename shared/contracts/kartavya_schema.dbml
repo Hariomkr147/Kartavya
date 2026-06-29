@@ -1,0 +1,462 @@
+// ============================================================================
+// Kartavya — Database Schema
+// Civic grievance reporting platform
+//
+// Designed to back the Kartavya API contract (kartavya_api.yaml) one-to-one.
+// Every field the API returns either maps to a column here or is cleanly
+// derivable from these tables (counts, sums, ranks, SLA math).
+//
+// Design principles followed:
+//   * Integrity at the DB layer: fixed value-sets use ENUMs, not free varchars,
+//     so a typo'd status can never be stored. One-time facts use UNIQUE indexes.
+//   * No stored-derived fields that can drift. Severity LABEL and SLA LABEL are
+//     computed on read from severity_score and the SLA timestamps, so they can
+//     never disagree with their source. (We store the SLA *inputs*, which are
+//     point-in-time snapshots, never the *label*.)
+//   * Append-only ledgers for anything historical (points, status changes) so
+//     totals are always re-computable and nothing is silently overwritten.
+//   * FK delete rules chosen per relationship (restrict for audit/financial
+//     trails, set null for actor links, cascade for per-user artifacts), so the
+//     "deactivate, don't delete" policy is safe and nothing is orphaned.
+//   * Stack target: Flask + SQLAlchemy + SQLite. ENUMs and FK actions below all
+//     translate to SQLite CHECK / FK clauses via SQLAlchemy.
+// ============================================================================
+
+Project kartavya {
+  database_type: 'SQLite'
+  Note: '''
+    Kartavya schema. Seed data required before use:
+      * 12 complaint_categories (fixed list, with default sla_hours)
+      * 6 badges (with criteria_type / criteria_value)
+      * 1 zones row flagged is_catch_all = true (for locations in no zone)
+      * 1 app_settings row (id = 1)
+      * admin user(s) (admins are seeded, never self-registered)
+  '''
+}
+
+// ----------------------------------------------------------------------------
+// ENUMS  (fixed value-sets — enforced by the DB, mirror the API enums)
+// ----------------------------------------------------------------------------
+
+Enum user_role {
+  CITIZEN
+  OFFICER
+  ADMIN
+}
+
+Enum complaint_status {
+  SUBMITTED              // just filed, waiting for an officer to open it
+  EVIDENCE_UNDER_REVIEW  // officer is judging the photo
+  NEEDS_MORE_EVIDENCE    // sent back to citizen (SLA timer paused here)
+  REJECTED               // turned down with a reason (terminal)
+  UNDER_REVIEW           // accepted into the queue; SLA timer starts
+  IN_PROGRESS            // officer has started
+  UNDER_RESOLUTION       // officer actively fixing; progress notes allowed
+  RESOLVED               // officer done; awaiting citizen confirmation
+  CLOSED                 // citizen confirmed (terminal); points credited
+  REOPENED               // citizen disputed; back to the officer
+  UNRESOLVABLE           // structural blocker, reason required (terminal)
+}
+
+Enum severity_label {
+  LOW       // score 0-4
+  MEDIUM    // score 5-14
+  HIGH      // score 15-29
+  CRITICAL  // score 30+
+}
+// NOTE: severity_label is NOT stored on complaints — it is derived on read from
+// complaints.severity_score using the ranges above. The enum exists so any
+// stored or API-facing label is validated consistently.
+
+Enum sla_label {
+  ON_TIME   // < 80% of target consumed
+  DELAYED   // 80-100% of target
+  OVERDUE   // > 100% of target
+}
+// NOTE: sla_label is also derived on read (see the sla_* columns on complaints).
+
+Enum evidence_verdict {
+  VALID
+  NEEDS_MORE_EVIDENCE
+  REJECTED
+}
+
+Enum ai_screen_status {
+  PENDING      // photo uploaded, AI has not finished yet
+  DONE         // AI returned a result (see ai_confidence / ai_note)
+  UNAVAILABLE  // AI service was down; treat the hint as absent
+}
+
+Enum status_actor {
+  CITIZEN
+  OFFICER
+  ADMIN
+  SYSTEM   // automated transitions, e.g. auto-close on timeout
+}
+
+Enum points_reason {
+  COMPLAINT_CLOSED   // +50
+  FIRST_COMPLAINT    // +10
+  ON_TIME_BONUS      // +15
+  UPVOTE_RECEIVED    // +5
+  REJECTED_PENALTY   // -20
+}
+
+Enum badge_code {
+  KARTAVYA_INITIATE
+  STREET_GUARDIAN
+  ZONE_CHAMPION
+  CENTURY_REFORMER
+  CIVIC_HERO
+  SWIFT_REPORTER
+}
+
+Enum badge_criteria_type {
+  FIRST_COMPLAINT       // award on first complaint filed
+  COMPLAINTS_CLOSED     // award at criteria_value complaints closed (e.g. 5)
+  LIFETIME_POINTS       // award at criteria_value lifetime CSP (e.g. 100, 500)
+  ZONE_RANK_ONE         // award on reaching #1 on the zone leaderboard
+  CLOSED_WITHIN_DAYS    // award at 3 closed within criteria_value days (e.g. 7)
+}
+
+Enum ai_report_status {
+  PENDING
+  READY
+  FAILED
+}
+
+// ----------------------------------------------------------------------------
+// ACCOUNTS & REFERENCE DATA
+// ----------------------------------------------------------------------------
+
+Table users {
+  id            int            [pk, increment]
+  full_name     varchar(120)   [not null, note: 'Real name. Never shown to other citizens or to officers.']
+  display_name  varchar(60)    [note: 'Public handle for leaderboards. App falls back to a masked value if null.']
+  email         varchar(255)   [unique, not null, note: 'Unique across ALL roles — this is what stops officers self-registering.']
+  password_hash varchar(255)   [not null]
+  role          user_role      [not null]
+  zone_id       int            [note: 'Officer: assigned zone (exactly one). Citizen: home zone. Admin: null.']
+  is_active     boolean        [not null, default: true, note: 'Soft-deactivate flag. Inactive users cannot log in. Preferred over deletion.']
+  created_at    datetime       [not null, default: `now()`]
+
+  indexes {
+    role
+    zone_id
+  }
+
+  Note: 'Maps to the API User schema. The officer\'s public ID (API officerId) is this id; full_name is never exposed publicly.'
+}
+
+Table zones {
+  id                int          [pk, increment]
+  zone_code         varchar(20)  [unique, not null]
+  zone_name         varchar(120) [not null]
+  center_lat        float        [not null]
+  center_lng        float        [not null]
+  coverage_radius_m int          [not null, note: 'Simple circular zone. A point is in-zone if Haversine distance to centre <= radius.']
+  is_catch_all      boolean      [not null, default: false, note: 'Exactly one zone is the "Unassigned" catch-all for locations that fall in no real zone.']
+  created_at        datetime     [not null, default: `now()`]
+
+  Note: 'Admin-managed areas. Routing: location decides the zone, the zone decides which officers see the complaint.'
+}
+
+Table complaint_categories {
+  id            int          [pk, increment]
+  category_code varchar(40)  [unique, not null]
+  category_name varchar(120) [unique, not null]
+  description   text
+  sla_hours     int          [not null, note: 'Current target resolution time (>= 1). Editable by admin; only affects complaints accepted afterwards.']
+  created_at    datetime     [not null, default: `now()`]
+
+  Note: 'The 12 fixed categories are seeded once. The list is not editable from the app; only sla_hours changes. GET /categories returns sla_hours as slaTargetHours.'
+}
+
+// ----------------------------------------------------------------------------
+// COMPLAINTS  (the core record + its clusters)
+// ----------------------------------------------------------------------------
+
+Table complaint_clusters {
+  id            int      [pk, increment]
+  category_id   int      [not null]
+  zone_id       int      [not null]
+  centroid_lat  float    [not null]
+  centroid_lng  float    [not null]
+  report_count  int      [not null, default: 1, note: 'How many complaints are linked here. Drives severity: score = (report_count - 1) * 3 + upvotes.']
+  created_at    datetime [not null, default: `now()`]
+  updated_at    datetime [not null, default: `now()`]
+
+  indexes {
+    (category_id, zone_id)
+  }
+
+  Note: 'Nearby same-category complaints (Haversine, ~50-100 m) are linked into one cluster. Replaces ML clustering, which is out of scope.'
+}
+
+Table complaints {
+  id                   int               [pk, increment]
+  complaint_code       varchar(30)       [unique, not null, note: 'Human-friendly id, e.g. KTV-2026-000123.']
+  citizen_id           int               [not null, note: 'Reporter. Hidden from officers and from the public feed.']
+  zone_id              int               [not null, note: 'Resolved from the location at submit time; can be admin-overridden.']
+  category_id          int               [not null]
+  cluster_id           int               [note: 'Set if linked to nearby duplicates.']
+  assigned_officer_id  int               [note: 'Current handling officer (API assignedOfficerId). Null until an officer picks it up.']
+
+  description          text              [note: 'Optional — a citizen may pick a category manually without typing. Matches the API (description not required).']
+  category_ai_suggested boolean          [not null, default: false, note: 'Whether the chosen category came from the AI suggestion (analytics only).']
+  latitude             float             [not null]
+  longitude            float             [not null]
+
+  status               complaint_status  [not null, default: 'SUBMITTED']
+  severity_score       int               [not null, default: 0, note: 'Raw score. Severity LABEL is derived from this on read, never stored, so the two can never disagree.']
+
+  // --- SLA inputs (snapshots) — the label is computed from these, not stored ---
+  sla_target_hours     int               [note: 'Snapshot of the category SLA at acceptance. Frozen, so later SLA edits do not move this complaint.']
+  sla_started_at       datetime          [note: 'When it entered UNDER_REVIEW (the timer start). Null before acceptance.']
+  sla_paused_seconds   int               [not null, default: 0, note: 'Accumulated time spent waiting on the citizen (NEEDS_MORE_EVIDENCE), excluded from SLA.']
+  sla_paused_at        datetime          [note: 'Set when the timer pauses; non-null means currently paused. Cleared into sla_paused_seconds on resume.']
+
+  created_at           datetime          [not null, default: `now()`]
+  updated_at           datetime          [not null, default: `now()`, note: 'App refreshes this on every change.']
+  resolved_at          datetime          [note: 'Set when officer marks RESOLVED.']
+  closed_at            datetime          [note: 'Set when the complaint reaches CLOSED.']
+
+  indexes {
+    (zone_id, status)        // officer queue
+    citizen_id               // GET /complaints/my
+    category_id
+    cluster_id
+    assigned_officer_id
+    status
+  }
+
+  Note: 'Central record. Backs Complaint / ComplaintDetail. severityLabel and slaLabel are computed at serialization time from severity_score and the sla_* columns.'
+}
+
+Table complaint_evidence {
+  id                  int              [pk, increment]
+  complaint_id        int              [not null]
+  sequence            int              [not null, note: '1 = original photo, 2+ = re-submissions. Both/all are retained.']
+  file_path           text             [not null, note: 'Path on the local filesystem (photos are not stored in the DB).']
+
+  // AI photo pre-screening (asynchronous, advisory only)
+  ai_screen_status    ai_screen_status [not null, default: 'PENDING', note: 'PENDING/DONE/UNAVAILABLE — lets the UI tell "no result yet" apart from "AI was down".']
+  ai_matches_category boolean          [note: 'AI guess: does the photo match the chosen category?']
+  ai_confidence       float            [note: '0..1 confidence from the vision model.']
+  ai_note             text             [note: 'Short plain-language hint shown to the officer.']
+
+  // Officer verdict
+  verdict             evidence_verdict [note: 'Null until reviewed. VALID / NEEDS_MORE_EVIDENCE / REJECTED.']
+  verdict_reason      text             [note: 'App-enforced as mandatory for NEEDS_MORE_EVIDENCE and REJECTED.']
+  reviewed_by         int              [note: 'Officer who gave the verdict.']
+  reviewed_at         datetime
+
+  created_at          datetime         [not null, default: `now()`]
+
+  indexes {
+    complaint_id
+    (complaint_id, sequence) [unique]
+  }
+
+  Note: 'One row per uploaded photo. Backs the Evidence schema, including the AiConfidenceNote (aiAvailable = ai_screen_status != UNAVAILABLE).'
+}
+
+Table status_history {
+  id                int              [pk, increment]
+  complaint_id      int              [not null]
+  from_status       complaint_status [note: 'Null for the very first entry.']
+  to_status         complaint_status [not null]
+  actor_role        status_actor     [not null, note: 'CITIZEN / OFFICER / ADMIN / SYSTEM.']
+  changed_by_user_id int             [note: 'The acting user. Null when actor_role = SYSTEM (e.g. auto-close).']
+  reason            text             [note: 'Carries reject / unresolvable / dispute / override reasons.']
+  created_at        datetime         [not null, default: `now()`]
+
+  indexes {
+    (complaint_id, created_at)
+  }
+
+  Note: 'Append-only audit trail. Every stage change is one row. Backs StatusHistoryEntry (changedByOfficerId = changed_by_user_id when actor_role = OFFICER).'
+}
+
+Table complaint_notes {
+  id           int          [pk, increment]
+  complaint_id int          [not null]
+  officer_id   int          [not null, note: 'Notes are officer-authored only (US-O03). Shown to the citizen with the officer ID, not the name.']
+  note_text    varchar(500) [not null, note: 'Up to 500 characters. Permanent — never edited or deleted.']
+  created_at   datetime     [not null, default: `now()`]
+
+  indexes {
+    (complaint_id, created_at)
+  }
+
+  Note: 'Progress notes. Backs ProgressNote.'
+}
+
+Table complaint_upvotes {
+  id           int      [pk, increment]
+  complaint_id int      [not null]
+  citizen_id   int      [not null, note: 'App also enforces citizen_id != complaint.citizen_id (no self-upvotes).']
+  created_at   datetime [not null, default: `now()`]
+
+  indexes {
+    (complaint_id, citizen_id) [unique, note: 'One upvote per citizen per complaint.']
+  }
+
+  Note: 'Upvotes feed both severity (each upvote +1 to the score) and the reporter\'s CSP (+5). upvoteCount = COUNT(*) per complaint.'
+}
+
+// ----------------------------------------------------------------------------
+// GAMIFICATION
+// ----------------------------------------------------------------------------
+
+Table points_ledger {
+  id            int           [pk, increment]
+  citizen_id    int           [not null]
+  complaint_id  int           [note: 'The complaint that triggered this change, if any.']
+  points_change int           [not null, note: 'Signed: +50, +10, +15, +5, or -20.']
+  reason        points_reason [not null]
+  created_at    datetime      [not null, default: `now()`]
+
+  indexes {
+    (citizen_id, created_at)
+  }
+
+  Note: 'Append-only CSP ledger. Lifetime total = SUM(points_change); monthly total = SUM where created_at in the month. No stored total, so nothing can drift.'
+}
+
+Table badges {
+  id             int                 [pk, increment]
+  badge_code     badge_code          [unique, not null]
+  badge_name     varchar(80)         [not null]
+  description    text
+  criteria_type  badge_criteria_type [not null, note: 'How the badge is earned — makes award logic data-driven instead of points-only.']
+  criteria_value int                 [note: 'The threshold, where the type needs one (5, 100, 500, 7...). Null for FIRST_COMPLAINT and ZONE_RANK_ONE.']
+  created_at     datetime            [not null, default: `now()`]
+
+  Note: 'Catalog of the 6 badges, seeded once. Covers all charter triggers, not just point thresholds.'
+}
+
+Table citizen_badges {
+  id         int      [pk, increment]
+  citizen_id int      [not null]
+  badge_id   int      [not null]
+  earned_at  datetime [not null, default: `now()`]
+
+  indexes {
+    (citizen_id, badge_id) [unique, note: 'A badge is awarded at most once per citizen (US-C10).']
+  }
+
+  Note: 'Which citizen earned which badge, and when. Backs the Badge schema (earnedAt).'
+}
+
+// ----------------------------------------------------------------------------
+// AI REPORTS & SYSTEM CONFIG
+// ----------------------------------------------------------------------------
+
+Table ai_zone_reports {
+  id           int              [pk, increment]
+  zone_id      int              [not null]
+  requested_by int              [note: 'Admin who triggered it.']
+  status       ai_report_status [not null, default: 'PENDING', note: 'PENDING right after POST, READY when done, FAILED if AI was unavailable.']
+  ai_available boolean          [not null, default: true]
+  summary      text
+  trends       text
+  hotspots     text
+  suggestions  text
+  generated_at datetime         [note: 'Set when status becomes READY or FAILED.']
+  created_at   datetime         [not null, default: `now()`]
+
+  indexes {
+    (zone_id, created_at)
+  }
+
+  Note: 'Persists AI zone health reports so they can be re-viewed without regenerating. GET /admin/zones/{zoneId}/ai-report returns the latest row for the zone.'
+}
+
+Table app_settings {
+  id                      int      [pk, note: 'Single-row table; always id = 1.']
+  auto_close_timeout_hours int     [not null, default: 168, note: 'How long a RESOLVED complaint waits for citizen confirmation before auto-closing.']
+  updated_by              int      [note: 'Admin who last changed settings.']
+  updated_at              datetime [not null, default: `now()`]
+
+  Note: 'Backs GET / PATCH /admin/settings. Holds the admin-configurable auto-close timeout.'
+}
+
+// ============================================================================
+// RELATIONSHIPS  (with delete rules)
+//   restrict  = block deletion while children exist (protect audit/financial trails)
+//   set null  = keep the row, drop the link (actor references)
+//   cascade   = remove dependent rows with the parent (per-user artifacts, complaint children)
+// ============================================================================
+
+// users / zones
+Ref: users.zone_id > zones.id [delete: set null]
+
+// complaints
+Ref: complaints.citizen_id          > users.id                 [delete: restrict]
+Ref: complaints.zone_id             > zones.id                 [delete: restrict]
+Ref: complaints.category_id         > complaint_categories.id  [delete: restrict]
+Ref: complaints.cluster_id          > complaint_clusters.id    [delete: set null]
+Ref: complaints.assigned_officer_id > users.id                 [delete: set null]
+
+// clusters
+Ref: complaint_clusters.category_id > complaint_categories.id  [delete: restrict]
+Ref: complaint_clusters.zone_id     > zones.id                 [delete: restrict]
+
+// evidence
+Ref: complaint_evidence.complaint_id > complaints.id           [delete: cascade]
+Ref: complaint_evidence.reviewed_by  > users.id                [delete: set null]
+
+// status history
+Ref: status_history.complaint_id       > complaints.id         [delete: cascade]
+Ref: status_history.changed_by_user_id > users.id              [delete: set null]
+
+// notes
+Ref: complaint_notes.complaint_id > complaints.id              [delete: cascade]
+Ref: complaint_notes.officer_id   > users.id                  [delete: restrict]
+
+// upvotes
+Ref: complaint_upvotes.complaint_id > complaints.id            [delete: cascade]
+Ref: complaint_upvotes.citizen_id   > users.id                 [delete: cascade]
+
+// points ledger
+Ref: points_ledger.citizen_id   > users.id                     [delete: restrict]
+Ref: points_ledger.complaint_id > complaints.id                [delete: set null]
+
+// badges
+Ref: citizen_badges.citizen_id > users.id                      [delete: cascade]
+Ref: citizen_badges.badge_id   > badges.id                     [delete: restrict]
+
+// ai reports & settings
+Ref: ai_zone_reports.zone_id      > zones.id                   [delete: cascade]
+Ref: ai_zone_reports.requested_by > users.id                   [delete: set null]
+Ref: app_settings.updated_by      > users.id                   [delete: set null]
+
+// ----------------------------------------------------------------------------
+// TABLE GROUPS (for diagram readability)
+// ----------------------------------------------------------------------------
+TableGroup accounts {
+  users
+  zones
+  complaint_categories
+}
+
+TableGroup complaints_domain {
+  complaints
+  complaint_clusters
+  complaint_evidence
+  status_history
+  complaint_notes
+  complaint_upvotes
+}
+
+TableGroup gamification {
+  points_ledger
+  badges
+  citizen_badges
+}
+
+TableGroup ai_and_config {
+  ai_zone_reports
+  app_settings
+}

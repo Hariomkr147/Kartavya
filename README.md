@@ -2,7 +2,9 @@
 
 Kartavya is a gamified civic grievance platform that turns everyday citizens into active contributors to public infrastructure upkeep.
 
-## Project structure (MVC monorepo)
+The repository is currently contract-first: the API surface and database schema are designed, while the backend and frontend application folders are scaffolded for implementation.
+
+## Project Structure
 
 ```text
 Kartavya/
@@ -33,7 +35,13 @@ Kartavya/
 ├── shared/
 │   └── contracts/
 └── docs/
-    └── DOCUMENTATION.md
+    ├── start_here.md
+    ├── backend/
+    │   ├── api.md
+    │   └── database.md
+    └── frontend/
 ```
 
-The API contract (`backend/api/openapi.yaml`) and the database schema (`backend/database/schema.dbml`) are designed together and are the current source of truth for the data model and endpoints. Application code under `backend/app/` and `frontend/src/` is still scaffold-only (MVC-style starter folders), ready for implementation against this contract. See [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md) for details.
+The API contract (`backend/api/openapi.yaml`) and database schema (`backend/database/schema.dbml`) are designed together and are the current source of truth for endpoints, data shapes, and persistence rules. Application code under `backend/app/` and `frontend/src/` is still scaffold-only, ready for implementation against those contracts.
+
+Start with [docs/start_here.md](docs/start_here.md) for the repository overview. Backend reference docs live under [docs/backend/](docs/backend/), and contributor workflow guidance lives in [CONTRIBUTING.md](CONTRIBUTING.md).

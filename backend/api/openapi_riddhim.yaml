@@ -1,0 +1,617 @@
+﻿openapi: 3.0.0
+info:
+  title: Kartavya API
+  description: >
+    OpenAPI skeleton derived from the Kartavya Project Charter.
+    This specification documents endpoints, authorization requirements,
+    and endpoint purposes. Schemas not defined in the charter are intentionally omitted.
+  version: 1.0.0
+servers:
+  - url: /api
+tags:
+  - name: Authentication
+  - name: Complaints
+  - name: Officer
+  - name: Admin
+  - name: Gamification
+  - name: Reference
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+paths:
+  /auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register Citizen
+      description: >
+        Create a citizen account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201":
+          description: Citizen account created
+        "400":
+          description: Invalid request
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Login User
+      description: >
+        Authenticate a user and return a JWT token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Login successful
+        "401":
+          description: Authentication failed
+  /complaints:
+    post:
+      tags:
+        - Complaints
+      summary: Create Complaint
+      description: >
+        Submit a complaint with category, photo, location,
+        and description.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+      responses:
+        "201":
+          description: Complaint created
+        "400":
+          description: Invalid complaint submission
+        "401":
+          description: Unauthorized
+    get:
+      tags:
+        - Complaints
+      summary: List Complaints
+      description: >
+        Endpoint behavior depends on user role.
+        Exact filtering behavior is implementation-defined.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Complaint list returned
+        "401":
+          description: Unauthorized
+  /complaints/my:
+    get:
+      tags:
+        - Complaints
+      summary: Get Citizen Complaints
+      description: >
+        Return complaints belonging to the authenticated citizen.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Complaints returned
+        "401":
+          description: Unauthorized
+  /complaints/{complaintId}:
+    get:
+      tags:
+        - Complaints
+      summary: Get Complaint Details
+      description: >
+        Retrieve complaint details subject to authorization rules.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: complaintId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Complaint returned
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Complaint not found
+  /complaints/{complaintId}/evidence:
+    post:
+      tags:
+        - Complaints
+      summary: Submit Additional Evidence
+      description: >
+        Submit additional evidence after an officer requests it.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: complaintId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Evidence submitted
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  /complaints/{complaintId}/upvote:
+    post:
+      tags:
+        - Complaints
+      summary: Upvote Complaint
+      description: >
+        Add a citizen upvote to a complaint.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: complaintId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Upvote recorded
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  /complaints/{complaintId}/confirm:
+    post:
+      tags:
+        - Complaints
+      summary: Confirm Resolution
+      description: >
+        Citizen confirms complaint resolution.
+        Complaint moves from RESOLVED to CLOSED.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: complaintId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Complaint closed
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  /complaints/{complaintId}/dispute:
+    post:
+      tags:
+        - Complaints
+      summary: Dispute Resolution
+      description: >
+        Citizen disputes a resolved complaint.
+        Complaint moves to REOPENED.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: complaintId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Complaint reopened
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  /officer/complaints:
+    get:
+      tags:
+        - Officer
+      summary: Get Zone Complaint Queue
+      description: >
+        Return complaints belonging to the officer's assigned zone.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Complaint queue returned
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  /officer/complaints/{complaintId}/evidence-review:
+    post:
+      tags:
+        - Officer
+      summary: Review Complaint Evidence
+      description: >
+        Officer reviews submitted evidence and chooses:
+        VALID, NEEDS_MORE_EVIDENCE, or REJECTED.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: complaintId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Evidence review completed
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  /officer/complaints/{complaintId}/status:
+    patch:
+      tags:
+        - Officer
+      summary: Update Complaint Status
+      description: >
+        Update complaint lifecycle status according to
+        allowed workflow transitions.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: complaintId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Status updated
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  /officer/complaints/{complaintId}/notes:
+    post:
+      tags:
+        - Officer
+      summary: Add Progress Note
+      description: >
+        Add a progress update visible to the citizen.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: complaintId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Progress note added
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  /officer/analytics:
+    get:
+      tags:
+        - Officer
+      summary: Get Zone Analytics
+      description: >
+        Retrieve analytics for the officer's assigned zone.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Analytics returned
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  /admin/complaints:
+    get:
+      tags:
+        - Admin
+      summary: Get All Complaints
+      description: >
+        Retrieve complaints across all zones.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Complaints returned
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  /admin/complaints/{complaintId}:
+    patch:
+      tags:
+        - Admin
+      summary: Override Complaint
+      description: >
+        Administrative override of complaint information
+        or status.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: complaintId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Complaint updated
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  /admin/users:
+    get:
+      tags:
+        - Admin
+      summary: Get All Users
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Users returned
+    post:
+      tags:
+        - Admin
+      summary: Create User
+      description: >
+        Create citizen or officer account.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201":
+          description: User created
+  /admin/users/{userId}:
+    get:
+      tags:
+        - Admin
+      summary: Get User Details
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User returned
+    patch:
+      tags:
+        - Admin
+      summary: Update User
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: User updated
+    delete:
+      tags:
+        - Admin
+      summary: Delete User
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User deleted
+  /admin/zones/{zoneId}/assign-officer:
+    post:
+      tags:
+        - Admin
+      summary: Assign Officer To Zone
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Officer assigned
+  /admin/slas/{categoryId}:
+    patch:
+      tags:
+        - Admin
+      summary: Update SLA
+      description: >
+        Update category SLA target.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: categoryId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: SLA updated
+  /admin/analytics:
+    get:
+      tags:
+        - Admin
+      summary: Get System Analytics
+      description: >
+        Retrieve analytics across all zones.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Analytics returned
+  /admin/zones/{zoneId}/ai-report:
+    post:
+      tags:
+        - Admin
+      summary: Generate AI Zone Report
+      description: >
+        Generate AI civic health report for a zone.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Report generated
+  /admin/export/complaints:
+    get:
+      tags:
+        - Admin
+      summary: Export Complaints CSV
+      description: >
+        Download complaint data as CSV.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: CSV exported
+  /gamification/points:
+    get:
+      tags:
+        - Gamification
+      summary: Get Citizen Points
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Points returned
+  /gamification/badges:
+    get:
+      tags:
+        - Gamification
+      summary: Get Citizen Badges
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Badges returned
+  /leaderboard:
+    get:
+      tags:
+        - Gamification
+      summary: Get Leaderboard
+      description: >
+        Retrieve leaderboard rankings.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Leaderboard returned
+  /categories:
+    get:
+      tags:
+        - Reference
+      summary: Get Complaint Categories
+      description: >
+        Retrieve the fixed complaint categories.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Categories returned
+  /zones:
+    get:
+      tags:
+        - Reference
+      summary: Get Zones
+      description: >
+        Retrieve available zones.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Zones returned

@@ -432,10 +432,14 @@ Kartavya/
 │       └── types/
 ├── shared/contracts/           ← cross-cutting contracts (currently empty)
 └── docs/
-    └── DOCUMENTATION.md
+    ├── start_here.md            ← repository overview and current status
+    ├── backend/
+    │   ├── api.md               ← API reference notes
+    │   └── database.md          ← database reference notes
+    └── frontend/                ← frontend documentation placeholder
 ```
 
-Full folder descriptions are in [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md).
+Full folder descriptions are in [docs/start_here.md](docs/start_here.md).
 
 ---
 
@@ -476,8 +480,6 @@ A few rules to keep the codebase clean:
 - **Never commit directly to `main`.** All changes go through a pull request, regardless of how small.
 - **Do not commit secrets.** API keys, `.env` files, and database files (`*.sqlite3`, `db.sqlite3`) are already in `.gitignore`. Double-check before staging.
 - **Remove debug code** (`print()`, `console.log()`, commented-out blocks) before opening a PR.
-
-If you end up violating any of these I'll personally deduct your social credits.
 
 ---
 

@@ -269,13 +269,14 @@ Table status_history {
   actor_role        status_actor     [not null, note: 'CITIZEN / OFFICER / ADMIN / SYSTEM.']
   changed_by_user_id int             [note: 'The acting user. Null when actor_role = SYSTEM (e.g. auto-close).']
   reason            text             [note: 'Carries reject / unresolvable / dispute / override reasons.']
+  remark            text             [note: 'Optional free-text remark, e.g. the officer\'s closing note when marking RESOLVED. Distinct from reason.']
   created_at        datetime         [not null, default: `now()`]
 
   indexes {
     (complaint_id, created_at)
   }
 
-  Note: 'Append-only audit trail. Every stage change is one row. Backs StatusHistoryEntry (changedByOfficerId = changed_by_user_id when actor_role = OFFICER).'
+  Note: 'Append-only audit trail. Every stage change is one row. Backs StatusHistoryEntry (reason + remark map 1:1; changedByOfficerId = changed_by_user_id when actor_role = OFFICER).'
 }
 
 Table complaint_notes {

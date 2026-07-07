@@ -218,12 +218,15 @@ paths:
       summary: Suggest the nearest zone for a location
       description: >
         Given a latitude/longitude (typically read from a photo's EXIF GPS),
-        returns the single nearest zone by centre distance. The complaint form
+        returns the single nearest **active** zone by centre distance —
+        deactivated zones are excluded from matching, so this never pre-fills
+        a zone that `POST /complaints` would then reject. The complaint form
         uses this to **pre-fill** the zone picker so the citizen usually just
         confirms instead of scrolling. It is advisory only — the citizen can
         always change the pick, and the server never routes on this alone.
-        Because it matches the *nearest* centre, it always returns one zone
-        (there are no gaps or overlaps to fall into).
+        Because it matches the *nearest active* centre, it always returns one
+        zone (there are no gaps or overlaps to fall into) unless every zone
+        in the system happens to be deactivated.
       requestBody:
         required: true
         content:
@@ -259,7 +262,8 @@ paths:
 
         On submission the server automatically:
 
-        - assigns the complaint to the zone the location falls into,
+        - routes the complaint to the citizen-confirmed `zoneId` (validated
+          active, never re-derived from location),
 
         - sets the status to `SUBMITTED`,
 
@@ -286,7 +290,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ComplaintDetail'
         '400':
-          description: Missing field, wrong file type/size, a location that maps to no zone, or an explicitly-submitted zoneId that is deactivated.
+          description: Missing required field, wrong file type/size, or a submitted zoneId that doesn't exist or is deactivated.
           content:
             application/json:
               schema:
@@ -2193,14 +2197,14 @@ components:
           allOf:
             - $ref: '#/components/schemas/Zone'
           nullable: true
-          description: The closest zone by centre distance, or null if none could be determined.
+          description: The closest active zone by centre distance, or null if every zone in the system is deactivated.
       required: [suggestedZone]
 
     # ---- Complaint ----
 
     CreateComplaintRequest:
       type: object
-      required: [categoryId, photo, latitude, longitude]
+      required: [categoryId, photo, latitude, longitude, zoneId]
       properties:
         categoryId:
           type: string
@@ -2224,15 +2228,19 @@ components:
         zoneId:
           type: string
           description: >
-            The zone the citizen confirmed for this complaint. The client
-            pre-selects it (from photo EXIF GPS via /zones/suggest, or the
-            citizen's manual choice) and the citizen confirms it. The server
-            trusts this value rather than silently re-deriving it, **except**
-            it still checks the zone is active — a `zoneId` for a deactivated
-            zone is rejected with `400` rather than silently accepted or
-            rerouted, since the client's cached zone list may be stale. If
-            omitted, the server falls back to the nearest *active* zone, and
-            if none is close enough, to the catch-all "Unassigned" zone.
+            The zone the citizen confirmed for this complaint. There are
+            exactly two ways the client arrives at this value: if the photo
+            has usable EXIF GPS, the client calls `/zones/suggest` and
+            pre-fills the zone picker with the result; otherwise the citizen
+            selects a zone manually from the dropdown. Either way, the
+            citizen sees and confirms a specific zone before the form can be
+            submitted, so this is always required — there is no third path
+            where no zone was ever selected. The server trusts the submitted
+            value rather than re-deriving it from `latitude`/`longitude`,
+            except it still checks the zone is active — a `zoneId` for a
+            deactivated zone is rejected with `400` rather than silently
+            accepted or rerouted, since the client's cached zone list may be
+            stale.
           example: zone_012
         categorySuggestedByAi:
           type: boolean

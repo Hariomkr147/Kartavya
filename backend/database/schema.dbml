@@ -2,7 +2,7 @@
 // Kartavya — Database Schema (v2)
 // Civic grievance reporting platform
 //
-// Designed to back the Kartavya API contract (kartavya_api_v2.yaml) one-to-one.
+// Designed to back the Kartavya API contract (backend/api/openapi.yaml) one-to-one.
 // Every field the API returns either maps to a column here or is cleanly
 // derivable from these tables (counts, sums, ranks, SLA math).
 //

@@ -262,6 +262,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Only citizens can file complaints.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /complaints/my:
     get:
@@ -565,7 +571,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
-          description: A citizen requested a zone that is not theirs.
+          description: Only citizens can browse the feed, or a citizen requested a zone that is not theirs.
           content:
             application/json:
               schema:

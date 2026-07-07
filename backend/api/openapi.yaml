@@ -286,7 +286,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ComplaintDetail'
         '400':
-          description: Missing field, wrong file type/size, or a location that maps to no zone.
+          description: Missing field, wrong file type/size, a location that maps to no zone, or an explicitly-submitted zoneId that is deactivated.
           content:
             application/json:
               schema:
@@ -2227,9 +2227,12 @@ components:
             The zone the citizen confirmed for this complaint. The client
             pre-selects it (from photo EXIF GPS via /zones/suggest, or the
             citizen's manual choice) and the citizen confirms it. The server
-            trusts this value rather than silently re-deriving it. If omitted,
-            the server falls back to the nearest zone, and if none is close
-            enough, to the catch-all "Unassigned" zone.
+            trusts this value rather than silently re-deriving it, **except**
+            it still checks the zone is active — a `zoneId` for a deactivated
+            zone is rejected with `400` rather than silently accepted or
+            rerouted, since the client's cached zone list may be stale. If
+            omitted, the server falls back to the nearest *active* zone, and
+            if none is close enough, to the catch-all "Unassigned" zone.
           example: zone_012
         categorySuggestedByAi:
           type: boolean

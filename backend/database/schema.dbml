@@ -160,7 +160,13 @@ Table zones {
   created_at   datetime     [not null, default: `now()`]
 
   indexes {
-    (is_catch_all) [unique, note: 'PARTIAL unique index (WHERE is_catch_all = true) — guarantees at most one catch-all zone exists. In SQLite: CREATE UNIQUE INDEX ... ON zones(is_catch_all) WHERE is_catch_all = 1.']
+    // NOT a plain unique index: DBML has no partial-index syntax, and a plain
+    // `unique` flag here would wrongly cap the table at one is_catch_all=false
+    // row too (blocking every real zone but the first). The actual constraint
+    // must be built directly as a partial index in the migration, not via a
+    // declarative SQLAlchemy `unique=True` column constraint:
+    //   CREATE UNIQUE INDEX ... ON zones(is_catch_all) WHERE is_catch_all = 1;
+    (is_catch_all) [note: 'PARTIAL unique index (WHERE is_catch_all = true) — guarantees at most one catch-all zone exists. Must be created as a real partial index (e.g. SQLAlchemy Index(..., sqlite_where=...)), not a column-level unique constraint.']
   }
 
   Note: 'Admin-managed areas. A complaint\'s zone is pre-selected on the client (from photo EXIF GPS or manual pick) and confirmed by the citizen — the server does not silently auto-route. Zone assignment is snapshotted onto the complaint once and never recomputed, so moving or resizing a zone later cannot retroactively change old complaints.'

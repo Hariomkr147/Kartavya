@@ -106,7 +106,7 @@ The state of the AI photo pre-screening process for each piece of evidence. This
 ---
 
 ### `status_actor`
-Who or what caused a complaint's status to change. Needed because the `SYSTEM` actor handles automated transitions (like auto-closing a `RESOLVED` complaint after the timeout) — there is no human user behind those changes.
+Who or what caused a complaint's status to change. Needed because the `SYSTEM` actor handles automated transitions (like auto-closing a `RESOLVED` complaint after the timeout, or cascading a resolved cluster's members to `RESOLVED` together) — there is no human user behind those changes. This is a distinct API enum (`StatusActor`) from `Role`, precisely because `Role` has no `SYSTEM` value — reusing `Role` here would make `SYSTEM`-actor rows unrepresentable.
 
 | Value | Meaning |
 |---|---|
@@ -193,7 +193,7 @@ All three roles share the same core identity data: name, email, password. Splitt
 | `email` | varchar(255) | ✅ | Login credential. **Unique across the entire table and all roles.** This uniqueness is what physically prevents an officer from self-registering — if their email already exists (because an admin created it), registration fails. |
 | `password_hash` | varchar(255) | ✅ | The bcrypt/argon2 hash of the password. The plaintext password is never stored anywhere. |
 | `role` | `user_role` | ✅ | `CITIZEN`, `OFFICER`, or `ADMIN`. Controls which API endpoints and data they can access. |
-| `zone_id` | integer (FK) | ❌ | For officers: the one zone they are assigned to and responsible for. For citizens: the zone they live in or report from. For admins: always `NULL` (admins have cross-zone access). |
+| `zone_id` | integer (FK) | ❌ | For officers: the one zone they are assigned to and responsible for. For citizens: the zone they live in or report from — required at registration (`RegisterRequest.zoneId`), so in practice every citizen has one. For admins: always `NULL` (admins have cross-zone access). **This FK is `RESTRICT` on delete**, and applies equally to citizens and officers: a zone can't be hard-deleted (`DELETE /admin/zones/{zoneId}`) while *any* user — citizen or officer — still has it as their `zone_id`, not just zones with complaints or assigned officers. |
 | `is_active` | boolean | ✅ | `true` by default. Set to `false` to deactivate an account. **Deactivated users cannot log in, but all their complaints, history, and points are preserved.** Preferred over deletion because deleting a user who has filed complaints would break those records. |
 | `created_at` | datetime | ✅ | Auto-set to the current time when the account is created. |
 
@@ -359,15 +359,15 @@ Almost everything else in the database is a child of a complaint (evidence, hist
 | `zone_id` | integer (FK) | ✅ | Determined automatically from the submitted latitude/longitude at filing time. Can be admin-overridden if the location was slightly off. Determines which officer queue this complaint appears in. |
 | `category_id` | integer (FK) | ✅ | Which of the 12 categories this complaint belongs to. Affects routing, SLA, and cluster matching. |
 | `cluster_id` | integer (FK) | ❌ | If this complaint is part of a nearby-duplicate cluster, this points to that cluster row. `NULL` means it is a standalone complaint. |
-| `assigned_officer_id` | integer (FK) | ❌ | The officer currently handling this complaint. `NULL` until an officer picks it up from the zone queue. When the complaint is batch-assigned, this is set. If the officer is reassigned to a different zone, this field is set to `NULL` via the FK delete rule. |
+| `assigned_officer_id` | integer (FK) | ❌ | The officer currently handling this complaint. `NULL` until an officer picks it up from the zone queue. When the complaint is batch-assigned, this is set. **Not a delete-rule effect:** if the officer is reassigned to a different zone (`PATCH /admin/users/{userId}` or `POST /admin/zones/{zoneId}/assign-officer`), application logic clears this field back to `NULL` on every one of their non-terminal complaints in the old zone — otherwise the complaint would stay assigned to someone who can no longer see it, since officer visibility is zone-scoped. |
 | `description` | text | ❌ | The citizen's free-text description. **Deliberately optional** — a citizen who picks a category manually and uploads a clear photo may not need to type anything. |
 | `category_ai_suggested` | boolean | ✅ | `true` if the citizen accepted the AI's category suggestion; `false` if they picked manually. Stored for analytics (to measure how useful the AI suggestion feature is). |
 | `latitude` | float | ✅ | Where the issue is — latitude. Used for zone routing and cluster detection. |
 | `longitude` | float | ✅ | Where the issue is — longitude. |
 | `status` | `complaint_status` | ✅ | The complaint's current stage. **Defaults to `SUBMITTED`** the moment it is created. Changes are enforced by app logic and recorded in `status_history`. |
 | `severity_score` | integer | ✅ | The raw numeric score. **Defaults to 0.** Updated when new related complaints join the cluster and when new upvotes are received. The severity label (`LOW` / `MEDIUM` / `HIGH` / `CRITICAL`) is calculated from this on read — never stored separately. |
-| `sla_target_hours` | integer | ❌ | A **snapshot** of `complaint_categories.sla_hours` taken at the moment the complaint entered `UNDER_REVIEW`. `NULL` before that. Frozen permanently — later SLA changes by the admin do not affect this complaint. |
-| `sla_started_at` | datetime | ❌ | Timestamp of when the complaint entered `UNDER_REVIEW` — **this is when the SLA clock started ticking.** `NULL` before acceptance. |
+| `sla_target_hours` | integer | ❌ | A **snapshot** of `complaint_categories.sla_hours` taken at the moment the complaint entered `UNDER_REVIEW`. `NULL` before that. Frozen permanently — later SLA changes by the admin do not affect this complaint. Also backfilled by an admin override (see below) if it force-jumps the complaint to `UNDER_REVIEW` or later while this is still unset. |
+| `sla_started_at` | datetime | ❌ | Timestamp of when the complaint entered `UNDER_REVIEW` — **this is when the SLA clock started ticking.** `NULL` before acceptance. **Admin override backfill:** `PATCH /admin/complaints/{id}` can force `status` straight to `UNDER_REVIEW` or beyond, skipping the normal evidence-review path. If this column is still `NULL` when that happens, the app sets it to "now" (and snapshots `sla_target_hours` too) so `slaLabel` never silently comes back null for an overridden complaint. |
 | `sla_paused_seconds` | integer | ✅ | A running total of time (in seconds) spent waiting on the citizen, e.g. in `NEEDS_MORE_EVIDENCE`. **This time is deducted from SLA calculation** so an officer is not penalized for delays caused by the citizen. Starts at 0. |
 | `sla_paused_at` | datetime | ❌ | If the SLA clock is currently paused (the complaint is in `NEEDS_MORE_EVIDENCE` right now), this holds the timestamp when it paused. When the citizen resubmits, the app calculates `now - sla_paused_at`, adds it to `sla_paused_seconds`, and clears this field. |
 | `created_at` | datetime | ✅ | When the complaint was filed. |
@@ -459,9 +459,10 @@ If we only stored the current status on the `complaints` table, we'd know where 
 | `complaint_id` | integer (FK) | ✅ | Which complaint this history entry belongs to. |
 | `from_status` | `complaint_status` | ❌ | The status the complaint was in **before** this change. `NULL` only for the very first entry (when a complaint is created at `SUBMITTED`, there is no previous status). |
 | `to_status` | `complaint_status` | ✅ | The status the complaint moved **to**. |
-| `actor_role` | `status_actor` | ✅ | Who made this change: `CITIZEN`, `OFFICER`, `ADMIN`, or `SYSTEM`. |
-| `changed_by_user_id` | integer (FK) | ❌ | The `users.id` of the person who made the change. `NULL` when `actor_role = SYSTEM` (because automated actions have no human behind them). |
+| `actor_role` | `status_actor` | ✅ | Who made this change: `CITIZEN`, `OFFICER`, `ADMIN`, or `SYSTEM`. Maps to the API's `StatusActor` enum on `StatusHistoryEntry.changedByRole` — a separate, 4-value enum from the 3-value `Role` used on user accounts, since `SYSTEM` is never a valid account role. |
+| `changed_by_user_id` | integer (FK) | ❌ | The `users.id` of the person who made the change. `NULL` when `actor_role = SYSTEM` (because automated actions have no human behind them). **The FK is `RESTRICT` on delete** — an officer or admin who has ever changed a complaint's status cannot be hard-deleted, protecting this audit trail the same way `complaint_notes.officer_id` protects note attribution. |
 | `reason` | text | ❌ | The written reason accompanying this transition. Populated for: officer rejections, Unresolvable declarations, citizen disputes, and admin overrides. |
+| `remark` | text | ❌ | An optional free-text remark, distinct from `reason` — e.g. the officer's closing note (`StatusUpdateRequest.note`) when marking `RESOLVED`. Maps 1:1 to `StatusHistoryEntry.remark` in the API. |
 | `created_at` | datetime | ✅ | The exact timestamp of this transition. Combined with `from_status`/`to_status`, this gives a full timeline with durations. |
 
 ### Example history for a complaint
@@ -606,7 +607,7 @@ Citizen 5 still earns the on-time bonus even though they only got the consolatio
 The catalog of the 6 badges that can be earned. This table is seeded once at setup and never changes during normal operation.
 
 ### Why criteria is stored in the table (not in code)
-The old approach would hardcode badge logic directly in application code with `if` statements. That works for simple point-threshold badges but breaks down for event-based badges like "first complaint" or time-window badges like "3 complaints closed in 7 days." By storing `criteria_type` and `criteria_value` in the database, all six badges are handled by a single, generalized awarding engine. Adding a new badge in future is a row insert, not a code change.
+The old approach would hardcode badge logic directly in application code with `if` statements. That works for simple point-threshold badges but breaks down for event-based badges like "first complaint" or time-window badges like "3 complaints closed in 7 days." By storing `criteria_type`, `criteria_value`, and `criteria_count` in the database, all six badges are handled by a single, generalized awarding engine. Adding a new badge in future — including another time-window badge with a different count — is a row insert, not a code change.
 
 ### Columns
 
@@ -617,18 +618,19 @@ The old approach would hardcode badge logic directly in application code with `i
 | `badge_name` | varchar(80) | ✅ | Display name shown to citizens, e.g. "Street Guardian". |
 | `description` | text | ❌ | What the badge means, e.g. "Consistently holding the city accountable." Shown in the UI. |
 | `criteria_type` | `badge_criteria_type` | ✅ | How this badge is earned (see the Enum above). Makes the award logic data-driven. |
-| `criteria_value` | integer | ❌ | The threshold number for criteria types that need one. `NULL` for `FIRST_COMPLAINT` (no count needed) and `ZONE_RANK_ONE` (no count needed). |
+| `criteria_value` | integer | ❌ | The threshold number for criteria types that need one. For `CLOSED_WITHIN_DAYS` this is the day-window (see `criteria_count` for the count). `NULL` for `FIRST_COMPLAINT` and `ZONE_RANK_ONE` (no count needed). |
+| `criteria_count` | integer | ❌ | Only used by `CLOSED_WITHIN_DAYS` — the number of closures required within `criteria_value` days (e.g. 3). `NULL` for every other `criteria_type`. Without this column, `CLOSED_WITHIN_DAYS` couldn't actually be data-driven: the count would have to be a hardcoded constant in application code, contradicting the point of this table. |
 | `created_at` | datetime | ✅ | When this badge was seeded. |
 
 ### The 6 seeded rows
 
 ```
-badge_code: KARTAVYA_INITIATE   criteria_type: FIRST_COMPLAINT    criteria_value: NULL
-badge_code: STREET_GUARDIAN     criteria_type: COMPLAINTS_CLOSED  criteria_value: 5
-badge_code: ZONE_CHAMPION       criteria_type: ZONE_RANK_ONE       criteria_value: NULL
-badge_code: CENTURY_REFORMER    criteria_type: LIFETIME_POINTS     criteria_value: 100
-badge_code: CIVIC_HERO          criteria_type: LIFETIME_POINTS     criteria_value: 500
-badge_code: SWIFT_REPORTER      criteria_type: CLOSED_WITHIN_DAYS  criteria_value: 7
+badge_code: KARTAVYA_INITIATE   criteria_type: FIRST_COMPLAINT    criteria_value: NULL  criteria_count: NULL
+badge_code: STREET_GUARDIAN     criteria_type: COMPLAINTS_CLOSED  criteria_value: 5     criteria_count: NULL
+badge_code: ZONE_CHAMPION       criteria_type: ZONE_RANK_ONE       criteria_value: NULL  criteria_count: NULL
+badge_code: CENTURY_REFORMER    criteria_type: LIFETIME_POINTS     criteria_value: 100   criteria_count: NULL
+badge_code: CIVIC_HERO          criteria_type: LIFETIME_POINTS     criteria_value: 500   criteria_count: NULL
+badge_code: SWIFT_REPORTER      criteria_type: CLOSED_WITHIN_DAYS  criteria_value: 7     criteria_count: 3
 ```
 
 ---

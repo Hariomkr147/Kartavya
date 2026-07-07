@@ -996,6 +996,16 @@ paths:
         category, forcing a status, or manually reassigning it to a different
         zone (useful for the "Unassigned" catch-all). Every override is recorded
         in the status history with the admin as the actor.
+
+
+        **SLA backfill:** forcing `status` to `UNDER_REVIEW` or any later stage
+        skips the normal evidence-review path that would otherwise start the
+        SLA timer. If the internal SLA-start timestamp is still unset when the
+        override lands the complaint at `UNDER_REVIEW` or beyond, the server
+        backfills it to now and snapshots `slaTargetHours` from the category's
+        current SLA — the same values the evidence-review `VALID` verdict
+        would have set — so `slaLabel` stays meaningful immediately after the
+        override.
       parameters:
         - $ref: '#/components/parameters/ComplaintId'
       requestBody:
@@ -1123,7 +1133,12 @@ paths:
         (rather than deleting) is the recommended way to disable an account: a
         deactivated user cannot log in, but all their complaints, points, and
         history stay intact for the audit trail. Reassigning an officer's zone
-        takes effect immediately.
+        takes effect immediately: they instantly lose access to the old
+        zone's complaints, and every non-terminal complaint still assigned to
+        them there has `assignedOfficerId` cleared back to `null` — those
+        complaints become unassigned and available to whichever officer now
+        covers that zone, rather than staying stuck with someone who can no
+        longer see them.
       parameters:
         - $ref: '#/components/parameters/UserId'
       requestBody:
@@ -1160,8 +1175,9 @@ paths:
       description: >
         Hard-deletes an account. **Prefer deactivation** (`PATCH` with
         `active: false`) instead — deleting a user who already has complaints,
-        points, or history can break those links. This endpoint is intended only
-        for truly empty/test accounts.
+        points, evidence reviews, progress notes, or status changes on record
+        will be refused. This endpoint is intended only for truly empty/test
+        accounts.
       parameters:
         - $ref: '#/components/parameters/UserId'
       responses:
@@ -1294,7 +1310,10 @@ paths:
       description: >
         Assigns (or reassigns) an existing officer to this zone. The change is
         immediate: the officer instantly loses access to the old zone's
-        complaints and gains access to this zone's.
+        complaints and gains access to this zone's. If this is a reassignment,
+        every non-terminal complaint still assigned to them in the old zone
+        has `assignedOfficerId` cleared back to `null`, the same as
+        `PATCH /admin/users/{userId}`.
       parameters:
         - $ref: '#/components/parameters/ZoneId'
       requestBody:
@@ -1841,8 +1860,17 @@ components:
 
     Role:
       type: string
-      description: The kind of account.
+      description: The kind of account. SYSTEM is never a valid account role — see StatusActor for automated status changes.
       enum: [CITIZEN, OFFICER, ADMIN]
+
+    StatusActor:
+      type: string
+      description: >
+        Who or what caused a status_history entry. Distinct from Role because
+        SYSTEM changes exist — e.g. auto-closing a RESOLVED complaint after
+        the configured timeout, or cascading all members of a cluster to
+        RESOLVED together when the officer resolves the shared issue.
+      enum: [CITIZEN, OFFICER, ADMIN, SYSTEM]
 
     ComplaintStatus:
       type: string
@@ -2426,7 +2454,7 @@ components:
         toStatus:
           $ref: '#/components/schemas/ComplaintStatus'
         changedByRole:
-          $ref: '#/components/schemas/Role'
+          $ref: '#/components/schemas/StatusActor'
         changedByOfficerId:
           type: string
           nullable: true
@@ -2438,6 +2466,10 @@ components:
         remark:
           type: string
           nullable: true
+          description: >
+            Optional free-text remark distinct from reason — for example the
+            officer's closing note (StatusUpdateRequest.note) when marking
+            RESOLVED.
         timestamp:
           type: string
           format: date-time

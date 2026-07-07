@@ -212,10 +212,10 @@ Table complaints {
   id                   int               [pk, increment]
   complaint_code       varchar(30)       [unique, not null, note: 'Human-friendly id, e.g. KTV-2026-000123.']
   citizen_id           int               [not null, note: 'Reporter. Hidden from officers and from the public feed.']
-  zone_id              int               [not null, note: 'Resolved from the location at submit time; can be admin-overridden.']
+  zone_id              int               [not null, note: 'Snapshotted from the citizen-confirmed zone at submit time; never recomputed. Can be admin-overridden. Because it is a snapshot, later zone moves/renames cannot alter old complaints.']
   category_id          int               [not null]
-  cluster_id           int               [note: 'Set if linked to nearby duplicates.']
-  assigned_officer_id  int               [note: 'Current handling officer (API assignedOfficerId). Null until an officer picks it up.']
+  cluster_id           int               [note: 'Set if linked to nearby duplicates. Cleared (set null) if this complaint is disputed after a cluster resolution — it then detaches and is handled on its own.']
+  assigned_officer_id  int               [note: 'Current handling officer (API assignedOfficerId). Null until an officer picks it up. Also cleared back to null (app logic, not an FK delete rule) on every one of this officer\'s non-terminal complaints when they are reassigned to a different zone — otherwise the complaint would stay "assigned" to someone who can no longer see it, since officer visibility is zone-scoped.']
 
   description          text              [note: 'Optional — a citizen may pick a category manually without typing. Matches the API (description not required).']
   category_ai_suggested boolean          [not null, default: false, note: 'Whether the chosen category came from the AI suggestion (analytics only).']
@@ -223,11 +223,11 @@ Table complaints {
   longitude            float             [not null]
 
   status               complaint_status  [not null, default: 'SUBMITTED']
-  severity_score       int               [not null, default: 0, note: 'Raw score. Severity LABEL is derived from this on read, never stored, so the two can never disagree.']
+  severity_score       int               [not null, default: 0, note: 'Derived and cached: (cluster unique_reporter_count - 1) * 3 + upvote count. Counts DISTINCT citizens, not raw complaints, so one person filing repeatedly cannot inflate it. The severity LABEL is computed from this on read, never stored.']
 
   // --- SLA inputs (snapshots) — the label is computed from these, not stored ---
-  sla_target_hours     int               [note: 'Snapshot of the category SLA at acceptance. Frozen, so later SLA edits do not move this complaint.']
-  sla_started_at       datetime          [note: 'When it entered UNDER_REVIEW (the timer start). Null before acceptance.']
+  sla_target_hours     int               [note: 'Snapshot of the category SLA at acceptance. Frozen, so later SLA edits do not move this complaint. Also backfilled by an admin override that force-jumps straight to UNDER_REVIEW or later, if still unset.']
+  sla_started_at       datetime          [note: 'When it entered UNDER_REVIEW (the timer start). Null before acceptance. Also backfilled to now by an admin override that force-jumps straight to UNDER_REVIEW or later, so slaLabel never silently comes back null for an overridden complaint.']
   sla_paused_seconds   int               [not null, default: 0, note: 'Accumulated time spent waiting on the citizen (NEEDS_MORE_EVIDENCE), excluded from SLA.']
   sla_paused_at        datetime          [note: 'Set when the timer pauses; non-null means currently paused. Cleared into sla_paused_seconds on resume.']
 
@@ -281,8 +281,8 @@ Table status_history {
   complaint_id      int              [not null]
   from_status       complaint_status [note: 'Null for the very first entry.']
   to_status         complaint_status [not null]
-  actor_role        status_actor     [not null, note: 'CITIZEN / OFFICER / ADMIN / SYSTEM.']
-  changed_by_user_id int             [note: 'The acting user. Null when actor_role = SYSTEM (e.g. auto-close).']
+  actor_role        status_actor     [not null, note: 'CITIZEN / OFFICER / ADMIN / SYSTEM. Maps to the API StatusActor enum on StatusHistoryEntry.changedByRole — a separate, 4-value enum from the 3-value Role used on User accounts, since SYSTEM is never a valid account role.']
+  changed_by_user_id int             [note: 'The acting user. Null when actor_role = SYSTEM (e.g. auto-close). FK is RESTRICT on delete — an officer/admin who has ever changed a complaint\'s status cannot be hard-deleted, protecting this audit trail the same way complaint_notes.officer_id protects note attribution.']
   reason            text             [note: 'Carries reject / unresolvable / dispute / override reasons.']
   remark            text             [note: 'Optional free-text remark, e.g. the officer\'s closing note when marking RESOLVED. Distinct from reason.']
   created_at        datetime         [not null, default: `now()`]
@@ -346,7 +346,8 @@ Table badges {
   badge_name     varchar(80)         [not null]
   description    text
   criteria_type  badge_criteria_type [not null, note: 'How the badge is earned — makes award logic data-driven instead of points-only.']
-  criteria_value int                 [note: 'The threshold, where the type needs one (5, 100, 500, 7...). Null for FIRST_COMPLAINT and ZONE_RANK_ONE.']
+  criteria_value int                 [note: 'The threshold, where the type needs one (5, 100, 500, 7...). For CLOSED_WITHIN_DAYS this is the day-window (see criteria_count for the count). Null for FIRST_COMPLAINT and ZONE_RANK_ONE.']
+  criteria_count int                 [note: 'Only used by CLOSED_WITHIN_DAYS — the number of closures required within criteria_value days (e.g. 3). Null for every other criteria_type. Without this, CLOSED_WITHIN_DAYS could not be genuinely data-driven: the count would have to be a hardcoded constant in application code, contradicting the point of this table.']
   created_at     datetime            [not null, default: `now()`]
 
   Note: 'Catalog of the 6 badges, seeded once. Covers all charter triggers, not just point thresholds.'
@@ -406,7 +407,7 @@ Table app_settings {
 // ============================================================================
 
 // users / zones
-Ref: users.zone_id > zones.id [delete: set null]
+Ref: users.zone_id > zones.id [delete: restrict]
 
 // complaints
 Ref: complaints.citizen_id          > users.id                 [delete: restrict]
@@ -425,7 +426,7 @@ Ref: complaint_evidence.reviewed_by  > users.id                [delete: set null
 
 // status history
 Ref: status_history.complaint_id       > complaints.id         [delete: cascade]
-Ref: status_history.changed_by_user_id > users.id              [delete: set null]
+Ref: status_history.changed_by_user_id > users.id              [delete: restrict]
 
 // notes
 Ref: complaint_notes.complaint_id > complaints.id              [delete: cascade]

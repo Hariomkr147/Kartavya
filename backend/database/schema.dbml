@@ -1,8 +1,8 @@
 // ============================================================================
-// Kartavya — Database Schema
+// Kartavya — Database Schema (v2)
 // Civic grievance reporting platform
 //
-// Designed to back the Kartavya API contract (kartavya_api.yaml) one-to-one.
+// Designed to back the Kartavya API contract (kartavya_api_v2.yaml) one-to-one.
 // Every field the API returns either maps to a column here or is cleanly
 // derivable from these tables (counts, sums, ranks, SLA math).
 //
@@ -25,10 +25,10 @@
 Project kartavya {
   database_type: 'SQLite'
   Note: '''
-    Kartavya schema. Seed data required before use:
+    Kartavya v2 schema. Seed data required before use:
       * 12 complaint_categories (fixed list, with default sla_hours)
       * 6 badges (with criteria_type / criteria_value)
-      * 1 zones row flagged is_catch_all = true (for locations in no zone)
+      * exactly 1 zones row flagged is_catch_all = true (the "Unassigned" fallback; enforced by a partial unique index and never deletable)
       * 1 app_settings row (id = 1)
       * admin user(s) (admins are seeded, never self-registered)
   '''
@@ -149,16 +149,20 @@ Table users {
 }
 
 Table zones {
-  id                int          [pk, increment]
-  zone_code         varchar(20)  [unique, not null]
-  zone_name         varchar(120) [not null]
-  center_lat        float        [not null]
-  center_lng        float        [not null]
-  coverage_radius_m int          [not null, note: 'Simple circular zone. A point is in-zone if Haversine distance to centre <= radius.']
-  is_catch_all      boolean      [not null, default: false, note: 'Exactly one zone is the "Unassigned" catch-all for locations that fall in no real zone.']
-  created_at        datetime     [not null, default: `now()`]
+  id           int          [pk, increment]
+  zone_code    varchar(20)  [unique, not null, note: 'Immutable once created. Renaming changes zone_name only, never this code.']
+  zone_name    varchar(120) [not null, note: 'Display name. This is the only field a rename may change.']
+  center_lat   float        [not null, note: 'Zone centre. Routing uses NEAREST centroid — a location is assigned to the zone whose centre is closest. This always yields exactly one zone (no gaps, no overlaps).']
+  center_lng   float        [not null]
+  is_catch_all boolean      [not null, default: false, note: 'The "Unassigned" fallback zone. Exactly one row may have this true — enforce with a partial unique index (see note below). It cannot be deleted or unset.']
+  is_active    boolean      [not null, default: true, note: 'Soft-deactivate flag. Prefer deactivating a zone over deleting it, mirroring users.is_active.']
+  created_at   datetime     [not null, default: `now()`]
 
-  Note: 'Admin-managed areas. Routing: location decides the zone, the zone decides which officers see the complaint.'
+  indexes {
+    (is_catch_all) [unique, note: 'PARTIAL unique index (WHERE is_catch_all = true) — guarantees at most one catch-all zone exists. In SQLite: CREATE UNIQUE INDEX ... ON zones(is_catch_all) WHERE is_catch_all = 1.']
+  }
+
+  Note: 'Admin-managed areas. A complaint\'s zone is pre-selected on the client (from photo EXIF GPS or manual pick) and confirmed by the citizen — the server does not silently auto-route. Zone assignment is snapshotted onto the complaint once and never recomputed, so moving or resizing a zone later cannot retroactively change old complaints.'
 }
 
 Table complaint_categories {

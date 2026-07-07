@@ -235,10 +235,10 @@ The entire access-control model of Kartavya is built on zones. An officer can on
 | `id` | integer | ✅ | Primary key. Referenced as `zoneId` throughout the API. |
 | `zone_code` | varchar(20) | ✅ | A short machine-readable code, e.g. `WARD-12-N`. **Unique.** Used in URLs and CSV exports. |
 | `zone_name` | varchar(120) | ✅ | Human-readable name shown in the UI, e.g. "Ward 12 – North". |
-| `center_lat` | float | ✅ | Latitude of the zone's centre point. |
+| `center_lat` | float | ✅ | Latitude of the zone's centre point. Routing uses **nearest-centroid**: a location belongs to whichever zone's centre it is closest to. This always yields exactly one zone for any coordinate — no gaps, no overlaps, no polygon GIS needed. |
 | `center_lng` | float | ✅ | Longitude of the zone's centre point. |
-| `coverage_radius_m` | integer | ✅ | Radius of the zone in metres. **A location is "in this zone" if its Haversine distance to the centre is less than or equal to this radius.** This is deliberately simple — no polygon GIS needed. |
-| `is_catch_all` | boolean | ✅ | **Exactly one row must have this set to `true`.** That is the "Unassigned" zone. If a citizen submits a complaint with a location that falls inside no real zone (e.g. they are at the city boundary), the complaint goes here so an admin can route it manually instead of failing silently. |
+| `is_catch_all` | boolean | ✅ | **Exactly one row must have this set to `true`.** That is the "Unassigned" zone. Because nearest-centroid always matches something, this exists for locations far outside the city where every real zone's centre is a poor match, so an admin can route the complaint manually instead. |
+| `is_active` | boolean | ✅ | Soft-deactivate flag, default `true`. A deactivated zone stops accepting new complaints but keeps all its history — the safe alternative to deleting a zone that already has data. |
 | `created_at` | datetime | ✅ | When the zone was added by an admin. |
 
 ### Relationships
@@ -249,9 +249,9 @@ The entire access-control model of Kartavya is built on zones. An officer can on
 ### Example rows
 
 ```
-id: 1  zone_code: UNASSIGNED   zone_name: Unassigned  is_catch_all: true   center_lat: 0  center_lng: 0  coverage_radius_m: 0
-id: 2  zone_code: WARD-12-N    zone_name: Ward 12 – North  is_catch_all: false  center_lat: 12.9716  center_lng: 77.5946  coverage_radius_m: 1500
-id: 3  zone_code: WARD-07-S    zone_name: Ward 7 – South   is_catch_all: false  center_lat: 12.9510  center_lng: 77.5712  coverage_radius_m: 1200
+id: 1  zone_code: UNASSIGNED   zone_name: Unassigned  is_catch_all: true   is_active: true  center_lat: 0  center_lng: 0
+id: 2  zone_code: WARD-12-N    zone_name: Ward 12 – North  is_catch_all: false  is_active: true  center_lat: 12.9716  center_lng: 77.5946
+id: 3  zone_code: WARD-07-S    zone_name: Ward 7 – South   is_catch_all: false  is_active: true  center_lat: 12.9510  center_lng: 77.5712
 ```
 
 ---

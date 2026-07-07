@@ -211,6 +211,37 @@ paths:
                 items:
                   $ref: '#/components/schemas/Zone'
 
+  /zones/suggest:
+    post:
+      tags: [Reference]
+      operationId: suggestZone
+      summary: Suggest the nearest zone for a location
+      description: >
+        Given a latitude/longitude (typically read from a photo's EXIF GPS),
+        returns the single nearest zone by centre distance. The complaint form
+        uses this to **pre-fill** the zone picker so the citizen usually just
+        confirms instead of scrolling. It is advisory only — the citizen can
+        always change the pick, and the server never routes on this alone.
+        Because it matches the *nearest* centre, it always returns one zone
+        (there are no gaps or overlaps to fall into).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ZoneSuggestionRequest'
+      responses:
+        '200':
+          description: The nearest zone (or null if none could be determined).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneSuggestionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   # ---------------------------------------------------------------------------
   # COMPLAINTS (citizen-facing)
   # ---------------------------------------------------------------------------
@@ -1129,6 +1160,108 @@ paths:
   # ADMIN — zones, SLAs, settings
   # ---------------------------------------------------------------------------
 
+  /admin/zones:
+    post:
+      tags: [Admin]
+      operationId: createZone
+      summary: Create a zone
+      description: >
+        Creates a new admin-managed zone with a stable code, a display name, and
+        a centre point. The centre is what nearest-zone matching uses. The code
+        is permanent once set; only the name can be changed later.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateZoneRequest'
+      responses:
+        '201':
+          description: Zone created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: A zone with this code already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/zones/{zoneId}:
+    patch:
+      tags: [Admin]
+      operationId: updateZone
+      summary: Rename or deactivate a zone
+      description: >
+        Updates a zone's display name, or deactivates/reactivates it via the
+        `isActive` flag. **The zone code cannot be changed** — it is a stable
+        identifier used across the system. Deactivating is the safe alternative
+        to deletion: the zone stops accepting new complaints but keeps all its
+        history. Moving a zone's centre is deliberately not offered here, because
+        existing complaints keep their originally assigned zone regardless.
+      parameters:
+        - $ref: '#/components/parameters/ZoneId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateZoneRequest'
+      responses:
+        '200':
+          description: Zone updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Admin]
+      operationId: deleteZone
+      summary: Delete a zone (only if unused)
+      description: >
+        Permanently deletes a zone. Allowed **only** if nothing references it —
+        no complaints, no assigned officers, and no citizens whose home zone
+        is this one (registration requires a home zone, so in practice any
+        zone that has ever had a citizen sign up against it is blocked too,
+        not just zones with complaints or officers). If anything does, the
+        delete is refused with `409`, and the admin should deactivate the
+        zone instead. The catch-all "Unassigned" zone can never be deleted.
+        This endpoint exists mainly to clean up zones created by mistake,
+        before real citizens have registered against them.
+      parameters:
+        - $ref: '#/components/parameters/ZoneId'
+      responses:
+        '204':
+          description: Zone deleted (no content).
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The zone has complaints, assigned officers, or citizens whose home zone is this one (or it is the catch-all) and cannot be deleted. Deactivate it instead.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /admin/zones/{zoneId}/assign-officer:
     post:
       tags: [Admin]
@@ -1937,10 +2070,79 @@ components:
         id:
           type: string
           example: zone_012
+        code:
+          type: string
+          description: Stable identifier, fixed once the zone is created (a rename never changes it).
+          example: WARD-12-N
         name:
           type: string
           example: Ward 12 – North
+        isCatchAll:
+          type: boolean
+          description: True for the single "Unassigned" fallback zone.
+          default: false
+        isActive:
+          type: boolean
+          description: Deactivated zones are hidden from new complaint filing but keep their history.
+          default: true
       required: [id, name]
+
+    CreateZoneRequest:
+      type: object
+      required: [code, name, centerLat, centerLng]
+      properties:
+        code:
+          type: string
+          description: Stable identifier. Cannot be changed later.
+          example: WARD-12-N
+        name:
+          type: string
+          example: Ward 12 – North
+        centerLat:
+          type: number
+          format: double
+          description: >
+            Zone centre. Routing uses nearest-centroid — a location belongs to
+            whichever zone's centre it is closest to, so every coordinate maps
+            to exactly one zone with no gaps or overlaps.
+        centerLng:
+          type: number
+          format: double
+
+    UpdateZoneRequest:
+      type: object
+      description: All fields optional. The zone code cannot be changed here.
+      properties:
+        name:
+          type: string
+          description: Rename the zone (display name only).
+        isActive:
+          type: boolean
+          description: Set false to deactivate the zone instead of deleting it.
+
+    ZoneSuggestionRequest:
+      type: object
+      required: [latitude, longitude]
+      properties:
+        latitude:
+          type: number
+          format: double
+          example: 12.9716
+        longitude:
+          type: number
+          format: double
+          example: 77.5946
+
+    ZoneSuggestionResponse:
+      type: object
+      description: The nearest zone to a location, used to pre-fill the complaint form's zone picker. Advisory only.
+      properties:
+        suggestedZone:
+          allOf:
+            - $ref: '#/components/schemas/Zone'
+          nullable: true
+          description: The closest zone by centre distance, or null if none could be determined.
+      required: [suggestedZone]
 
     # ---- Complaint ----
 
@@ -1967,6 +2169,16 @@ components:
           type: number
           format: double
           example: 77.5946
+        zoneId:
+          type: string
+          description: >
+            The zone the citizen confirmed for this complaint. The client
+            pre-selects it (from photo EXIF GPS via /zones/suggest, or the
+            citizen's manual choice) and the citizen confirms it. The server
+            trusts this value rather than silently re-deriving it. If omitted,
+            the server falls back to the nearest zone, and if none is close
+            enough, to the catch-all "Unassigned" zone.
+          example: zone_012
         categorySuggestedByAi:
           type: boolean
           description: Whether the chosen category came from the AI suggestion (for analytics).

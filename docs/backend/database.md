@@ -118,11 +118,12 @@ Who or what caused a complaint's status to change. Needed because the `SYSTEM` a
 ---
 
 ### `points_reason`
-The five reasons why a citizen's CSP (Community Service Points) can change. Using an Enum instead of free text means the app can reliably query "how many rejections happened this month?" without worrying about spelling variants.
+The six reasons why a citizen's CSP (Community Service Points) can change. Using an Enum instead of free text means the app can reliably query "how many rejections happened this month?" without worrying about spelling variants.
 
 | Value | Points change | When it triggers |
 |---|---|---|
-| `COMPLAINT_CLOSED` | +50 | A complaint the citizen filed reaches `CLOSED` |
+| `COMPLAINT_CLOSED` | +50 | A complaint the citizen filed reaches `CLOSED`. For a clustered complaint, only the first member confirmed by its citizen earns this — see [Table 10](#table-10-points_ledger). |
+| `CLUSTER_MEMBER_CLOSED` | +10 | A citizen confirms their own complaint in a cluster where another member already won the `COMPLAINT_CLOSED` reward |
 | `FIRST_COMPLAINT` | +10 | One-time bonus when a citizen files their very first complaint |
 | `ON_TIME_BONUS` | +15 | The complaint was resolved within the SLA target time |
 | `UPVOTE_RECEIVED` | +5 | Per unique upvote received on any complaint the citizen filed |
@@ -304,7 +305,7 @@ A cluster groups together nearby complaints of the same type. If five people fil
 ### Why it exists
 The charter requires "auto severity" — the system should automatically judge that a widely-reported problem is more serious than an isolated one. Clusters are how the system detects that "nearby same-type problem." When a new complaint comes in, the app checks whether an existing cluster exists nearby; if yes, it links the complaint to it and increments `report_count`. If no, it creates a new cluster.
 
-Clusters also implement the "finders-keepers" rule: points go to the citizen who filed the first complaint in the cluster.
+Clusters also implement the reward-dedup rule: only one member's citizen ever gets the full `COMPLAINT_CLOSED` bonus for the cluster — whoever confirms first, not whoever reported first. See "Cluster reward distribution" below.
 
 ### Columns
 
@@ -315,7 +316,9 @@ Clusters also implement the "finders-keepers" rule: points go to the citizen who
 | `zone_id` | integer (FK) | ✅ | The zone this cluster is in. Keeps cluster lookup fast (you only search clusters in your zone). |
 | `centroid_lat` | float | ✅ | Latitude of the cluster's centre — the average position of its member complaints. Updated as new complaints join. |
 | `centroid_lng` | float | ✅ | Longitude of the cluster's centre. |
-| `report_count` | integer | ✅ | How many complaints are currently linked to this cluster. **Starts at 1 when created.** This is the key input to the severity score formula: each linked report adds 3 points to the score. |
+| `report_count` | integer | ✅ | How many complaints are currently linked to this cluster, including repeats from the same citizen. **Starts at 1 when created.** |
+| `unique_reporter_count` | integer | ✅ | Distinct citizens in the cluster. **This — not `report_count` — drives the severity score**: `(unique_reporter_count - 1) × 3 + upvotes`, so one citizen filing the same issue twice cannot inflate urgency. |
+| `reward_granted` | boolean | ✅ | `false` until the one-time +50 `COMPLAINT_CLOSED` bonus has been paid to whichever member confirmed first. Once `true`, every later confirmation in this cluster gets `CLUSTER_MEMBER_CLOSED` (+10) instead. |
 | `created_at` | datetime | ✅ | When the cluster was first formed (when the second nearby complaint joined). |
 | `updated_at` | datetime | ✅ | Updated every time a new complaint joins the cluster or `report_count` changes. |
 
@@ -324,10 +327,17 @@ A composite index on `(category_id, zone_id)` makes the "is there already a clus
 
 ### Example scenario
 Citizen A files a Pothole complaint at 12.97°N, 77.59°E.
-→ No existing nearby Pothole cluster in zone → a new `complaint_clusters` row is created with `report_count = 1`.
+→ No existing nearby Pothole cluster in zone → a new `complaint_clusters` row is created with `report_count = 1`, `unique_reporter_count = 1`.
 
 Citizen B files another Pothole complaint 60 metres away.
-→ The app finds the existing cluster (Haversine distance < 100 m) → links B's complaint to it → `report_count` becomes 2 → both complaints' `severity_score` updates to `(2-1) × 3 = 3`.
+→ The app finds the existing cluster (Haversine distance < 100 m) → links B's complaint to it → `report_count` and `unique_reporter_count` both become 2 → both complaints' `severity_score` updates to `(2-1) × 3 = 3`.
+
+### Cluster reward distribution
+When the officer resolves the shared issue, every member cascades to `RESOLVED` together (a `SYSTEM`-actor `status_history` entry per complaint). Confirmation is still per-complaint — each citizen confirms or disputes only their own:
+- The **first** citizen whose confirmation succeeds wins the full `COMPLAINT_CLOSED` bonus (+50), and `reward_granted` flips to `true`.
+- Every other citizen who confirms afterward gets `CLUSTER_MEMBER_CLOSED` (+10) instead — their complaint still closes normally, they just don't get the full reward a second time.
+- `ON_TIME_BONUS` (+15) is unaffected by any of this — it's evaluated per-complaint against that complaint's own `sla_target_hours`/`sla_started_at`, so a citizen who only gets +10 can still separately earn the on-time bonus.
+- If a citizen disputes instead of confirming, only their complaint detaches from the cluster (`cluster_id` set to `null`) and is handled individually from then on; it never re-fires `reward_granted` even if later re-closed.
 
 ---
 
@@ -555,7 +565,7 @@ Storing a single `total_points` column on `users` would be simpler. But it has a
 | `citizen_id` | integer (FK) | ✅ | Who earned or lost these points. |
 | `complaint_id` | integer (FK) | ❌ | The complaint that triggered this change. `NULL` for the `FIRST_COMPLAINT` bonus (no specific complaint caused it — it fires on the first submission). If a complaint is deleted (unusual), this becomes `NULL` but the points row survives, protecting the citizen's history. |
 | `points_change` | integer | ✅ | **Signed integer.** Positive for gains (`+50`, `+10`, `+15`, `+5`), negative for penalties (`-20`). |
-| `reason` | `points_reason` | ✅ | One of the 5 fixed reasons (Enum). Using a code rather than free text means the app can reliably query "how many penalty entries happened this month?" |
+| `reason` | `points_reason` | ✅ | One of the 6 fixed reasons (Enum). Using a code rather than free text means the app can reliably query "how many penalty entries happened this month?" |
 | `created_at` | datetime | ✅ | When the change occurred. Used for monthly vs lifetime breakdowns. |
 
 ### Example ledger for one citizen
@@ -569,6 +579,17 @@ citizen_id: 5  points_change: +15  reason: ON_TIME_BONUS         complaint_id: 1
 citizen_id: 5  points_change: -20  reason: REJECTED_PENALTY      complaint_id: 103  (second complaint was rejected)
 ```
 Lifetime total: `10 + 5 + 5 + 50 + 15 − 20 = 65 CSP`
+
+### Example: two citizens in the same cluster
+
+Complaints 101 (citizen 5, filed first) and 102 (citizen 6, filed second) are both in cluster 30. Citizen 6 happens to *confirm* first — reporting order does not decide the reward, confirmation order does:
+
+```
+citizen_id: 6  points_change: +50  reason: COMPLAINT_CLOSED      complaint_id: 102  (first in cluster 30 to confirm — reward_granted flips to true)
+citizen_id: 5  points_change: +15  reason: ON_TIME_BONUS         complaint_id: 101  (their own complaint met its own SLA)
+citizen_id: 5  points_change: +10  reason: CLUSTER_MEMBER_CLOSED complaint_id: 101  (confirms afterward — cluster 30's +50 is already spent)
+```
+Citizen 5 still earns the on-time bonus even though they only got the consolation reward for `COMPLAINT_CLOSED` — the two are independent.
 
 ---
 

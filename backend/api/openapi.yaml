@@ -466,8 +466,17 @@ paths:
       description: >
         The citizen confirms that an issue marked `RESOLVED` by the officer is
         genuinely fixed. The complaint then moves to `CLOSED`, and the system
-        automatically credits points (+50, plus a +15 on-time bonus if the SLA
-        was met) and checks for any newly earned badges.
+        automatically credits points and checks for any newly earned badges.
+
+
+        **Points:** if this complaint is standalone (no `clusterId`), or it is
+        the first complaint in its cluster to be confirmed, the citizen gets
+        the full `COMPLAINT_CLOSED` bonus (+50). If another member of the same
+        cluster already won that reward, this citizen instead gets a smaller
+        `CLUSTER_MEMBER_CLOSED` consolation (+10) — the +50 is paid once per
+        cluster, not once per member. Either way, the `ON_TIME_BONUS` (+15) is
+        evaluated independently against **this complaint's own** SLA snapshot,
+        regardless of which reward it received.
 
 
         A complaint can only reach `CLOSED` through this confirmation (or the
@@ -2595,6 +2604,7 @@ components:
           type: string
           enum:
             - COMPLAINT_CLOSED
+            - CLUSTER_MEMBER_CLOSED
             - FIRST_COMPLAINT
             - ON_TIME_BONUS
             - UPVOTE_RECEIVED

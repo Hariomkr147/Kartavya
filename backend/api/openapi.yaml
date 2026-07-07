@@ -747,6 +747,9 @@ paths:
 
         - `UNDER_RESOLUTION` → `RESOLVED` (optionally with a closing note)
 
+        - `REOPENED` → `IN_PROGRESS` (the officer picks a disputed complaint
+          back up from their queue)
+
         - any active stage → `UNRESOLVABLE` (**reason required**)
 
 
@@ -796,6 +799,18 @@ paths:
         Lets an officer move many complaints to the same status in one action —
         for example, sending a whole street of pothole reports to
         `UNDER_RESOLUTION` together after monsoon damage.
+
+
+        The same rules as `PATCH /officer/complaints/{complaintId}/status`
+        apply to every item: only legal, officer-triggerable transitions are
+        allowed (`IN_PROGRESS`, `UNDER_RESOLUTION`, `RESOLVED`, `REOPENED` →
+        `IN_PROGRESS`, or any active stage → `UNRESOLVABLE` with a reason).
+        Targets reserved for other actors — `CLOSED` (citizen confirmation
+        only), `REJECTED`/`UNDER_REVIEW` (evidence-review only) — are rejected
+        per-item, the same as an illegal single-item transition. `RESOLVED` is
+        allowed in a batch, but unlike the single-item endpoint there is no way
+        to attach a per-complaint closing `note` — officers who need one should
+        resolve that complaint individually instead.
 
 
         Each complaint is validated and recorded individually (its own history
@@ -2490,7 +2505,11 @@ components:
         status:
           allOf:
             - $ref: '#/components/schemas/ComplaintStatus'
-          description: Typically UNDER_RESOLUTION for batch processing.
+          description: >
+            Typically UNDER_RESOLUTION for batch processing. Only legal,
+            officer-triggerable transitions are allowed — CLOSED, REJECTED,
+            and UNDER_REVIEW are reserved for citizen confirmation and
+            evidence review respectively, and are rejected per-item.
         reason:
           type: string
           description: Required if the target status needs one (e.g. UNRESOLVABLE).

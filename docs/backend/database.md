@@ -478,6 +478,13 @@ Row 8: from: UNDER_RESOLUTION → to: RESOLVED              actor: OFFICER
 Row 9: from: RESOLVED        → to: CLOSED                  actor: CITIZEN
 ```
 
+If the citizen disputes instead of confirming at Row 9, the officer picks the complaint back up the same way they picked up any other queued complaint — via `PATCH /officer/complaints/{id}/status`, not automatically:
+
+```
+Row 9: from: RESOLVED        → to: REOPENED                actor: CITIZEN   reason: "Pothole is still there."
+Row 10: from: REOPENED       → to: IN_PROGRESS              actor: OFFICER
+```
+
 ---
 
 ## Table 8: `complaint_notes`

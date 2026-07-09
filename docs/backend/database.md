@@ -106,7 +106,7 @@ The state of the AI photo pre-screening process for each piece of evidence. This
 ---
 
 ### `status_actor`
-Who or what caused a complaint's status to change. Needed because the `SYSTEM` actor handles automated transitions (like auto-closing a `RESOLVED` complaint after the timeout) — there is no human user behind those changes.
+Who or what caused a complaint's status to change. Needed because the `SYSTEM` actor handles automated transitions (like auto-closing a `RESOLVED` complaint after the timeout, or cascading a resolved cluster's members to `RESOLVED` together) — there is no human user behind those changes. This is a distinct API enum (`StatusActor`) from `Role`, precisely because `Role` has no `SYSTEM` value — reusing `Role` here would make `SYSTEM`-actor rows unrepresentable.
 
 | Value | Meaning |
 |---|---|
@@ -118,11 +118,12 @@ Who or what caused a complaint's status to change. Needed because the `SYSTEM` a
 ---
 
 ### `points_reason`
-The five reasons why a citizen's CSP (Community Service Points) can change. Using an Enum instead of free text means the app can reliably query "how many rejections happened this month?" without worrying about spelling variants.
+The six reasons why a citizen's CSP (Community Service Points) can change. Using an Enum instead of free text means the app can reliably query "how many rejections happened this month?" without worrying about spelling variants.
 
 | Value | Points change | When it triggers |
 |---|---|---|
-| `COMPLAINT_CLOSED` | +50 | A complaint the citizen filed reaches `CLOSED` |
+| `COMPLAINT_CLOSED` | +50 | A complaint the citizen filed reaches `CLOSED`. For a clustered complaint, only the first member confirmed by its citizen earns this — see [Table 10](#table-10-points_ledger). |
+| `CLUSTER_MEMBER_CLOSED` | +10 | A citizen confirms their own complaint in a cluster where another member already won the `COMPLAINT_CLOSED` reward |
 | `FIRST_COMPLAINT` | +10 | One-time bonus when a citizen files their very first complaint |
 | `ON_TIME_BONUS` | +15 | The complaint was resolved within the SLA target time |
 | `UPVOTE_RECEIVED` | +5 | Per unique upvote received on any complaint the citizen filed |
@@ -192,7 +193,7 @@ All three roles share the same core identity data: name, email, password. Splitt
 | `email` | varchar(255) | ✅ | Login credential. **Unique across the entire table and all roles.** This uniqueness is what physically prevents an officer from self-registering — if their email already exists (because an admin created it), registration fails. |
 | `password_hash` | varchar(255) | ✅ | The bcrypt/argon2 hash of the password. The plaintext password is never stored anywhere. |
 | `role` | `user_role` | ✅ | `CITIZEN`, `OFFICER`, or `ADMIN`. Controls which API endpoints and data they can access. |
-| `zone_id` | integer (FK) | ❌ | For officers: the one zone they are assigned to and responsible for. For citizens: the zone they live in or report from. For admins: always `NULL` (admins have cross-zone access). |
+| `zone_id` | integer (FK) | ❌ | For officers: the one zone they are assigned to and responsible for. For citizens: the zone they live in or report from — required at registration (`RegisterRequest.zoneId`), so in practice every citizen has one. For admins: always `NULL` (admins have cross-zone access). **This FK is `RESTRICT` on delete**, and applies equally to citizens and officers: a zone can't be hard-deleted (`DELETE /admin/zones/{zoneId}`) while *any* user — citizen or officer — still has it as their `zone_id`, not just zones with complaints or assigned officers. |
 | `is_active` | boolean | ✅ | `true` by default. Set to `false` to deactivate an account. **Deactivated users cannot log in, but all their complaints, history, and points are preserved.** Preferred over deletion because deleting a user who has filed complaints would break those records. |
 | `created_at` | datetime | ✅ | Auto-set to the current time when the account is created. |
 
@@ -235,10 +236,10 @@ The entire access-control model of Kartavya is built on zones. An officer can on
 | `id` | integer | ✅ | Primary key. Referenced as `zoneId` throughout the API. |
 | `zone_code` | varchar(20) | ✅ | A short machine-readable code, e.g. `WARD-12-N`. **Unique.** Used in URLs and CSV exports. |
 | `zone_name` | varchar(120) | ✅ | Human-readable name shown in the UI, e.g. "Ward 12 – North". |
-| `center_lat` | float | ✅ | Latitude of the zone's centre point. |
+| `center_lat` | float | ✅ | Latitude of the zone's centre point. Routing uses **nearest-centroid**: a location belongs to whichever zone's centre it is closest to. This always yields exactly one zone for any coordinate — no gaps, no overlaps, no polygon GIS needed. |
 | `center_lng` | float | ✅ | Longitude of the zone's centre point. |
-| `coverage_radius_m` | integer | ✅ | Radius of the zone in metres. **A location is "in this zone" if its Haversine distance to the centre is less than or equal to this radius.** This is deliberately simple — no polygon GIS needed. |
-| `is_catch_all` | boolean | ✅ | **Exactly one row must have this set to `true`.** That is the "Unassigned" zone. If a citizen submits a complaint with a location that falls inside no real zone (e.g. they are at the city boundary), the complaint goes here so an admin can route it manually instead of failing silently. |
+| `is_catch_all` | boolean | ✅ | **Exactly one row must have this set to `true`.** That is the "Unassigned" zone. Because nearest-centroid always matches something, this exists for locations far outside the city where every real zone's centre is a poor match, so an admin can route the complaint manually instead. |
+| `is_active` | boolean | ✅ | Soft-deactivate flag, default `true`. A deactivated zone stops accepting new complaints but keeps all its history — the safe alternative to deleting a zone that already has data. Enforced two ways: `POST /zones/suggest` excludes inactive zones from nearest-centroid matching, so the auto-fill path never offers one; `POST /complaints` independently rejects a submitted `zoneId` for an inactive zone with `400`, covering the manual-pick path (and any stale client-cached suggestion) too. |
 | `created_at` | datetime | ✅ | When the zone was added by an admin. |
 
 ### Relationships
@@ -249,9 +250,9 @@ The entire access-control model of Kartavya is built on zones. An officer can on
 ### Example rows
 
 ```
-id: 1  zone_code: UNASSIGNED   zone_name: Unassigned  is_catch_all: true   center_lat: 0  center_lng: 0  coverage_radius_m: 0
-id: 2  zone_code: WARD-12-N    zone_name: Ward 12 – North  is_catch_all: false  center_lat: 12.9716  center_lng: 77.5946  coverage_radius_m: 1500
-id: 3  zone_code: WARD-07-S    zone_name: Ward 7 – South   is_catch_all: false  center_lat: 12.9510  center_lng: 77.5712  coverage_radius_m: 1200
+id: 1  zone_code: UNASSIGNED   zone_name: Unassigned  is_catch_all: true   is_active: true  center_lat: 0  center_lng: 0
+id: 2  zone_code: WARD-12-N    zone_name: Ward 12 – North  is_catch_all: false  is_active: true  center_lat: 12.9716  center_lng: 77.5946
+id: 3  zone_code: WARD-07-S    zone_name: Ward 7 – South   is_catch_all: false  is_active: true  center_lat: 12.9510  center_lng: 77.5712
 ```
 
 ---
@@ -304,7 +305,7 @@ A cluster groups together nearby complaints of the same type. If five people fil
 ### Why it exists
 The charter requires "auto severity" — the system should automatically judge that a widely-reported problem is more serious than an isolated one. Clusters are how the system detects that "nearby same-type problem." When a new complaint comes in, the app checks whether an existing cluster exists nearby; if yes, it links the complaint to it and increments `report_count`. If no, it creates a new cluster.
 
-Clusters also implement the "finders-keepers" rule: points go to the citizen who filed the first complaint in the cluster.
+Clusters also implement the reward-dedup rule: only one member's citizen ever gets the full `COMPLAINT_CLOSED` bonus for the cluster — whoever confirms first, not whoever reported first. See "Cluster reward distribution" below.
 
 ### Columns
 
@@ -315,7 +316,9 @@ Clusters also implement the "finders-keepers" rule: points go to the citizen who
 | `zone_id` | integer (FK) | ✅ | The zone this cluster is in. Keeps cluster lookup fast (you only search clusters in your zone). |
 | `centroid_lat` | float | ✅ | Latitude of the cluster's centre — the average position of its member complaints. Updated as new complaints join. |
 | `centroid_lng` | float | ✅ | Longitude of the cluster's centre. |
-| `report_count` | integer | ✅ | How many complaints are currently linked to this cluster. **Starts at 1 when created.** This is the key input to the severity score formula: each linked report adds 3 points to the score. |
+| `report_count` | integer | ✅ | How many complaints are currently linked to this cluster, including repeats from the same citizen. **Starts at 1 when created.** |
+| `unique_reporter_count` | integer | ✅ | Distinct citizens in the cluster. **This — not `report_count` — drives the severity score**: `(unique_reporter_count - 1) × 3 + upvotes`, so one citizen filing the same issue twice cannot inflate urgency. |
+| `reward_granted` | boolean | ✅ | `false` until the one-time +50 `COMPLAINT_CLOSED` bonus has been paid to whichever member confirmed first. Once `true`, every later confirmation in this cluster gets `CLUSTER_MEMBER_CLOSED` (+10) instead. |
 | `created_at` | datetime | ✅ | When the cluster was first formed (when the second nearby complaint joined). |
 | `updated_at` | datetime | ✅ | Updated every time a new complaint joins the cluster or `report_count` changes. |
 
@@ -324,10 +327,17 @@ A composite index on `(category_id, zone_id)` makes the "is there already a clus
 
 ### Example scenario
 Citizen A files a Pothole complaint at 12.97°N, 77.59°E.
-→ No existing nearby Pothole cluster in zone → a new `complaint_clusters` row is created with `report_count = 1`.
+→ No existing nearby Pothole cluster in zone → a new `complaint_clusters` row is created with `report_count = 1`, `unique_reporter_count = 1`.
 
 Citizen B files another Pothole complaint 60 metres away.
-→ The app finds the existing cluster (Haversine distance < 100 m) → links B's complaint to it → `report_count` becomes 2 → both complaints' `severity_score` updates to `(2-1) × 3 = 3`.
+→ The app finds the existing cluster (Haversine distance < 100 m) → links B's complaint to it → `report_count` and `unique_reporter_count` both become 2 → both complaints' `severity_score` updates to `(2-1) × 3 = 3`.
+
+### Cluster reward distribution
+When the officer resolves the shared issue, every member cascades to `RESOLVED` together (a `SYSTEM`-actor `status_history` entry per complaint). Confirmation is still per-complaint — each citizen confirms or disputes only their own:
+- The **first** citizen whose confirmation succeeds wins the full `COMPLAINT_CLOSED` bonus (+50), and `reward_granted` flips to `true`.
+- Every other citizen who confirms afterward gets `CLUSTER_MEMBER_CLOSED` (+10) instead — their complaint still closes normally, they just don't get the full reward a second time.
+- `ON_TIME_BONUS` (+15) is unaffected by any of this — it's evaluated per-complaint against that complaint's own `sla_target_hours`/`sla_started_at`, so a citizen who only gets +10 can still separately earn the on-time bonus.
+- If a citizen disputes instead of confirming, only their complaint detaches from the cluster (`cluster_id` set to `null`) and is handled individually from then on; it never re-fires `reward_granted` even if later re-closed.
 
 ---
 
@@ -346,18 +356,18 @@ Almost everything else in the database is a child of a complaint (evidence, hist
 | `id` | integer | ✅ | Internal primary key. |
 | `complaint_code` | varchar(30) | ✅ | **Unique, human-friendly identifier** shown in the UI — e.g. `KTV-2026-000123`. Makes it easy to reference a complaint in conversation without saying "complaint number 3847." |
 | `citizen_id` | integer (FK) | ✅ | The user who filed this complaint. **Hidden from officers and from the public feed** — anonymization is enforced here at the query level. |
-| `zone_id` | integer (FK) | ✅ | Determined automatically from the submitted latitude/longitude at filing time. Can be admin-overridden if the location was slightly off. Determines which officer queue this complaint appears in. |
+| `zone_id` | integer (FK) | ✅ | The zone the citizen confirmed at filing time. Exactly two paths lead here — client auto-suggests via `/zones/suggest` from photo EXIF GPS, or the citizen picks manually — and either way the citizen confirms a specific zone before submitting, so the API requires it (`CreateComplaintRequest.zoneId`); there's no third "none selected" path. Server trusts the submitted value but rejects it with `400` if the zone doesn't exist or is inactive. Snapshotted once — never recomputed — so later zone moves/renames or deactivation don't retroactively alter old complaints. Can be admin-overridden. Determines which officer queue this complaint appears in. |
 | `category_id` | integer (FK) | ✅ | Which of the 12 categories this complaint belongs to. Affects routing, SLA, and cluster matching. |
 | `cluster_id` | integer (FK) | ❌ | If this complaint is part of a nearby-duplicate cluster, this points to that cluster row. `NULL` means it is a standalone complaint. |
-| `assigned_officer_id` | integer (FK) | ❌ | The officer currently handling this complaint. `NULL` until an officer picks it up from the zone queue. When the complaint is batch-assigned, this is set. If the officer is reassigned to a different zone, this field is set to `NULL` via the FK delete rule. |
+| `assigned_officer_id` | integer (FK) | ❌ | The officer currently handling this complaint. `NULL` until an officer picks it up from the zone queue. When the complaint is batch-assigned, this is set. **Not a delete-rule effect:** if the officer is reassigned to a different zone (`PATCH /admin/users/{userId}` or `POST /admin/zones/{zoneId}/assign-officer`), application logic clears this field back to `NULL` on every one of their non-terminal complaints in the old zone — otherwise the complaint would stay assigned to someone who can no longer see it, since officer visibility is zone-scoped. |
 | `description` | text | ❌ | The citizen's free-text description. **Deliberately optional** — a citizen who picks a category manually and uploads a clear photo may not need to type anything. |
 | `category_ai_suggested` | boolean | ✅ | `true` if the citizen accepted the AI's category suggestion; `false` if they picked manually. Stored for analytics (to measure how useful the AI suggestion feature is). |
 | `latitude` | float | ✅ | Where the issue is — latitude. Used for zone routing and cluster detection. |
 | `longitude` | float | ✅ | Where the issue is — longitude. |
 | `status` | `complaint_status` | ✅ | The complaint's current stage. **Defaults to `SUBMITTED`** the moment it is created. Changes are enforced by app logic and recorded in `status_history`. |
 | `severity_score` | integer | ✅ | The raw numeric score. **Defaults to 0.** Updated when new related complaints join the cluster and when new upvotes are received. The severity label (`LOW` / `MEDIUM` / `HIGH` / `CRITICAL`) is calculated from this on read — never stored separately. |
-| `sla_target_hours` | integer | ❌ | A **snapshot** of `complaint_categories.sla_hours` taken at the moment the complaint entered `UNDER_REVIEW`. `NULL` before that. Frozen permanently — later SLA changes by the admin do not affect this complaint. |
-| `sla_started_at` | datetime | ❌ | Timestamp of when the complaint entered `UNDER_REVIEW` — **this is when the SLA clock started ticking.** `NULL` before acceptance. |
+| `sla_target_hours` | integer | ❌ | A **snapshot** of `complaint_categories.sla_hours` taken at the moment the complaint entered `UNDER_REVIEW`. `NULL` before that. Frozen permanently — later SLA changes by the admin do not affect this complaint. Also backfilled by an admin override (see below) if it force-jumps the complaint to `UNDER_REVIEW` or later while this is still unset. |
+| `sla_started_at` | datetime | ❌ | Timestamp of when the complaint entered `UNDER_REVIEW` — **this is when the SLA clock started ticking.** `NULL` before acceptance. **Admin override backfill:** `PATCH /admin/complaints/{id}` can force `status` straight to `UNDER_REVIEW` or beyond, skipping the normal evidence-review path. If this column is still `NULL` when that happens, the app sets it to "now" (and snapshots `sla_target_hours` too) so `slaLabel` never silently comes back null for an overridden complaint. |
 | `sla_paused_seconds` | integer | ✅ | A running total of time (in seconds) spent waiting on the citizen, e.g. in `NEEDS_MORE_EVIDENCE`. **This time is deducted from SLA calculation** so an officer is not penalized for delays caused by the citizen. Starts at 0. |
 | `sla_paused_at` | datetime | ❌ | If the SLA clock is currently paused (the complaint is in `NEEDS_MORE_EVIDENCE` right now), this holds the timestamp when it paused. When the citizen resubmits, the app calculates `now - sla_paused_at`, adds it to `sla_paused_seconds`, and clears this field. |
 | `created_at` | datetime | ✅ | When the complaint was filed. |
@@ -449,9 +459,10 @@ If we only stored the current status on the `complaints` table, we'd know where 
 | `complaint_id` | integer (FK) | ✅ | Which complaint this history entry belongs to. |
 | `from_status` | `complaint_status` | ❌ | The status the complaint was in **before** this change. `NULL` only for the very first entry (when a complaint is created at `SUBMITTED`, there is no previous status). |
 | `to_status` | `complaint_status` | ✅ | The status the complaint moved **to**. |
-| `actor_role` | `status_actor` | ✅ | Who made this change: `CITIZEN`, `OFFICER`, `ADMIN`, or `SYSTEM`. |
-| `changed_by_user_id` | integer (FK) | ❌ | The `users.id` of the person who made the change. `NULL` when `actor_role = SYSTEM` (because automated actions have no human behind them). |
+| `actor_role` | `status_actor` | ✅ | Who made this change: `CITIZEN`, `OFFICER`, `ADMIN`, or `SYSTEM`. Maps to the API's `StatusActor` enum on `StatusHistoryEntry.changedByRole` — a separate, 4-value enum from the 3-value `Role` used on user accounts, since `SYSTEM` is never a valid account role. |
+| `changed_by_user_id` | integer (FK) | ❌ | The `users.id` of the person who made the change. `NULL` when `actor_role = SYSTEM` (because automated actions have no human behind them). **The FK is `RESTRICT` on delete** — an officer or admin who has ever changed a complaint's status cannot be hard-deleted, protecting this audit trail the same way `complaint_notes.officer_id` protects note attribution. |
 | `reason` | text | ❌ | The written reason accompanying this transition. Populated for: officer rejections, Unresolvable declarations, citizen disputes, and admin overrides. |
+| `remark` | text | ❌ | An optional free-text remark, distinct from `reason` — e.g. the officer's closing note (`StatusUpdateRequest.note`) when marking `RESOLVED`. Maps 1:1 to `StatusHistoryEntry.remark` in the API. |
 | `created_at` | datetime | ✅ | The exact timestamp of this transition. Combined with `from_status`/`to_status`, this gives a full timeline with durations. |
 
 ### Example history for a complaint
@@ -466,6 +477,13 @@ Row 6: from: UNDER_REVIEW    → to: IN_PROGRESS             actor: OFFICER
 Row 7: from: IN_PROGRESS     → to: UNDER_RESOLUTION        actor: OFFICER
 Row 8: from: UNDER_RESOLUTION → to: RESOLVED              actor: OFFICER
 Row 9: from: RESOLVED        → to: CLOSED                  actor: CITIZEN
+```
+
+If the citizen disputes instead of confirming at Row 9, the officer picks the complaint back up the same way they picked up any other queued complaint — via `PATCH /officer/complaints/{id}/status`, not automatically:
+
+```
+Row 9: from: RESOLVED        → to: REOPENED                actor: CITIZEN   reason: "Pothole is still there."
+Row 10: from: REOPENED       → to: IN_PROGRESS              actor: OFFICER
 ```
 
 ---
@@ -555,7 +573,7 @@ Storing a single `total_points` column on `users` would be simpler. But it has a
 | `citizen_id` | integer (FK) | ✅ | Who earned or lost these points. |
 | `complaint_id` | integer (FK) | ❌ | The complaint that triggered this change. `NULL` for the `FIRST_COMPLAINT` bonus (no specific complaint caused it — it fires on the first submission). If a complaint is deleted (unusual), this becomes `NULL` but the points row survives, protecting the citizen's history. |
 | `points_change` | integer | ✅ | **Signed integer.** Positive for gains (`+50`, `+10`, `+15`, `+5`), negative for penalties (`-20`). |
-| `reason` | `points_reason` | ✅ | One of the 5 fixed reasons (Enum). Using a code rather than free text means the app can reliably query "how many penalty entries happened this month?" |
+| `reason` | `points_reason` | ✅ | One of the 6 fixed reasons (Enum). Using a code rather than free text means the app can reliably query "how many penalty entries happened this month?" |
 | `created_at` | datetime | ✅ | When the change occurred. Used for monthly vs lifetime breakdowns. |
 
 ### Example ledger for one citizen
@@ -570,6 +588,17 @@ citizen_id: 5  points_change: -20  reason: REJECTED_PENALTY      complaint_id: 1
 ```
 Lifetime total: `10 + 5 + 5 + 50 + 15 − 20 = 65 CSP`
 
+### Example: two citizens in the same cluster
+
+Complaints 101 (citizen 5, filed first) and 102 (citizen 6, filed second) are both in cluster 30. Citizen 6 happens to *confirm* first — reporting order does not decide the reward, confirmation order does:
+
+```
+citizen_id: 6  points_change: +50  reason: COMPLAINT_CLOSED      complaint_id: 102  (first in cluster 30 to confirm — reward_granted flips to true)
+citizen_id: 5  points_change: +15  reason: ON_TIME_BONUS         complaint_id: 101  (their own complaint met its own SLA)
+citizen_id: 5  points_change: +10  reason: CLUSTER_MEMBER_CLOSED complaint_id: 101  (confirms afterward — cluster 30's +50 is already spent)
+```
+Citizen 5 still earns the on-time bonus even though they only got the consolation reward for `COMPLAINT_CLOSED` — the two are independent.
+
 ---
 
 ## Table 11: `badges`
@@ -578,7 +607,7 @@ Lifetime total: `10 + 5 + 5 + 50 + 15 − 20 = 65 CSP`
 The catalog of the 6 badges that can be earned. This table is seeded once at setup and never changes during normal operation.
 
 ### Why criteria is stored in the table (not in code)
-The old approach would hardcode badge logic directly in application code with `if` statements. That works for simple point-threshold badges but breaks down for event-based badges like "first complaint" or time-window badges like "3 complaints closed in 7 days." By storing `criteria_type` and `criteria_value` in the database, all six badges are handled by a single, generalized awarding engine. Adding a new badge in future is a row insert, not a code change.
+The old approach would hardcode badge logic directly in application code with `if` statements. That works for simple point-threshold badges but breaks down for event-based badges like "first complaint" or time-window badges like "3 complaints closed in 7 days." By storing `criteria_type`, `criteria_value`, and `criteria_count` in the database, all six badges are handled by a single, generalized awarding engine. Adding a new badge in future — including another time-window badge with a different count — is a row insert, not a code change.
 
 ### Columns
 
@@ -589,18 +618,19 @@ The old approach would hardcode badge logic directly in application code with `i
 | `badge_name` | varchar(80) | ✅ | Display name shown to citizens, e.g. "Street Guardian". |
 | `description` | text | ❌ | What the badge means, e.g. "Consistently holding the city accountable." Shown in the UI. |
 | `criteria_type` | `badge_criteria_type` | ✅ | How this badge is earned (see the Enum above). Makes the award logic data-driven. |
-| `criteria_value` | integer | ❌ | The threshold number for criteria types that need one. `NULL` for `FIRST_COMPLAINT` (no count needed) and `ZONE_RANK_ONE` (no count needed). |
+| `criteria_value` | integer | ❌ | The threshold number for criteria types that need one. For `CLOSED_WITHIN_DAYS` this is the day-window (see `criteria_count` for the count). `NULL` for `FIRST_COMPLAINT` and `ZONE_RANK_ONE` (no count needed). |
+| `criteria_count` | integer | ❌ | Only used by `CLOSED_WITHIN_DAYS` — the number of closures required within `criteria_value` days (e.g. 3). `NULL` for every other `criteria_type`. Without this column, `CLOSED_WITHIN_DAYS` couldn't actually be data-driven: the count would have to be a hardcoded constant in application code, contradicting the point of this table. |
 | `created_at` | datetime | ✅ | When this badge was seeded. |
 
 ### The 6 seeded rows
 
 ```
-badge_code: KARTAVYA_INITIATE   criteria_type: FIRST_COMPLAINT    criteria_value: NULL
-badge_code: STREET_GUARDIAN     criteria_type: COMPLAINTS_CLOSED  criteria_value: 5
-badge_code: ZONE_CHAMPION       criteria_type: ZONE_RANK_ONE       criteria_value: NULL
-badge_code: CENTURY_REFORMER    criteria_type: LIFETIME_POINTS     criteria_value: 100
-badge_code: CIVIC_HERO          criteria_type: LIFETIME_POINTS     criteria_value: 500
-badge_code: SWIFT_REPORTER      criteria_type: CLOSED_WITHIN_DAYS  criteria_value: 7
+badge_code: KARTAVYA_INITIATE   criteria_type: FIRST_COMPLAINT    criteria_value: NULL  criteria_count: NULL
+badge_code: STREET_GUARDIAN     criteria_type: COMPLAINTS_CLOSED  criteria_value: 5     criteria_count: NULL
+badge_code: ZONE_CHAMPION       criteria_type: ZONE_RANK_ONE       criteria_value: NULL  criteria_count: NULL
+badge_code: CENTURY_REFORMER    criteria_type: LIFETIME_POINTS     criteria_value: 100   criteria_count: NULL
+badge_code: CIVIC_HERO          criteria_type: LIFETIME_POINTS     criteria_value: 500   criteria_count: NULL
+badge_code: SWIFT_REPORTER      criteria_type: CLOSED_WITHIN_DAYS  criteria_value: 7     criteria_count: 3
 ```
 
 ---

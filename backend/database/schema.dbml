@@ -1,8 +1,8 @@
 // ============================================================================
-// Kartavya — Database Schema
+// Kartavya — Database Schema (v2)
 // Civic grievance reporting platform
 //
-// Designed to back the Kartavya API contract (kartavya_api.yaml) one-to-one.
+// Designed to back the Kartavya API contract (backend/api/openapi.yaml) one-to-one.
 // Every field the API returns either maps to a column here or is cleanly
 // derivable from these tables (counts, sums, ranks, SLA math).
 //
@@ -25,10 +25,10 @@
 Project kartavya {
   database_type: 'SQLite'
   Note: '''
-    Kartavya schema. Seed data required before use:
+    Kartavya v2 schema. Seed data required before use:
       * 12 complaint_categories (fixed list, with default sla_hours)
       * 6 badges (with criteria_type / criteria_value)
-      * 1 zones row flagged is_catch_all = true (for locations in no zone)
+      * exactly 1 zones row flagged is_catch_all = true (the "Unassigned" fallback; enforced by a partial unique index and never deletable)
       * 1 app_settings row (id = 1)
       * admin user(s) (admins are seeded, never self-registered)
   '''
@@ -95,11 +95,12 @@ Enum status_actor {
 }
 
 Enum points_reason {
-  COMPLAINT_CLOSED   // +50
-  FIRST_COMPLAINT    // +10
-  ON_TIME_BONUS      // +15
-  UPVOTE_RECEIVED    // +5
-  REJECTED_PENALTY   // -20
+  COMPLAINT_CLOSED       // +50, first citizen in a cluster (or a standalone reporter) to confirm
+  CLUSTER_MEMBER_CLOSED  // +10, other cluster members who confirm after the +50 is already granted
+  FIRST_COMPLAINT        // +10
+  ON_TIME_BONUS          // +15
+  UPVOTE_RECEIVED        // +5
+  REJECTED_PENALTY       // -20
 }
 
 Enum badge_code {
@@ -149,16 +150,26 @@ Table users {
 }
 
 Table zones {
-  id                int          [pk, increment]
-  zone_code         varchar(20)  [unique, not null]
-  zone_name         varchar(120) [not null]
-  center_lat        float        [not null]
-  center_lng        float        [not null]
-  coverage_radius_m int          [not null, note: 'Simple circular zone. A point is in-zone if Haversine distance to centre <= radius.']
-  is_catch_all      boolean      [not null, default: false, note: 'Exactly one zone is the "Unassigned" catch-all for locations that fall in no real zone.']
-  created_at        datetime     [not null, default: `now()`]
+  id           int          [pk, increment]
+  zone_code    varchar(20)  [unique, not null, note: 'Immutable once created. Renaming changes zone_name only, never this code.']
+  zone_name    varchar(120) [not null, note: 'Display name. This is the only field a rename may change.']
+  center_lat   float        [not null, note: 'Zone centre. Routing uses NEAREST centroid — a location is assigned to the zone whose centre is closest. This always yields exactly one zone (no gaps, no overlaps).']
+  center_lng   float        [not null]
+  is_catch_all boolean      [not null, default: false, note: 'The "Unassigned" fallback zone. Exactly one row may have this true — enforce with a partial unique index (see note below). It cannot be deleted or unset.']
+  is_active    boolean      [not null, default: true, note: 'Soft-deactivate flag. Prefer deactivating a zone over deleting it, mirroring users.is_active.']
+  created_at   datetime     [not null, default: `now()`]
 
-  Note: 'Admin-managed areas. Routing: location decides the zone, the zone decides which officers see the complaint.'
+  indexes {
+    // NOT a plain unique index: DBML has no partial-index syntax, and a plain
+    // `unique` flag here would wrongly cap the table at one is_catch_all=false
+    // row too (blocking every real zone but the first). The actual constraint
+    // must be built directly as a partial index in the migration, not via a
+    // declarative SQLAlchemy `unique=True` column constraint:
+    //   CREATE UNIQUE INDEX ... ON zones(is_catch_all) WHERE is_catch_all = 1;
+    (is_catch_all) [note: 'PARTIAL unique index (WHERE is_catch_all = true) — guarantees at most one catch-all zone exists. Must be created as a real partial index (e.g. SQLAlchemy Index(..., sqlite_where=...)), not a column-level unique constraint.']
+  }
+
+  Note: 'Admin-managed areas. A complaint\'s zone is pre-selected on the client (from photo EXIF GPS or manual pick) and confirmed by the citizen — the server does not silently auto-route. Zone assignment is snapshotted onto the complaint once and never recomputed, so moving or resizing a zone later cannot retroactively change old complaints.'
 }
 
 Table complaint_categories {
@@ -177,30 +188,40 @@ Table complaint_categories {
 // ----------------------------------------------------------------------------
 
 Table complaint_clusters {
-  id            int      [pk, increment]
-  category_id   int      [not null]
-  zone_id       int      [not null]
-  centroid_lat  float    [not null]
-  centroid_lng  float    [not null]
-  report_count  int      [not null, default: 1, note: 'How many complaints are linked here. Drives severity: score = (report_count - 1) * 3 + upvotes.']
-  created_at    datetime [not null, default: `now()`]
-  updated_at    datetime [not null, default: `now()`]
+  id                    int      [pk, increment]
+  category_id           int      [not null]
+  zone_id               int      [not null]
+  centroid_lat          float    [not null]
+  centroid_lng          float    [not null]
+  report_count          int      [not null, default: 1, note: 'Total complaints linked here (may include several from one citizen).']
+  unique_reporter_count int      [not null, default: 1, note: 'Distinct citizens in the cluster. This — NOT report_count — drives severity, so one person cannot inflate urgency by filing the same issue repeatedly. Severity score = (unique_reporter_count - 1) * 3 + total upvotes.']
+  reward_granted        boolean  [not null, default: false, note: 'True once the one-time +50 cluster-closed reward has been paid — to whichever member\'s confirm() was first to succeed, not necessarily the earliest reporter. Prevents the reward from firing twice, including after a later dispute-and-refix.']
+  created_at            datetime [not null, default: `now()`]
+  updated_at            datetime [not null, default: `now()`]
 
   indexes {
     (category_id, zone_id)
   }
 
-  Note: 'Nearby same-category complaints (Haversine, ~50-100 m) are linked into one cluster. Replaces ML clustering, which is out of scope.'
+  Note: '''
+    Nearby same-category complaints (Haversine, ~50-100 m) are linked into one cluster. Replaces ML clustering, which is out of scope. Cluster lifecycle rules:
+      * SEVERITY counts distinct citizens (unique_reporter_count), not raw rows.
+      * RESOLUTION cascades: when the officer resolves the shared issue, all members move to RESOLVED together (SYSTEM-actor entries in status_history).
+      * CONFIRMATION is per-complaint: each citizen confirms or disputes their own.
+      * DISPUTE reopens ONLY that member. The disputed complaint detaches from the cluster (cluster_id set to null) and is then handled individually; the other members stay CLOSED.
+      * REWARD is one-time per cluster (reward_granted): the +50 COMPLAINT_CLOSED bonus goes to whichever member's confirm() is first to succeed — first-to-confirm, not first-to-report. Every other member who later confirms their own complaint gets +10 CLUSTER_MEMBER_CLOSED instead. Never re-fired by a later dispute/refix.
+      * ON_TIME_BONUS is independent of the cluster reward — each complaint carries its own sla_target_hours/sla_started_at snapshot, so a member who only gets CLUSTER_MEMBER_CLOSED can still separately earn +15 if their own complaint met its own SLA.
+  '''
 }
 
 Table complaints {
   id                   int               [pk, increment]
   complaint_code       varchar(30)       [unique, not null, note: 'Human-friendly id, e.g. KTV-2026-000123.']
   citizen_id           int               [not null, note: 'Reporter. Hidden from officers and from the public feed.']
-  zone_id              int               [not null, note: 'Resolved from the location at submit time; can be admin-overridden.']
+  zone_id              int               [not null, note: 'Snapshotted from the citizen-confirmed zone at submit time; never recomputed. Can be admin-overridden. Because it is a snapshot, later zone moves/renames cannot alter old complaints.']
   category_id          int               [not null]
-  cluster_id           int               [note: 'Set if linked to nearby duplicates.']
-  assigned_officer_id  int               [note: 'Current handling officer (API assignedOfficerId). Null until an officer picks it up.']
+  cluster_id           int               [note: 'Set if linked to nearby duplicates. Cleared (set null) if this complaint is disputed after a cluster resolution — it then detaches and is handled on its own.']
+  assigned_officer_id  int               [note: 'Current handling officer (API assignedOfficerId). Null until an officer picks it up. Also cleared back to null (app logic, not an FK delete rule) on every one of this officer\'s non-terminal complaints when they are reassigned to a different zone — otherwise the complaint would stay "assigned" to someone who can no longer see it, since officer visibility is zone-scoped.']
 
   description          text              [note: 'Optional — a citizen may pick a category manually without typing. Matches the API (description not required).']
   category_ai_suggested boolean          [not null, default: false, note: 'Whether the chosen category came from the AI suggestion (analytics only).']
@@ -208,11 +229,11 @@ Table complaints {
   longitude            float             [not null]
 
   status               complaint_status  [not null, default: 'SUBMITTED']
-  severity_score       int               [not null, default: 0, note: 'Raw score. Severity LABEL is derived from this on read, never stored, so the two can never disagree.']
+  severity_score       int               [not null, default: 0, note: 'Derived and cached: (cluster unique_reporter_count - 1) * 3 + upvote count. Counts DISTINCT citizens, not raw complaints, so one person filing repeatedly cannot inflate it. The severity LABEL is computed from this on read, never stored.']
 
   // --- SLA inputs (snapshots) — the label is computed from these, not stored ---
-  sla_target_hours     int               [note: 'Snapshot of the category SLA at acceptance. Frozen, so later SLA edits do not move this complaint.']
-  sla_started_at       datetime          [note: 'When it entered UNDER_REVIEW (the timer start). Null before acceptance.']
+  sla_target_hours     int               [note: 'Snapshot of the category SLA at acceptance. Frozen, so later SLA edits do not move this complaint. Also backfilled by an admin override that force-jumps straight to UNDER_REVIEW or later, if still unset.']
+  sla_started_at       datetime          [note: 'When it entered UNDER_REVIEW (the timer start). Null before acceptance. Also backfilled to now by an admin override that force-jumps straight to UNDER_REVIEW or later, so slaLabel never silently comes back null for an overridden complaint.']
   sla_paused_seconds   int               [not null, default: 0, note: 'Accumulated time spent waiting on the citizen (NEEDS_MORE_EVIDENCE), excluded from SLA.']
   sla_paused_at        datetime          [note: 'Set when the timer pauses; non-null means currently paused. Cleared into sla_paused_seconds on resume.']
 
@@ -266,8 +287,8 @@ Table status_history {
   complaint_id      int              [not null]
   from_status       complaint_status [note: 'Null for the very first entry.']
   to_status         complaint_status [not null]
-  actor_role        status_actor     [not null, note: 'CITIZEN / OFFICER / ADMIN / SYSTEM.']
-  changed_by_user_id int             [note: 'The acting user. Null when actor_role = SYSTEM (e.g. auto-close).']
+  actor_role        status_actor     [not null, note: 'CITIZEN / OFFICER / ADMIN / SYSTEM. Maps to the API StatusActor enum on StatusHistoryEntry.changedByRole — a separate, 4-value enum from the 3-value Role used on User accounts, since SYSTEM is never a valid account role.']
+  changed_by_user_id int             [note: 'The acting user. Null when actor_role = SYSTEM (e.g. auto-close). FK is RESTRICT on delete — an officer/admin who has ever changed a complaint\'s status cannot be hard-deleted, protecting this audit trail the same way complaint_notes.officer_id protects note attribution.']
   reason            text             [note: 'Carries reject / unresolvable / dispute / override reasons.']
   remark            text             [note: 'Optional free-text remark, e.g. the officer\'s closing note when marking RESOLVED. Distinct from reason.']
   created_at        datetime         [not null, default: `now()`]
@@ -322,7 +343,7 @@ Table points_ledger {
     (citizen_id, created_at)
   }
 
-  Note: 'Append-only CSP ledger. Lifetime total = SUM(points_change); monthly total = SUM where created_at in the month. No stored total, so nothing can drift.'
+  Note: 'Append-only CSP ledger. Lifetime total = SUM(points_change); monthly total = SUM where created_at in the month. No stored total, so nothing can drift. Clustered complaints: the +50 COMPLAINT_CLOSED reward is paid ONCE per cluster (guarded by complaint_clusters.reward_granted) to whichever member confirms first; every other member who later confirms gets +10 CLUSTER_MEMBER_CLOSED instead — never zero, never the full +50 twice, and never re-fired by a later dispute/refix. ON_TIME_BONUS is unaffected by this and is evaluated per-complaint for every member independently.'
 }
 
 Table badges {
@@ -331,7 +352,8 @@ Table badges {
   badge_name     varchar(80)         [not null]
   description    text
   criteria_type  badge_criteria_type [not null, note: 'How the badge is earned — makes award logic data-driven instead of points-only.']
-  criteria_value int                 [note: 'The threshold, where the type needs one (5, 100, 500, 7...). Null for FIRST_COMPLAINT and ZONE_RANK_ONE.']
+  criteria_value int                 [note: 'The threshold, where the type needs one (5, 100, 500, 7...). For CLOSED_WITHIN_DAYS this is the day-window (see criteria_count for the count). Null for FIRST_COMPLAINT and ZONE_RANK_ONE.']
+  criteria_count int                 [note: 'Only used by CLOSED_WITHIN_DAYS — the number of closures required within criteria_value days (e.g. 3). Null for every other criteria_type. Without this, CLOSED_WITHIN_DAYS could not be genuinely data-driven: the count would have to be a hardcoded constant in application code, contradicting the point of this table.']
   created_at     datetime            [not null, default: `now()`]
 
   Note: 'Catalog of the 6 badges, seeded once. Covers all charter triggers, not just point thresholds.'
@@ -391,7 +413,7 @@ Table app_settings {
 // ============================================================================
 
 // users / zones
-Ref: users.zone_id > zones.id [delete: set null]
+Ref: users.zone_id > zones.id [delete: restrict]
 
 // complaints
 Ref: complaints.citizen_id          > users.id                 [delete: restrict]
@@ -410,7 +432,7 @@ Ref: complaint_evidence.reviewed_by  > users.id                [delete: set null
 
 // status history
 Ref: status_history.complaint_id       > complaints.id         [delete: cascade]
-Ref: status_history.changed_by_user_id > users.id              [delete: set null]
+Ref: status_history.changed_by_user_id > users.id              [delete: restrict]
 
 // notes
 Ref: complaint_notes.complaint_id > complaints.id              [delete: cascade]

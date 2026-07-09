@@ -211,6 +211,40 @@ paths:
                 items:
                   $ref: '#/components/schemas/Zone'
 
+  /zones/suggest:
+    post:
+      tags: [Reference]
+      operationId: suggestZone
+      summary: Suggest the nearest zone for a location
+      description: >
+        Given a latitude/longitude (typically read from a photo's EXIF GPS),
+        returns the single nearest **active** zone by centre distance —
+        deactivated zones are excluded from matching, so this never pre-fills
+        a zone that `POST /complaints` would then reject. The complaint form
+        uses this to **pre-fill** the zone picker so the citizen usually just
+        confirms instead of scrolling. It is advisory only — the citizen can
+        always change the pick, and the server never routes on this alone.
+        Because it matches the *nearest active* centre, it always returns one
+        zone (there are no gaps or overlaps to fall into) unless every zone
+        in the system happens to be deactivated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ZoneSuggestionRequest'
+      responses:
+        '200':
+          description: The nearest zone (or null if none could be determined).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneSuggestionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   # ---------------------------------------------------------------------------
   # COMPLAINTS (citizen-facing)
   # ---------------------------------------------------------------------------
@@ -228,7 +262,8 @@ paths:
 
         On submission the server automatically:
 
-        - assigns the complaint to the zone the location falls into,
+        - routes the complaint to the citizen-confirmed `zoneId` (validated
+          active, never re-derived from location),
 
         - sets the status to `SUBMITTED`,
 
@@ -255,13 +290,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/ComplaintDetail'
         '400':
-          description: Missing field, wrong file type/size, or a location that maps to no zone.
+          description: Missing required field, wrong file type/size, or a submitted zoneId that doesn't exist or is deactivated.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Only citizens can file complaints.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /complaints/my:
     get:
@@ -429,8 +470,17 @@ paths:
       description: >
         The citizen confirms that an issue marked `RESOLVED` by the officer is
         genuinely fixed. The complaint then moves to `CLOSED`, and the system
-        automatically credits points (+50, plus a +15 on-time bonus if the SLA
-        was met) and checks for any newly earned badges.
+        automatically credits points and checks for any newly earned badges.
+
+
+        **Points:** if this complaint is standalone (no `clusterId`), or it is
+        the first complaint in its cluster to be confirmed, the citizen gets
+        the full `COMPLAINT_CLOSED` bonus (+50). If another member of the same
+        cluster already won that reward, this citizen instead gets a smaller
+        `CLUSTER_MEMBER_CLOSED` consolation (+10) — the +50 is paid once per
+        cluster, not once per member. Either way, the `ON_TIME_BONUS` (+15) is
+        evaluated independently against **this complaint's own** SLA snapshot,
+        regardless of which reward it received.
 
 
         A complaint can only reach `CLOSED` through this confirmation (or the
@@ -565,7 +615,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
-          description: A citizen requested a zone that is not theirs.
+          description: Only citizens can browse the feed, or a citizen requested a zone that is not theirs.
           content:
             application/json:
               schema:
@@ -701,6 +751,9 @@ paths:
 
         - `UNDER_RESOLUTION` → `RESOLVED` (optionally with a closing note)
 
+        - `REOPENED` → `IN_PROGRESS` (the officer picks a disputed complaint
+          back up from their queue)
+
         - any active stage → `UNRESOLVABLE` (**reason required**)
 
 
@@ -750,6 +803,18 @@ paths:
         Lets an officer move many complaints to the same status in one action —
         for example, sending a whole street of pothole reports to
         `UNDER_RESOLUTION` together after monsoon damage.
+
+
+        The same rules as `PATCH /officer/complaints/{complaintId}/status`
+        apply to every item: only legal, officer-triggerable transitions are
+        allowed (`IN_PROGRESS`, `UNDER_RESOLUTION`, `RESOLVED`, `REOPENED` →
+        `IN_PROGRESS`, or any active stage → `UNRESOLVABLE` with a reason).
+        Targets reserved for other actors — `CLOSED` (citizen confirmation
+        only), `REJECTED`/`UNDER_REVIEW` (evidence-review only) — are rejected
+        per-item, the same as an illegal single-item transition. `RESOLVED` is
+        allowed in a batch, but unlike the single-item endpoint there is no way
+        to attach a per-complaint closing `note` — officers who need one should
+        resolve that complaint individually instead.
 
 
         Each complaint is validated and recorded individually (its own history
@@ -935,6 +1000,16 @@ paths:
         category, forcing a status, or manually reassigning it to a different
         zone (useful for the "Unassigned" catch-all). Every override is recorded
         in the status history with the admin as the actor.
+
+
+        **SLA backfill:** forcing `status` to `UNDER_REVIEW` or any later stage
+        skips the normal evidence-review path that would otherwise start the
+        SLA timer. If the internal SLA-start timestamp is still unset when the
+        override lands the complaint at `UNDER_REVIEW` or beyond, the server
+        backfills it to now and snapshots `slaTargetHours` from the category's
+        current SLA — the same values the evidence-review `VALID` verdict
+        would have set — so `slaLabel` stays meaningful immediately after the
+        override.
       parameters:
         - $ref: '#/components/parameters/ComplaintId'
       requestBody:
@@ -1062,7 +1137,12 @@ paths:
         (rather than deleting) is the recommended way to disable an account: a
         deactivated user cannot log in, but all their complaints, points, and
         history stay intact for the audit trail. Reassigning an officer's zone
-        takes effect immediately.
+        takes effect immediately: they instantly lose access to the old
+        zone's complaints, and every non-terminal complaint still assigned to
+        them there has `assignedOfficerId` cleared back to `null` — those
+        complaints become unassigned and available to whichever officer now
+        covers that zone, rather than staying stuck with someone who can no
+        longer see them.
       parameters:
         - $ref: '#/components/parameters/UserId'
       requestBody:
@@ -1099,8 +1179,9 @@ paths:
       description: >
         Hard-deletes an account. **Prefer deactivation** (`PATCH` with
         `active: false`) instead — deleting a user who already has complaints,
-        points, or history can break those links. This endpoint is intended only
-        for truly empty/test accounts.
+        points, evidence reviews, progress notes, or status changes on record
+        will be refused. This endpoint is intended only for truly empty/test
+        accounts.
       parameters:
         - $ref: '#/components/parameters/UserId'
       responses:
@@ -1123,6 +1204,108 @@ paths:
   # ADMIN — zones, SLAs, settings
   # ---------------------------------------------------------------------------
 
+  /admin/zones:
+    post:
+      tags: [Admin]
+      operationId: createZone
+      summary: Create a zone
+      description: >
+        Creates a new admin-managed zone with a stable code, a display name, and
+        a centre point. The centre is what nearest-zone matching uses. The code
+        is permanent once set; only the name can be changed later.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateZoneRequest'
+      responses:
+        '201':
+          description: Zone created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: A zone with this code already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/zones/{zoneId}:
+    patch:
+      tags: [Admin]
+      operationId: updateZone
+      summary: Rename or deactivate a zone
+      description: >
+        Updates a zone's display name, or deactivates/reactivates it via the
+        `isActive` flag. **The zone code cannot be changed** — it is a stable
+        identifier used across the system. Deactivating is the safe alternative
+        to deletion: the zone stops accepting new complaints but keeps all its
+        history. Moving a zone's centre is deliberately not offered here, because
+        existing complaints keep their originally assigned zone regardless.
+      parameters:
+        - $ref: '#/components/parameters/ZoneId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateZoneRequest'
+      responses:
+        '200':
+          description: Zone updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Admin]
+      operationId: deleteZone
+      summary: Delete a zone (only if unused)
+      description: >
+        Permanently deletes a zone. Allowed **only** if nothing references it —
+        no complaints, no assigned officers, and no citizens whose home zone
+        is this one (registration requires a home zone, so in practice any
+        zone that has ever had a citizen sign up against it is blocked too,
+        not just zones with complaints or officers). If anything does, the
+        delete is refused with `409`, and the admin should deactivate the
+        zone instead. The catch-all "Unassigned" zone can never be deleted.
+        This endpoint exists mainly to clean up zones created by mistake,
+        before real citizens have registered against them.
+      parameters:
+        - $ref: '#/components/parameters/ZoneId'
+      responses:
+        '204':
+          description: Zone deleted (no content).
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The zone has complaints, assigned officers, or citizens whose home zone is this one (or it is the catch-all) and cannot be deleted. Deactivate it instead.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /admin/zones/{zoneId}/assign-officer:
     post:
       tags: [Admin]
@@ -1131,7 +1314,10 @@ paths:
       description: >
         Assigns (or reassigns) an existing officer to this zone. The change is
         immediate: the officer instantly loses access to the old zone's
-        complaints and gains access to this zone's.
+        complaints and gains access to this zone's. If this is a reassignment,
+        every non-terminal complaint still assigned to them in the old zone
+        has `assignedOfficerId` cleared back to `null`, the same as
+        `PATCH /admin/users/{userId}`.
       parameters:
         - $ref: '#/components/parameters/ZoneId'
       requestBody:
@@ -1678,8 +1864,17 @@ components:
 
     Role:
       type: string
-      description: The kind of account.
+      description: The kind of account. SYSTEM is never a valid account role — see StatusActor for automated status changes.
       enum: [CITIZEN, OFFICER, ADMIN]
+
+    StatusActor:
+      type: string
+      description: >
+        Who or what caused a status_history entry. Distinct from Role because
+        SYSTEM changes exist — e.g. auto-closing a RESOLVED complaint after
+        the configured timeout, or cascading all members of a cluster to
+        RESOLVED together when the officer resolves the shared issue.
+      enum: [CITIZEN, OFFICER, ADMIN, SYSTEM]
 
     ComplaintStatus:
       type: string
@@ -1931,16 +2126,85 @@ components:
         id:
           type: string
           example: zone_012
+        code:
+          type: string
+          description: Stable identifier, fixed once the zone is created (a rename never changes it).
+          example: WARD-12-N
         name:
           type: string
           example: Ward 12 – North
-      required: [id, name]
+        isCatchAll:
+          type: boolean
+          description: True for the single "Unassigned" fallback zone.
+          default: false
+        isActive:
+          type: boolean
+          description: Deactivated zones are hidden from new complaint filing but keep their history.
+          default: true
+      required: [id, code, name, isCatchAll, isActive]
+
+    CreateZoneRequest:
+      type: object
+      required: [code, name, centerLat, centerLng]
+      properties:
+        code:
+          type: string
+          description: Stable identifier. Cannot be changed later.
+          example: WARD-12-N
+        name:
+          type: string
+          example: Ward 12 – North
+        centerLat:
+          type: number
+          format: double
+          description: >
+            Zone centre. Routing uses nearest-centroid — a location belongs to
+            whichever zone's centre it is closest to, so every coordinate maps
+            to exactly one zone with no gaps or overlaps.
+        centerLng:
+          type: number
+          format: double
+
+    UpdateZoneRequest:
+      type: object
+      description: All fields optional. The zone code cannot be changed here.
+      properties:
+        name:
+          type: string
+          description: Rename the zone (display name only).
+        isActive:
+          type: boolean
+          description: Set false to deactivate the zone instead of deleting it.
+
+    ZoneSuggestionRequest:
+      type: object
+      required: [latitude, longitude]
+      properties:
+        latitude:
+          type: number
+          format: double
+          example: 12.9716
+        longitude:
+          type: number
+          format: double
+          example: 77.5946
+
+    ZoneSuggestionResponse:
+      type: object
+      description: The nearest zone to a location, used to pre-fill the complaint form's zone picker. Advisory only.
+      properties:
+        suggestedZone:
+          allOf:
+            - $ref: '#/components/schemas/Zone'
+          nullable: true
+          description: The closest active zone by centre distance, or null if every zone in the system is deactivated.
+      required: [suggestedZone]
 
     # ---- Complaint ----
 
     CreateComplaintRequest:
       type: object
-      required: [categoryId, photo, latitude, longitude]
+      required: [categoryId, photo, latitude, longitude, zoneId]
       properties:
         categoryId:
           type: string
@@ -1961,6 +2225,23 @@ components:
           type: number
           format: double
           example: 77.5946
+        zoneId:
+          type: string
+          description: >
+            The zone the citizen confirmed for this complaint. There are
+            exactly two ways the client arrives at this value: if the photo
+            has usable EXIF GPS, the client calls `/zones/suggest` and
+            pre-fills the zone picker with the result; otherwise the citizen
+            selects a zone manually from the dropdown. Either way, the
+            citizen sees and confirms a specific zone before the form can be
+            submitted, so this is always required — there is no third path
+            where no zone was ever selected. The server trusts the submitted
+            value rather than re-deriving it from `latitude`/`longitude`,
+            except it still checks the zone is active — a `zoneId` for a
+            deactivated zone is rejected with `400` rather than silently
+            accepted or rerouted, since the client's cached zone list may be
+            stale.
+          example: zone_012
         categorySuggestedByAi:
           type: boolean
           description: Whether the chosen category came from the AI suggestion (for analytics).
@@ -2184,7 +2465,7 @@ components:
         toStatus:
           $ref: '#/components/schemas/ComplaintStatus'
         changedByRole:
-          $ref: '#/components/schemas/Role'
+          $ref: '#/components/schemas/StatusActor'
         changedByOfficerId:
           type: string
           nullable: true
@@ -2196,6 +2477,10 @@ components:
         remark:
           type: string
           nullable: true
+          description: >
+            Optional free-text remark distinct from reason — for example the
+            officer's closing note (StatusUpdateRequest.note) when marking
+            RESOLVED.
         timestamp:
           type: string
           format: date-time
@@ -2263,7 +2548,11 @@ components:
         status:
           allOf:
             - $ref: '#/components/schemas/ComplaintStatus'
-          description: Typically UNDER_RESOLUTION for batch processing.
+          description: >
+            Typically UNDER_RESOLUTION for batch processing. Only legal,
+            officer-triggerable transitions are allowed — CLOSED, REJECTED,
+            and UNDER_REVIEW are reserved for citizen confirmation and
+            evidence review respectively, and are rejected per-item.
         reason:
           type: string
           description: Required if the target status needs one (e.g. UNRESOLVABLE).
@@ -2377,6 +2666,7 @@ components:
           type: string
           enum:
             - COMPLAINT_CLOSED
+            - CLUSTER_MEMBER_CLOSED
             - FIRST_COMPLAINT
             - ON_TIME_BONUS
             - UPVOTE_RECEIVED

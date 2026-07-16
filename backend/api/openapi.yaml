@@ -674,11 +674,7 @@ paths:
         Admins may access any cluster.
 
       parameters:
-        - name: clusterId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: "#/components/parameters/ClusterId"
 
       responses:
         "200":
@@ -911,44 +907,61 @@ paths:
       operationId: batchUpdateStatus
       summary: Apply the same status update to multiple complaints
       description: >
-        Lets an officer apply the same status transition to multiple complaints.
+        Lets an officer apply the same status transition to multiple
+        complaints in one action — for example, sending a whole street of
+        pothole reports to `UNDER_RESOLUTION` together after monsoon damage.
+
 
         The target complaints may be selected in one of two ways:
 
         - provide `complaintIds` to update an explicit list of complaints.
 
-        - provide `clusterId` to update every complaint currently belonging to that cluster.
+        - provide `clusterId` to update every complaint belonging to that
+          cluster at the time the request is processed.
 
-        The complaints affected are those that belong to the specified cluster at the time the request is processed.
+        Exactly one of `complaintIds` or `clusterId` must be supplied —
+        both or neither is a `400`.
 
-        Exactly one of `complaintIds` or `clusterId` must be supplied.
 
-        Every complaint is validated independently using the same rules as the
-        single-complaint status endpoint, so partial success is possible.
+        The same rules as `PATCH /officer/complaints/{complaintId}/status`
+        apply to every item: only legal, officer-triggerable transitions are
+        allowed (`IN_PROGRESS`, `UNDER_RESOLUTION`, `RESOLVED`, `REOPENED` →
+        `IN_PROGRESS`, or any active stage → `UNRESOLVABLE` with a reason).
+        Targets reserved for other actors — `CLOSED` (citizen confirmation
+        only), `REJECTED`/`UNDER_REVIEW` (evidence-review only) — are rejected
+        per-item, the same as an illegal single-item transition.
 
-        Exactly one of complaintIds or clusterId must be supplied.
 
-        Supplying both fields or neither field results in a 400 Bad Request response.
-
+        Each complaint is validated and recorded individually (its own history
+        entry and timestamp). The response reports success or failure
+        per-complaint, so a single bad one does not silently fail the rest —
+        an unknown ID in `complaintIds` is a per-item failure, not a `404`.
+        The frontend should show a confirmation prompt before calling this.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/BatchStatusUpdateRequest'
+              $ref: "#/components/schemas/BatchStatusUpdateRequest"
       responses:
-        '200':
-          description: Batch processed. Each complaint selected directly or via the cluster is validated independently.
+        "200":
+          description: Batch processed. Check each item's result.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BatchStatusUpdateResult'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+                $ref: "#/components/schemas/BatchStatusUpdateResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The supplied clusterId does not exist. (Unknown complaint IDs are reported per-item in the 200 response instead.)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /officer/complaints/{complaintId}/notes:
     post:
@@ -962,38 +975,38 @@ paths:
         are permanent — they cannot be edited or deleted, since they form an
         audit trail.
       parameters:
-        - $ref: '#/components/parameters/ComplaintId'
+        - $ref: "#/components/parameters/ComplaintId"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ProgressNoteRequest'
+              $ref: "#/components/schemas/ProgressNoteRequest"
       responses:
-        '201':
+        "201":
           description: Note added.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProgressNote'
-        '400':
+                $ref: "#/components/schemas/ProgressNote"
+        "400":
           description: Empty note or over 500 characters.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
           description: Notes can only be added in the IN_PROGRESS or UNDER_RESOLUTION stages.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
 
   /officer/clusters/{clusterId}/notes:
     post:
@@ -1001,9 +1014,22 @@ paths:
       operationId: addClusterProgressNote
       summary: Add a progress update to every complaint in a cluster
       description: >
-        Adds the same progress update to every complaint currently belonging
-        to the specified cluster.
-        The complaints affected are those that belong to the cluster at the time the request is processed.
+        Adds the same progress note (up to 500 characters) to every complaint
+        belonging to the cluster at the time the request is processed —
+        equivalent to posting `POST /officer/complaints/{complaintId}/notes`
+        on each member individually, with the same rules: the note appears on
+        each citizen's complaint page with the officer's ID (not name) and a
+        timestamp, and is permanent.
+
+
+        As with the single-complaint endpoint, a note can only be attached to
+        a complaint that is `IN_PROGRESS` or `UNDER_RESOLUTION`. Members in
+        any other stage are skipped; the response lists exactly the notes
+        that were created, so a skipped member is visible as a missing entry.
+        If no member is eligible, nothing is created and the request fails
+        with `409`.
+
+
         Officers may only update clusters within their assigned zone.
 
       parameters:
@@ -1018,10 +1044,20 @@ paths:
 
       responses:
         "201":
-          description: Progress note added successfully.
+          description: Notes added — one entry per complaint that received the note.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProgressNote"
 
         "400":
-          $ref: "#/components/responses/BadRequest"
+          description: Empty note or over 500 characters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -1031,6 +1067,13 @@ paths:
 
         "404":
           $ref: "#/components/responses/NotFound"
+
+        "409":
+          description: No complaint in the cluster is in the IN_PROGRESS or UNDER_RESOLUTION stage.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /officer/analytics:
     get:
@@ -2694,24 +2737,40 @@ components:
       properties:
         complaintIds:
           type: array
-          description: Explicit list of complaint IDs to update.
+          minItems: 1
+          description: >
+            Explicit list of complaint IDs to update. Exactly one of
+            complaintIds or clusterId must be supplied. Unknown IDs are
+            reported as per-item failures in the result, not a 404.
           items:
             type: string
 
         clusterId:
           type: string
           description: >
-            Update every complaint currently belonging to this cluster.
-            Exactly one of complaintIds or clusterId must be supplied.
+            Update every complaint belonging to this cluster at the time the
+            request is processed. Exactly one of complaintIds or clusterId
+            must be supplied. An unknown clusterId is a 404.
 
         status:
-          $ref: "#/components/schemas/ComplaintStatus"
+          allOf:
+            - $ref: "#/components/schemas/ComplaintStatus"
+          description: >
+            Typically UNDER_RESOLUTION for batch processing. Only legal,
+            officer-triggerable transitions are allowed — CLOSED, REJECTED,
+            and UNDER_REVIEW are reserved for citizen confirmation and
+            evidence review respectively, and are rejected per-item.
 
         reason:
           type: string
+          description: Required if the target status needs one (e.g. UNRESOLVABLE).
 
         note:
           type: string
+          description: >
+            Optional closing note when marking RESOLVED — the same note is
+            attached to every complaint in the batch. Officers who need a
+            different note per complaint should resolve those individually.
 
 
     BatchStatusUpdateResult:

@@ -871,6 +871,18 @@ paths:
 
         - `REJECTED` — turned down as fake or invalid. The complaint is closed
           as rejected, a reason is **required**, and the citizen loses 20 CSP.
+          **Only offered on a complaint's first evidence round** — i.e. one
+          that has never yet reached `UNDER_REVIEW` (`sla_started_at` is still
+          null). This call is also reached a second way: after an officer
+          later recalls an already-accepted complaint via
+          `PATCH /officer/complaints/{complaintId}/status` (see that
+          endpoint's `UNDER_REVIEW` → `NEEDS_MORE_EVIDENCE` transition) and
+          the citizen re-uploads. On that path `REJECTED` is not legal —
+          the complaint was already validated once and may be actively being
+          worked, so declaring it fake now would be a false accusation with a
+          real point penalty. Only `VALID` (resumes at `UNDER_REVIEW`) or
+          `NEEDS_MORE_EVIDENCE` (loop again) are available; requesting
+          `REJECTED` here returns `409`.
 
 
         The verdict and reason are stored on the evidence record and become part
@@ -904,7 +916,10 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: The complaint is not at the evidence-review stage.
+          description: >
+            The complaint is not at the evidence-review stage, or `REJECTED`
+            was requested on a complaint that has already passed its first
+            evidence round (see the description above).
           content:
             application/json:
               schema:
@@ -929,6 +944,14 @@ paths:
 
         - `REOPENED` → `IN_PROGRESS` (the officer picks a disputed complaint
           back up from their queue)
+
+        - `UNDER_REVIEW` → `NEEDS_MORE_EVIDENCE` (**reason required**) — the
+          officer needs a better photo before proceeding, even though the
+          complaint already passed its initial evidence check. Pauses the SLA
+          clock; the citizen re-uploads through the normal evidence flow and
+          the officer re-verdicts via evidence-review (only `VALID` or
+          `NEEDS_MORE_EVIDENCE` are available there once a complaint has
+          reached this stage — not `REJECTED`).
 
         - any active stage → `UNRESOLVABLE` (**reason required**)
 
@@ -976,7 +999,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/StatusUpdateResult"
         "400":
-          description: A reason is required for UNRESOLVABLE but was missing.
+          description: A reason is required for UNRESOLVABLE or NEEDS_MORE_EVIDENCE but was missing.
           content:
             application/json:
               schema:
@@ -1032,10 +1055,12 @@ paths:
         The same rules as `PATCH /officer/complaints/{complaintId}/status`
         apply to every item: `status` only accepts the officer-triggerable
         targets (`OfficerTargetStatus` — statuses reserved for other doors,
-        like `CLOSED` or `UNDER_REVIEW`, are a schema-level `400`), and each
-        item is still validated against the transition map from its own
-        current status (`REOPENED` → `IN_PROGRESS` is fine; `SUBMITTED` →
-        `RESOLVED` is not; `UNRESOLVABLE` requires a `reason`).
+        like `CLOSED` or the first-round-only `REJECTED`, are a schema-level
+        `400`), and each item is still validated against the transition map
+        from its own current status (`REOPENED` → `IN_PROGRESS` is fine;
+        `SUBMITTED` → `RESOLVED` is not; `UNRESOLVABLE` and
+        `NEEDS_MORE_EVIDENCE` both require a `reason`, and
+        `NEEDS_MORE_EVIDENCE` is only legal from `UNDER_REVIEW`).
 
 
         Each complaint is validated and recorded individually (its own history
@@ -2186,11 +2211,21 @@ components:
 
         - `SUBMITTED` → `EVIDENCE_UNDER_REVIEW`
 
-        - `EVIDENCE_UNDER_REVIEW` → `UNDER_REVIEW` (Valid) | `NEEDS_MORE_EVIDENCE` | `REJECTED`
+        - `EVIDENCE_UNDER_REVIEW` → `UNDER_REVIEW` (Valid) | `NEEDS_MORE_EVIDENCE` |
+          `REJECTED` (only on a complaint's first evidence round, before it
+          has ever reached `UNDER_REVIEW`)
 
-        - `NEEDS_MORE_EVIDENCE` → `EVIDENCE_UNDER_REVIEW` (citizen re-uploads)
+        - `NEEDS_MORE_EVIDENCE` → `EVIDENCE_UNDER_REVIEW` (citizen re-uploads —
+          this is the one edge shared by both the pre-acceptance loop and the
+          post-acceptance recall below)
 
         - `UNDER_REVIEW` → `IN_PROGRESS`
+
+        - `UNDER_REVIEW` → `NEEDS_MORE_EVIDENCE` (officer recalls an
+          already-accepted complaint for better evidence; **reason
+          required**; pauses the running SLA clock. The citizen re-uploads
+          the same way as above, and the officer re-verdicts — `VALID`
+          resumes at `UNDER_REVIEW`, `REJECTED` is not offered here)
 
         - `IN_PROGRESS` → `UNDER_RESOLUTION`
 
@@ -2234,17 +2269,23 @@ components:
     OfficerTargetStatus:
       type: string
       description: >
-        The only statuses an officer may target through the status and
+        The statuses an officer may target through the status and
         batch-status endpoints. Every other status is reached through its own
         dedicated door — claim (EVIDENCE_UNDER_REVIEW), evidence-review
-        (UNDER_REVIEW / NEEDS_MORE_EVIDENCE / REJECTED), citizen confirm
-        (CLOSED) and dispute (REOPENED) — so requesting one of those here is
-        a schema-level error, not just a 409.
+        (UNDER_REVIEW / REJECTED, plus NEEDS_MORE_EVIDENCE on a complaint's
+        first evidence round), citizen confirm (CLOSED) and dispute
+        (REOPENED) — so requesting one of those here is a schema-level error,
+        not just a 409. `NEEDS_MORE_EVIDENCE` is the one status reachable
+        both ways: evidence-review sets it on the first round (before
+        `UNDER_REVIEW`), and this generic status door sets it again later —
+        legal only from `UNDER_REVIEW` — when an officer needs to recall an
+        already-accepted complaint for better evidence.
       enum:
         - IN_PROGRESS
         - UNDER_RESOLUTION
         - RESOLVED
         - UNRESOLVABLE
+        - NEEDS_MORE_EVIDENCE
 
     SeverityLabel:
       type: string
@@ -2869,7 +2910,7 @@ components:
           $ref: "#/components/schemas/OfficerTargetStatus"
         reason:
           type: string
-          description: Required when moving to UNRESOLVABLE.
+          description: Required when moving to UNRESOLVABLE or NEEDS_MORE_EVIDENCE.
         note:
           type: string
           description: Optional closing note when marking RESOLVED.
@@ -2940,13 +2981,18 @@ components:
             - $ref: "#/components/schemas/OfficerTargetStatus"
           description: >
             Typically UNDER_RESOLUTION for batch processing. Statuses
-            reserved for other doors (CLOSED, REJECTED, UNDER_REVIEW, ...)
-            are not in the enum at all, and each item is still validated
-            against the transition map individually.
+            reserved for other doors (CLOSED, first-round REJECTED,
+            UNDER_REVIEW, ...) are not in the enum at all, and each item is
+            still validated against the transition map individually — e.g.
+            NEEDS_MORE_EVIDENCE only succeeds for items currently at
+            UNDER_REVIEW, letting an officer recall a batch of
+            already-accepted complaints for better evidence in one call.
 
         reason:
           type: string
-          description: Required if the target status needs one (e.g. UNRESOLVABLE).
+          description: >
+            Required if the target status needs one (UNRESOLVABLE or
+            NEEDS_MORE_EVIDENCE).
 
         note:
           type: string

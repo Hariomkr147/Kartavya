@@ -470,8 +470,12 @@ paths:
       summary: Confirm the fix (close the complaint)
       description: >
         The citizen confirms that an issue marked `RESOLVED` by the officer is
-        genuinely fixed. The complaint then moves to `CLOSED`, and the system
-        automatically credits points and checks for any newly earned badges.
+        genuinely fixed. **Only the citizen who filed this complaint may call
+        this** — anyone else gets `403`. The complaint then moves to `CLOSED`,
+        and the system automatically credits points and checks for any newly
+        earned badges. Confirming affects this complaint only: other members
+        of the same cluster stay exactly where they are until their own
+        reporters act (or the auto-close timeout fires).
 
 
         **Points:** if this complaint is standalone (no `clusterId`), or it is
@@ -479,14 +483,20 @@ paths:
         the full `COMPLAINT_CLOSED` bonus (+50). If another member of the same
         cluster already won that reward, this citizen instead gets a smaller
         `CLUSTER_MEMBER_CLOSED` consolation (+10) — the +50 is paid once per
-        cluster, not once per member. Either way, the `ON_TIME_BONUS` (+15) is
+        cluster, not once per member. Cluster rewards are also paid **at most
+        once per citizen per cluster**: if the same citizen filed several
+        complaints that were clustered together, only their first successful
+        confirm credits points — confirming their remaining duplicates still
+        closes those complaints but credits nothing, so filing duplicates
+        cannot farm rewards. Either way, the `ON_TIME_BONUS` (+15) is
         evaluated independently against **this complaint's own** SLA snapshot,
         regardless of which reward it received.
 
 
-        A complaint can only reach `CLOSED` through this confirmation (or the
-        admin-configured auto-close timeout). An officer marking it Resolved is
-        never enough on its own.
+        A complaint can only reach `CLOSED` through this confirmation or the
+        admin-configured auto-close timeout — and the timeout credits **no
+        points at all**, since nobody did the on-site verification work. An
+        officer marking it Resolved is never enough on its own.
 
 
         **Repeat calls:** this action is only valid while the complaint is in the
@@ -521,10 +531,25 @@ paths:
       operationId: disputeResolution
       summary: Dispute the fix (reopen the complaint)
       description: >
-        The citizen says a `RESOLVED` complaint is not actually fixed. A reason
-        is **required**. The complaint moves to `REOPENED` and goes back to the
-        officer's queue with the citizen's reason attached. No points are
-        credited.
+        The citizen says a `RESOLVED` complaint is not actually fixed. **Only
+        the citizen who filed this complaint may call this** — anyone else
+        gets `403`. A reason is **required**. The complaint moves to
+        `REOPENED` and goes back to the officer's queue with the citizen's
+        reason attached. No points are credited.
+
+
+        **Clusters:** disputing affects **this complaint only**, and the
+        complaint **stays in its cluster** — `clusterId` is never cleared.
+        Other members keep whatever status they have (already-`CLOSED`
+        members stay closed), so a cluster may hold members at different
+        stages; the cluster's overall state is always derived from its
+        members' statuses, never stored. When the officer re-fixes the issue
+        — by working this reopened complaint directly (`REOPENED` →
+        `IN_PROGRESS` → … → `RESOLVED`), or by resolving any other still-open
+        member, whose cascade then returns this one to `RESOLVED` too — the
+        citizen is simply asked to confirm again. Because membership is
+        permanent, the one-time +50 cluster reward can never be re-fired by
+        this dispute-and-refix loop.
 
 
         **Repeat calls:** valid only while the complaint is in the `RESOLVED`
@@ -791,6 +816,44 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /officer/complaints/{complaintId}/claim:
+    post:
+      tags: [Officer]
+      operationId: claimComplaint
+      summary: Pick up a submitted complaint for evidence review
+      description: >
+        The officer picks a `SUBMITTED` complaint from their zone queue to
+        start working on it. The complaint moves to `EVIDENCE_UNDER_REVIEW`
+        and `assignedOfficerId` is set to the calling officer, so the queue
+        shows other officers it is taken. This is the **only door** out of
+        `SUBMITTED`: the evidence-review endpoint requires the complaint to
+        already be at `EVIDENCE_UNDER_REVIEW`, and the generic status
+        endpoint does not accept this transition. No request body — claiming
+        is the whole action.
+      parameters:
+        - $ref: "#/components/parameters/ComplaintId"
+      responses:
+        "200":
+          description: Complaint claimed and moved to EVIDENCE_UNDER_REVIEW.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplaintDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: >
+            The complaint is not in the SUBMITTED stage — most likely another
+            officer already claimed it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /officer/complaints/{complaintId}/evidence-review:
     post:
       tags: [Officer]
@@ -877,13 +940,23 @@ paths:
 
         **Cluster cascade:** if this complaint belongs to a cluster, moving it
         to `RESOLVED` automatically cascades every other member of the same
-        cluster to `RESOLVED` too — recorded as its own `status_history` entry
-        per complaint with actor `SYSTEM`. This is the only automatic cascade
-        in the system; no other status transition propagates across a cluster
-        on its own. To move a cluster through an earlier stage together (e.g.
-        `UNDER_RESOLUTION`), or to resolve only part of a cluster, use
-        `POST /officer/complaints/batch-status` instead — see that endpoint
-        for how it relates to this cascade.
+        cluster to `RESOLVED` too — every member that has passed evidence
+        review (`UNDER_REVIEW`, `IN_PROGRESS`, `UNDER_RESOLUTION`), including
+        previously disputed members sitting in `REOPENED` — recorded as its
+        own `status_history` entry per complaint with actor `SYSTEM`. Members
+        the move is not legal for are **skipped, never forced**: anything
+        already terminal (`CLOSED`, `REJECTED`, `UNRESOLVABLE`), already
+        `RESOLVED`, or still in the evidence phase (`SUBMITTED`,
+        `EVIDENCE_UNDER_REVIEW`, `NEEDS_MORE_EVIDENCE` — the evidence gate is
+        never bypassed; those members keep going through review individually)
+        keeps its status. The response's `cascade` array reports the outcome
+        (`CASCADED` or `SKIPPED`) for every other member, so the officer sees
+        exactly what moved. This is
+        the only automatic cascade in the system; no other status transition
+        propagates across a cluster on its own. To move a cluster through an
+        earlier stage together (e.g. `UNDER_RESOLUTION`), or to resolve only
+        part of a cluster, use `POST /officer/complaints/batch-status`
+        instead — see that endpoint for how it relates to this cascade.
       parameters:
         - $ref: "#/components/parameters/ComplaintId"
       requestBody:
@@ -894,11 +967,14 @@ paths:
               $ref: "#/components/schemas/StatusUpdateRequest"
       responses:
         "200":
-          description: Status updated; a new history entry was recorded.
+          description: >
+            Status updated; a new history entry was recorded. When the update
+            set a clustered complaint to RESOLVED, `cascade` reports the
+            outcome for every other member of the cluster.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ComplaintDetail"
+                $ref: "#/components/schemas/StatusUpdateResult"
         "400":
           description: A reason is required for UNRESOLVABLE but was missing.
           content:
@@ -949,24 +1025,26 @@ paths:
         batches an arbitrary list that spans multiple clusters or no cluster
         at all. Calling this with `clusterId` and `status: RESOLVED` after the
         cascade has already resolved some members is safe: those members just
-        come back as an "invalid transition" failure for that item, same as
-        any other already-terminal complaint in a batch.
+        come back as a per-item failure with `errorCode: INVALID_TRANSITION`,
+        same as any other already-terminal complaint in a batch.
 
 
         The same rules as `PATCH /officer/complaints/{complaintId}/status`
-        apply to every item: only legal, officer-triggerable transitions are
-        allowed (`IN_PROGRESS`, `UNDER_RESOLUTION`, `RESOLVED`, `REOPENED` →
-        `IN_PROGRESS`, or any active stage → `UNRESOLVABLE` with a reason).
-        Targets reserved for other actors — `CLOSED` (citizen confirmation
-        only), `REJECTED`/`UNDER_REVIEW` (evidence-review only) — are rejected
-        per-item, the same as an illegal single-item transition.
+        apply to every item: `status` only accepts the officer-triggerable
+        targets (`OfficerTargetStatus` — statuses reserved for other doors,
+        like `CLOSED` or `UNDER_REVIEW`, are a schema-level `400`), and each
+        item is still validated against the transition map from its own
+        current status (`REOPENED` → `IN_PROGRESS` is fine; `SUBMITTED` →
+        `RESOLVED` is not; `UNRESOLVABLE` requires a `reason`).
 
 
         Each complaint is validated and recorded individually (its own history
-        entry and timestamp). The response reports success or failure
-        per-complaint, so a single bad one does not silently fail the rest —
-        an unknown ID in `complaintIds` is a per-item failure, not a `404`.
-        The frontend should show a confirmation prompt before calling this.
+        entry and timestamp), and the whole batch is processed in a single
+        transaction. The response reports success or failure per-complaint
+        with a machine-readable `errorCode`, so a single bad item does not
+        silently fail the rest — an unknown ID in `complaintIds` is a
+        per-item `UNKNOWN_COMPLAINT` failure, not a `404`. The frontend
+        should show a confirmation prompt before calling this.
       requestBody:
         required: true
         content:
@@ -1627,7 +1705,8 @@ paths:
       description: >
         Updates system-wide settings. The main one here is
         `autoCloseTimeoutHours` — how long a `RESOLVED` complaint waits for the
-        citizen to respond before it auto-closes.
+        citizen to respond before it auto-closes. An auto-close credits no
+        points; only an explicit citizen confirm does.
       requestBody:
         required: true
         content:
@@ -2117,11 +2196,25 @@ components:
 
         - `UNDER_RESOLUTION` → `RESOLVED`
 
-        - `RESOLVED` → `CLOSED` (citizen confirms) | `REOPENED` (citizen disputes)
+        - `RESOLVED` → `CLOSED` (citizen confirms, or the auto-close timeout
+          fires as `SYSTEM` — the timeout credits no points) | `REOPENED`
+          (citizen disputes)
 
         - `REOPENED` → `IN_PROGRESS`
 
         - any active stage (`UNDER_REVIEW`, `IN_PROGRESS`, `UNDER_RESOLUTION`) → `UNRESOLVABLE`
+
+
+        **`SYSTEM`-only exception — the cluster cascade:** when one member of
+        a cluster reaches `RESOLVED`, every other member that has already
+        passed evidence review (`UNDER_REVIEW`, `IN_PROGRESS`,
+        `UNDER_RESOLUTION`, or `REOPENED`) is moved straight to `RESOLVED`
+        with actor `SYSTEM`. This is the only place a complaint may skip
+        intermediate stages; no user-triggered endpoint can. Members still in
+        the evidence phase (`SUBMITTED`, `EVIDENCE_UNDER_REVIEW`,
+        `NEEDS_MORE_EVIDENCE`) are never cascaded — their photos still need a
+        verdict, so the evidence gate (and its `REJECTED` penalty) cannot be
+        bypassed by riding a cluster resolution.
 
 
         `REJECTED`, `CLOSED`, and `UNRESOLVABLE` are terminal.
@@ -2136,6 +2229,21 @@ components:
         - RESOLVED
         - CLOSED
         - REOPENED
+        - UNRESOLVABLE
+
+    OfficerTargetStatus:
+      type: string
+      description: >
+        The only statuses an officer may target through the status and
+        batch-status endpoints. Every other status is reached through its own
+        dedicated door — claim (EVIDENCE_UNDER_REVIEW), evidence-review
+        (UNDER_REVIEW / NEEDS_MORE_EVIDENCE / REJECTED), citizen confirm
+        (CLOSED) and dispute (REOPENED) — so requesting one of those here is
+        a schema-level error, not just a 409.
+      enum:
+        - IN_PROGRESS
+        - UNDER_RESOLUTION
+        - RESOLVED
         - UNRESOLVABLE
 
     SeverityLabel:
@@ -2758,7 +2866,7 @@ components:
       required: [status]
       properties:
         status:
-          $ref: "#/components/schemas/ComplaintStatus"
+          $ref: "#/components/schemas/OfficerTargetStatus"
         reason:
           type: string
           description: Required when moving to UNRESOLVABLE.
@@ -2766,19 +2874,53 @@ components:
           type: string
           description: Optional closing note when marking RESOLVED.
 
+    StatusUpdateResult:
+      type: object
+      required: [complaint]
+      properties:
+        complaint:
+          $ref: "#/components/schemas/ComplaintDetail"
+        cascade:
+          type: array
+          description: >
+            Present only when this update set a clustered complaint to
+            RESOLVED — one entry per other member of the cluster. CASCADED
+            members were moved to RESOLVED with their own SYSTEM history
+            entry; SKIPPED members were left untouched because the move is
+            not legal for them (already terminal, already RESOLVED, or still
+            in the evidence phase). Absent for standalone complaints and for
+            every non-RESOLVED update.
+          items:
+            type: object
+            required: [complaintId, outcome, previousStatus]
+            properties:
+              complaintId:
+                type: string
+              outcome:
+                type: string
+                enum: [CASCADED, SKIPPED]
+              previousStatus:
+                $ref: "#/components/schemas/ComplaintStatus"
+
     BatchStatusUpdateRequest:
       type: object
       required:
         - status
+      oneOf:
+        - required: [complaintIds]
+        - required: [clusterId]
 
       properties:
         complaintIds:
           type: array
           minItems: 1
+          maxItems: 100
           description: >
             Explicit list of complaint IDs to update. Exactly one of
-            complaintIds or clusterId must be supplied. Unknown IDs are
-            reported as per-item failures in the result, not a 404.
+            complaintIds or clusterId must be supplied — the oneOf above
+            enforces it, so both or neither fails schema validation (400).
+            Unknown IDs are reported as per-item failures in the result, not
+            a 404.
           items:
             type: string
 
@@ -2787,16 +2929,20 @@ components:
           description: >
             Update every complaint belonging to this cluster at the time the
             request is processed. Exactly one of complaintIds or clusterId
-            must be supplied. An unknown clusterId is a 404.
+            must be supplied (enforced by the oneOf above). An unknown
+            clusterId is a 404. Clusters are zone-scoped, but every member is
+            still zone-checked individually — a member whose zone was later
+            changed by an admin override fails per-item with NOT_IN_ZONE
+            instead of being silently updated.
 
         status:
           allOf:
-            - $ref: "#/components/schemas/ComplaintStatus"
+            - $ref: "#/components/schemas/OfficerTargetStatus"
           description: >
-            Typically UNDER_RESOLUTION for batch processing. Only legal,
-            officer-triggerable transitions are allowed — CLOSED, REJECTED,
-            and UNDER_REVIEW are reserved for citizen confirmation and
-            evidence review respectively, and are rejected per-item.
+            Typically UNDER_RESOLUTION for batch processing. Statuses
+            reserved for other doors (CLOSED, REJECTED, UNDER_REVIEW, ...)
+            are not in the enum at all, and each item is still validated
+            against the transition map individually.
 
         reason:
           type: string
@@ -2809,6 +2955,15 @@ components:
             attached to every complaint in the batch. Officers who need a
             different note per complaint should resolve those individually.
 
+
+    TransitionFailureCode:
+      type: string
+      description: Machine-readable reason a per-item status update failed.
+      enum:
+        - INVALID_TRANSITION   # not legal from the complaint's current status
+        - NOT_IN_ZONE          # outside the calling officer's assigned zone
+        - UNKNOWN_COMPLAINT    # no complaint with this ID exists
+        - REASON_REQUIRED      # the target status needs a reason and none was given
 
     BatchStatusUpdateResult:
       type: object
@@ -2827,13 +2982,27 @@ components:
                   - $ref: "#/components/schemas/ComplaintStatus"
                 nullable: true
                 description: The new status if it succeeded.
-              error:
+              previousStatus:
+                allOf:
+                  - $ref: "#/components/schemas/ComplaintStatus"
+                nullable: true
+                description: >
+                  The status the complaint held before this batch. Also set
+                  on failures (except UNKNOWN_COMPLAINT), so the officer can
+                  see why an item was refused without a second lookup.
+              errorCode:
+                allOf:
+                  - $ref: "#/components/schemas/TransitionFailureCode"
+                nullable: true
+                description: Machine-readable failure reason; null on success.
+              errorMessage:
                 type: string
                 nullable: true
-                description: Why it failed (e.g. "invalid transition", "not in your zone").
+                description: Human-readable detail (e.g. "CLOSED is terminal").
             required: [complaintId, success]
         summary:
           type: object
+          required: [requested, succeeded, failed]
           properties:
             requested:
               type: integer
@@ -2841,7 +3010,7 @@ components:
               type: integer
             failed:
               type: integer
-      required: [results]
+      required: [results, summary]
 
     ProgressNoteRequest:
       type: object
@@ -3238,6 +3407,22 @@ components:
 
     Cluster:
       type: object
+      description: >
+        A group of nearby same-category complaints treated as one physical
+        issue. The cluster itself has no status — its state is always derived
+        from its members' statuses (see statusSummary), never stored.
+      required:
+        - id
+        - zoneId
+        - category
+        - reportCount
+        - uniqueReporterCount
+        - severityScore
+        - severityLabel
+        - statusSummary
+        - centroidLat
+        - centroidLng
+        - createdAt
 
       properties:
         id:
@@ -3249,11 +3434,43 @@ components:
         category:
           $ref: "#/components/schemas/Category"
 
-        complaintCount:
+        reportCount:
           type: integer
+          description: >
+            Total member complaints — may include several filed by the same
+            citizen.
+
+        uniqueReporterCount:
+          type: integer
+          description: >
+            Distinct citizens in the cluster. This — not reportCount — drives
+            severity, so one person filing repeatedly cannot inflate urgency.
+
+        severityScore:
+          type: integer
+          description: (uniqueReporterCount - 1) * 3 + total upvotes across members.
 
         severityLabel:
           $ref: "#/components/schemas/SeverityLabel"
+
+        statusSummary:
+          type: object
+          description: >
+            Derived on read, never stored. Maps each ComplaintStatus present
+            among the members to how many members currently hold it, e.g.
+            {"RESOLVED": 3, "CLOSED": 2, "REOPENED": 1}. Statuses no member
+            holds are omitted. This is the only representation of "cluster
+            state" — there is deliberately no status field on the cluster.
+          additionalProperties:
+            type: integer
+
+        centroidLat:
+          type: number
+          format: float
+
+        centroidLng:
+          type: number
+          format: float
 
         createdAt:
           type: string
@@ -3264,14 +3481,19 @@ components:
         - $ref: "#/components/schemas/Cluster"
 
         - type: object
+          required: [complaints]
           properties:
             complaints:
               type: array
+              description: >
+                All current members. Uses the same anonymized Complaint shape
+                as everywhere else — reporter identity is never included.
               items:
                 $ref: "#/components/schemas/Complaint"
 
     ClusterListResponse:
       type: object
+      required: [data, pagination]
 
       properties:
         data:

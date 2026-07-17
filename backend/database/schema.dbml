@@ -96,7 +96,7 @@ Enum status_actor {
 
 Enum points_reason {
   COMPLAINT_CLOSED       // +50, first citizen in a cluster (or a standalone reporter) to confirm
-  CLUSTER_MEMBER_CLOSED  // +10, other cluster members who confirm after the +50 is already granted
+  CLUSTER_MEMBER_CLOSED  // +10, other cluster members who confirm after the +50 is already granted; at most one cluster reward per citizen per cluster
   FIRST_COMPLAINT        // +10
   ON_TIME_BONUS          // +15
   UPVOTE_RECEIVED        // +5
@@ -206,10 +206,10 @@ Table complaint_clusters {
   Note: '''
     Nearby same-category complaints (Haversine, ~50-100 m) are linked into one cluster. Replaces ML clustering, which is out of scope. Cluster lifecycle rules:
       * SEVERITY counts distinct citizens (unique_reporter_count), not raw rows.
-      * RESOLUTION cascades: when the officer resolves the shared issue, all members move to RESOLVED together (SYSTEM-actor entries in status_history).
+      * RESOLUTION cascades: when the officer resolves the shared issue, every member that has passed evidence review (UNDER_REVIEW / IN_PROGRESS / UNDER_RESOLUTION / REOPENED) moves to RESOLVED together (SYSTEM-actor entries in status_history). Members are skipped, never forced: already-terminal (CLOSED / REJECTED / UNRESOLVABLE), already-RESOLVED, and evidence-phase members (SUBMITTED / EVIDENCE_UNDER_REVIEW / NEEDS_MORE_EVIDENCE) keep their status — the evidence gate is never bypassed by riding a cluster resolution.
       * CONFIRMATION is per-complaint: each citizen confirms or disputes their own.
-      * DISPUTE reopens ONLY that member. The disputed complaint detaches from the cluster (cluster_id set to null) and is then handled individually; the other members stay CLOSED.
-      * REWARD is one-time per cluster (reward_granted): the +50 COMPLAINT_CLOSED bonus goes to whichever member's confirm() is first to succeed — first-to-confirm, not first-to-report. Every other member who later confirms their own complaint gets +10 CLUSTER_MEMBER_CLOSED instead. Never re-fired by a later dispute/refix.
+      * DISPUTE reopens ONLY that member, and the member STAYS in the cluster — cluster_id is never cleared. Other members keep their own statuses (CLOSED stays CLOSED), so a cluster can hold members at mixed stages; cluster state is always derived from member statuses, never stored. When the issue is re-fixed, the cascade picks the REOPENED member back up.
+      * REWARD is one-time per cluster (reward_granted): the +50 COMPLAINT_CLOSED bonus goes to whichever member's confirm() is first to succeed — first-to-confirm, not first-to-report. Every other member who later confirms their own complaint gets +10 CLUSTER_MEMBER_CLOSED instead. Cluster rewards are also paid at most once per CITIZEN per cluster: a citizen who filed several member complaints is paid only on their first successful confirm — confirming their remaining duplicates closes them with no points, so duplicate filing cannot farm rewards. Never re-fired by a later dispute/refix (membership is permanent, so a disputed-and-refixed member can never masquerade as a standalone +50).
       * ON_TIME_BONUS is independent of the cluster reward — each complaint carries its own sla_target_hours/sla_started_at snapshot, so a member who only gets CLUSTER_MEMBER_CLOSED can still separately earn +15 if their own complaint met its own SLA.
   '''
 }
@@ -220,8 +220,8 @@ Table complaints {
   citizen_id           int               [not null, note: 'Reporter. Hidden from officers and from the public feed.']
   zone_id              int               [not null, note: 'Snapshotted from the citizen-confirmed zone at submit time; never recomputed. Can be admin-overridden. Because it is a snapshot, later zone moves/renames cannot alter old complaints.']
   category_id          int               [not null]
-  cluster_id           int               [note: 'Set if linked to nearby duplicates. Cleared (set null) if this complaint is disputed after a cluster resolution — it then detaches and is handled on its own.']
-  assigned_officer_id  int               [note: 'Current handling officer (API assignedOfficerId). Null until an officer picks it up. Also cleared back to null (app logic, not an FK delete rule) on every one of this officer\'s non-terminal complaints when they are reassigned to a different zone — otherwise the complaint would stay "assigned" to someone who can no longer see it, since officer visibility is zone-scoped.']
+  cluster_id           int               [note: 'Set if linked to nearby duplicates. Never cleared by a dispute — membership is permanent, so a disputed-and-refixed member still counts as part of its cluster when the one-time +50 reward guard is checked.']
+  assigned_officer_id  int               [note: 'Current handling officer (API assignedOfficerId). Null until an officer picks it up via POST /officer/complaints/{id}/claim — the only door for SUBMITTED -> EVIDENCE_UNDER_REVIEW, which sets this in the same step. Also cleared back to null (app logic, not an FK delete rule) on every one of this officer\'s non-terminal complaints when they are reassigned to a different zone — otherwise the complaint would stay "assigned" to someone who can no longer see it, since officer visibility is zone-scoped.']
 
   description          text              [note: 'Optional — a citizen may pick a category manually without typing. Matches the API (description not required).']
   category_ai_suggested boolean          [not null, default: false, note: 'Whether the chosen category came from the AI suggestion (analytics only).']
@@ -343,7 +343,7 @@ Table points_ledger {
     (citizen_id, created_at)
   }
 
-  Note: 'Append-only CSP ledger. Lifetime total = SUM(points_change); monthly total = SUM where created_at in the month. No stored total, so nothing can drift. Clustered complaints: the +50 COMPLAINT_CLOSED reward is paid ONCE per cluster (guarded by complaint_clusters.reward_granted) to whichever member confirms first; every other member who later confirms gets +10 CLUSTER_MEMBER_CLOSED instead — never zero, never the full +50 twice, and never re-fired by a later dispute/refix. ON_TIME_BONUS is unaffected by this and is evaluated per-complaint for every member independently.'
+  Note: 'Append-only CSP ledger. Lifetime total = SUM(points_change); monthly total = SUM where created_at in the month. No stored total, so nothing can drift. Clustered complaints: the +50 COMPLAINT_CLOSED reward is paid ONCE per cluster (guarded by complaint_clusters.reward_granted, an atomic test-and-set inside the same transaction as the CLOSED write) to whichever member confirms first; every other member who later confirms gets +10 CLUSTER_MEMBER_CLOSED instead — never the full +50 twice, never re-fired by a later dispute/refix (dispute does not detach the member), and paid at most once per citizen per cluster: confirming your own additional duplicates closes them but credits nothing. Auto-close on timeout credits no points at all — rewards flow only through an explicit confirm. ON_TIME_BONUS is unaffected by this and is evaluated per-complaint for every member independently.'
 }
 
 Table badges {
@@ -398,7 +398,7 @@ Table ai_zone_reports {
 
 Table app_settings {
   id                      int      [pk, note: 'Single-row table; always id = 1.']
-  auto_close_timeout_hours int     [not null, default: 168, note: 'How long a RESOLVED complaint waits for citizen confirmation before auto-closing.']
+  auto_close_timeout_hours int     [not null, default: 168, note: 'How long a RESOLVED complaint waits for citizen confirmation before auto-closing. An auto-close credits no points — the confirm rewards require an explicit citizen confirm.']
   updated_by              int      [note: 'Admin who last changed settings.']
   updated_at              datetime [not null, default: `now()`]
 

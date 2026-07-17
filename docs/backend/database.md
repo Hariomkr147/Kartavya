@@ -333,11 +333,12 @@ Citizen B files another Pothole complaint 60 metres away.
 → The app finds the existing cluster (Haversine distance < 100 m) → links B's complaint to it → `report_count` and `unique_reporter_count` both become 2 → both complaints' `severity_score` updates to `(2-1) × 3 = 3`.
 
 ### Cluster reward distribution
-When the officer resolves the shared issue, every member cascades to `RESOLVED` together (a `SYSTEM`-actor `status_history` entry per complaint). Confirmation is still per-complaint — each citizen confirms or disputes only their own:
+When the officer resolves the shared issue, every member that has passed evidence review cascades to `RESOLVED` together (a `SYSTEM`-actor `status_history` entry per complaint); members that are already terminal, already `RESOLVED`, or still in the evidence phase are skipped, never forced. Confirmation is still per-complaint — each citizen confirms or disputes only their own:
 - The **first** citizen whose confirmation succeeds wins the full `COMPLAINT_CLOSED` bonus (+50), and `reward_granted` flips to `true`.
 - Every other citizen who confirms afterward gets `CLUSTER_MEMBER_CLOSED` (+10) instead — their complaint still closes normally, they just don't get the full reward a second time.
+- Cluster rewards are paid **at most once per citizen per cluster**: a citizen who filed several member complaints is paid only on their first successful confirm — confirming their remaining duplicates closes them with no points, so duplicate filing cannot farm rewards.
 - `ON_TIME_BONUS` (+15) is unaffected by any of this — it's evaluated per-complaint against that complaint's own `sla_target_hours`/`sla_started_at`, so a citizen who only gets +10 can still separately earn the on-time bonus.
-- If a citizen disputes instead of confirming, only their complaint detaches from the cluster (`cluster_id` set to `null`) and is handled individually from then on; it never re-fires `reward_granted` even if later re-closed.
+- If a citizen disputes instead of confirming, only their complaint reopens — and it **stays in the cluster** (`cluster_id` is never cleared). The other members keep their statuses, and when the issue is re-fixed the cascade picks the reopened member back up. Because membership is permanent, `reward_granted` is never re-fired by a dispute-and-refix loop.
 
 ---
 

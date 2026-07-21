@@ -257,8 +257,8 @@ paths:
       summary: File a new complaint
       description: >
         A citizen files a complaint by choosing one of the 12 categories,
-        uploading a single photo (JPEG or PNG, max 5 MB), and sharing a location
-        (latitude/longitude).
+        uploading 1 to 3 photos (JPEG or PNG, max 5 MB each), and sharing a
+        location (latitude/longitude).
 
 
         On submission the server automatically:
@@ -268,8 +268,11 @@ paths:
 
         - sets the status to `SUBMITTED`,
 
-        - kicks off AI photo pre-screening in the background (non-blocking — the
-          confidence note is attached to the evidence record when it is ready),
+        - stores each photo as its own evidence record (`sequence` 1, 2, 3…)
+          and kicks off AI photo pre-screening for each one independently in
+          the background (non-blocking — each confidence note is attached to
+          its evidence record when ready; an officer's evidence-review
+          verdict still applies once, to the whole round, not per photo),
 
         - checks for nearby open complaints of the same category (Haversine,
           ~50–100 m) and links them into a cluster, recomputing severity.
@@ -2686,7 +2689,7 @@ components:
 
     CreateComplaintRequest:
       type: object
-      required: [categoryId, photo, latitude, longitude, zoneId]
+      required: [categoryId, photos, latitude, longitude, zoneId]
       properties:
         categoryId:
           type: string
@@ -2695,10 +2698,17 @@ components:
         description:
           type: string
           description: Free-text description of the issue.
-        photo:
-          type: string
-          format: binary
-          description: JPEG or PNG, max 5 MB.
+        photos:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items:
+            type: string
+            format: binary
+          description: >
+            1 to 3 photos (JPEG or PNG, max 5 MB each). Each becomes its own
+            evidence record (`sequence` 1, 2, 3…) with its own independent AI
+            pre-screening note.
         latitude:
           type: number
           format: double

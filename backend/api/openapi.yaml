@@ -56,8 +56,8 @@ info:
     lists needed to fill the registration form).
 
   contact:
-    name: Kartavya Backend Team
-    url: https://github.com/
+    name: Kartavya Project Manager (Shreyan)
+    url: https://github.com/thethinkmachine/
 
 servers:
   - url: /api/v1
@@ -80,6 +80,8 @@ tags:
     description: Zone-scoped actions for officers — queue, evidence review, status changes, progress notes, zone analytics.
   - name: Admin
     description: Cross-zone management — users, SLAs, analytics, AI reports, CSV export, overrides, settings.
+  - name: Shared
+    description: Operations available to both officers and administrators.
   - name: Gamification
     description: Citizen points, badges, and leaderboards.
   - name: AI
@@ -92,7 +94,6 @@ security:
   - bearerAuth: []
 
 paths:
-
   # ---------------------------------------------------------------------------
   # AUTHENTICATION
   # ---------------------------------------------------------------------------
@@ -116,22 +117,22 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RegisterRequest'
+              $ref: "#/components/schemas/RegisterRequest"
       responses:
-        '201':
+        "201":
           description: Citizen account created. A token is returned so the user is logged in immediately.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '409':
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
           description: An account with this email already exists.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
 
   /auth/login:
     post:
@@ -148,22 +149,22 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/LoginRequest'
+              $ref: "#/components/schemas/LoginRequest"
       responses:
-        '200':
+        "200":
           description: Login successful.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
           description: Wrong email/password, or the account is deactivated.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
 
   # ---------------------------------------------------------------------------
   # REFERENCE DATA (public)
@@ -182,14 +183,14 @@ paths:
         current value — so it doubles as the "read SLA targets" endpoint.
       security: []
       responses:
-        '200':
+        "200":
           description: The category list.
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Category'
+                  $ref: "#/components/schemas/Category"
 
   /zones:
     get:
@@ -202,14 +203,14 @@ paths:
         has a token.
       security: []
       responses:
-        '200':
+        "200":
           description: The list of zones.
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Zone'
+                  $ref: "#/components/schemas/Zone"
 
   /zones/suggest:
     post:
@@ -232,18 +233,18 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ZoneSuggestionRequest'
+              $ref: "#/components/schemas/ZoneSuggestionRequest"
       responses:
-        '200':
+        "200":
           description: The nearest zone (or null if none could be determined).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ZoneSuggestionResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
+                $ref: "#/components/schemas/ZoneSuggestionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   # ---------------------------------------------------------------------------
   # COMPLAINTS (citizen-facing)
@@ -281,28 +282,28 @@ paths:
         content:
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/CreateComplaintRequest'
+              $ref: "#/components/schemas/CreateComplaintRequest"
       responses:
-        '201':
+        "201":
           description: Complaint created and routed to a zone.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ComplaintDetail'
-        '400':
+                $ref: "#/components/schemas/ComplaintDetail"
+        "400":
           description: Missing required field, wrong file type/size, or a submitted zoneId that doesn't exist or is deactivated.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
           description: Only citizens can file complaints.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
 
   /complaints/my:
     get:
@@ -316,9 +317,9 @@ paths:
         the citizen needs to act (for example, "officer asked for more evidence"
         or "please confirm the fix").
       parameters:
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
-        - $ref: '#/components/parameters/Sort'
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Sort"
         - name: status
           in: query
           description: Optional filter by one or more statuses.
@@ -326,7 +327,7 @@ paths:
           schema:
             type: array
             items:
-              $ref: '#/components/schemas/ComplaintStatus'
+              $ref: "#/components/schemas/ComplaintStatus"
         - name: categoryId
           in: query
           description: Optional filter by category.
@@ -334,14 +335,14 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: The citizen's complaints.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ComplaintListResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
+                $ref: "#/components/schemas/ComplaintListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /complaints/{complaintId}:
     get:
@@ -363,20 +364,20 @@ paths:
 
         - **Admin** — any complaint, with full detail including the reporter.
       parameters:
-        - $ref: '#/components/parameters/ComplaintId'
+        - $ref: "#/components/parameters/ComplaintId"
       responses:
-        '200':
+        "200":
           description: The complaint.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ComplaintDetail'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
+                $ref: "#/components/schemas/ComplaintDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /complaints/{complaintId}/evidence:
     post:
@@ -390,38 +391,38 @@ paths:
         again. The old photo is kept as well — both are retained in the evidence
         history. AI re-screening runs again in the background on the new photo.
       parameters:
-        - $ref: '#/components/parameters/ComplaintId'
+        - $ref: "#/components/parameters/ComplaintId"
       requestBody:
         required: true
         content:
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/SubmitEvidenceRequest'
+              $ref: "#/components/schemas/SubmitEvidenceRequest"
       responses:
-        '201':
+        "201":
           description: New evidence accepted; complaint returned to evidence review.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ComplaintDetail'
-        '400':
+                $ref: "#/components/schemas/ComplaintDetail"
+        "400":
           description: Wrong file type or size.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
           description: The complaint is not in the NEEDS_MORE_EVIDENCE stage, so extra evidence cannot be added right now.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
 
   /complaints/{complaintId}/upvote:
     post:
@@ -437,30 +438,30 @@ paths:
         severity label), and credits +5 CSP to the citizen who originally filed
         it.
       parameters:
-        - $ref: '#/components/parameters/ComplaintId'
+        - $ref: "#/components/parameters/ComplaintId"
       responses:
-        '200':
+        "200":
           description: Upvote recorded. Returns the new upvote count and severity label.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UpvoteResult'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
+                $ref: "#/components/schemas/UpvoteResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
           description: You cannot upvote your own complaint, or a complaint outside your zone.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
           description: You have already upvoted this complaint, or it is already closed.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
 
   /complaints/{complaintId}/confirm:
     post:
@@ -469,8 +470,12 @@ paths:
       summary: Confirm the fix (close the complaint)
       description: >
         The citizen confirms that an issue marked `RESOLVED` by the officer is
-        genuinely fixed. The complaint then moves to `CLOSED`, and the system
-        automatically credits points and checks for any newly earned badges.
+        genuinely fixed. **Only the citizen who filed this complaint may call
+        this** — anyone else gets `403`. The complaint then moves to `CLOSED`,
+        and the system automatically credits points and checks for any newly
+        earned badges. Confirming affects this complaint only: other members
+        of the same cluster stay exactly where they are until their own
+        reporters act (or the auto-close timeout fires).
 
 
         **Points:** if this complaint is standalone (no `clusterId`), or it is
@@ -478,14 +483,20 @@ paths:
         the full `COMPLAINT_CLOSED` bonus (+50). If another member of the same
         cluster already won that reward, this citizen instead gets a smaller
         `CLUSTER_MEMBER_CLOSED` consolation (+10) — the +50 is paid once per
-        cluster, not once per member. Either way, the `ON_TIME_BONUS` (+15) is
+        cluster, not once per member. Cluster rewards are also paid **at most
+        once per citizen per cluster**: if the same citizen filed several
+        complaints that were clustered together, only their first successful
+        confirm credits points — confirming their remaining duplicates still
+        closes those complaints but credits nothing, so filing duplicates
+        cannot farm rewards. Either way, the `ON_TIME_BONUS` (+15) is
         evaluated independently against **this complaint's own** SLA snapshot,
         regardless of which reward it received.
 
 
-        A complaint can only reach `CLOSED` through this confirmation (or the
-        admin-configured auto-close timeout). An officer marking it Resolved is
-        never enough on its own.
+        A complaint can only reach `CLOSED` through this confirmation or the
+        admin-configured auto-close timeout — and the timeout credits **no
+        points at all**, since nobody did the on-site verification work. An
+        officer marking it Resolved is never enough on its own.
 
 
         **Repeat calls:** this action is only valid while the complaint is in the
@@ -493,26 +504,26 @@ paths:
         `CLOSED` returns `409` (it is no longer awaiting confirmation), so the
         action is safe against accidental double-submits.
       parameters:
-        - $ref: '#/components/parameters/ComplaintId'
+        - $ref: "#/components/parameters/ComplaintId"
       responses:
-        '200':
+        "200":
           description: Complaint closed; points and badges updated.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ComplaintDetail'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
+                $ref: "#/components/schemas/ComplaintDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
           description: The complaint is not in the RESOLVED stage, so it cannot be confirmed.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
 
   /complaints/{complaintId}/dispute:
     post:
@@ -520,48 +531,75 @@ paths:
       operationId: disputeResolution
       summary: Dispute the fix (reopen the complaint)
       description: >
-        The citizen says a `RESOLVED` complaint is not actually fixed. A reason
-        is **required**. The complaint moves to `REOPENED` and goes back to the
-        officer's queue with the citizen's reason attached. No points are
-        credited.
+        The citizen says a `RESOLVED` complaint is not actually fixed. **Only
+        the citizen who filed this complaint may call this** — anyone else
+        gets `403`. A reason **and a fresh photo are both required** — the
+        burden of proof is on the citizen, the same as when the complaint was
+        first filed. The photo is appended to the complaint's evidence
+        history (next `sequence`); it is not routed through an officer's
+        evidence-review verdict. The complaint moves to `REOPENED` and goes
+        back to the queue with the citizen's reason and photo attached. No
+        points are credited.
+
+
+        **Review:** unlike the original complaint, an officer can no longer
+        pick a `REOPENED` complaint back up directly. An admin renders a
+        verdict via `POST /admin/complaints/{complaintId}/dispute-review`
+        first — only if the dispute is upheld does it return to the officer's
+        queue (`IN_PROGRESS`); if rejected, it goes straight to `CLOSED` with
+        no points credited, same as an auto-close.
+
+
+        **Clusters:** disputing affects **this complaint only**, and the
+        complaint **stays in its cluster** — `clusterId` is never cleared.
+        Other members keep whatever status they have (already-`CLOSED`
+        members stay closed), so a cluster may hold members at different
+        stages; the cluster's overall state is always derived from its
+        members' statuses, never stored. When the officer re-fixes the issue
+        after an admin upholds the dispute — by working this complaint
+        directly (`IN_PROGRESS` → … → `RESOLVED`), or by resolving any other
+        still-open member, whose cascade then returns this one to `RESOLVED`
+        too — the citizen is simply asked to confirm again. Because
+        membership is permanent, the one-time +50 cluster reward can never be
+        re-fired by this dispute-and-refix loop.
 
 
         **Repeat calls:** valid only while the complaint is in the `RESOLVED`
         stage. Once it has moved to `REOPENED`, a second dispute returns `409`,
         protecting against accidental double-submits.
       parameters:
-        - $ref: '#/components/parameters/ComplaintId'
+        - $ref: "#/components/parameters/ComplaintId"
       requestBody:
         required: true
         content:
-          application/json:
+          multipart/form-data:
             schema:
-              $ref: '#/components/schemas/DisputeRequest'
+              $ref: "#/components/schemas/DisputeRequest"
       responses:
-        '200':
-          description: Complaint reopened and returned to the officer.
+        "200":
+          description: Complaint reopened, evidence attached, and queued for an admin's dispute-review verdict.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ComplaintDetail'
-        '400':
-          description: Missing reason.
+                $ref: "#/components/schemas/ComplaintDetail"
+        "400":
+          description: Missing reason or photo, or wrong file type/size.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
           description: The complaint is not in the RESOLVED stage, so it cannot be disputed.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
 
   # ---------------------------------------------------------------------------
   # PUBLIC FEED (citizen)
@@ -602,24 +640,136 @@ paths:
           required: false
           schema:
             type: string
-        - $ref: '#/components/parameters/Sort'
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
       responses:
-        '200':
+        "200":
           description: Anonymized feed for the zone.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/FeedListResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
+                $ref: "#/components/schemas/FeedListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
           description: Only citizens can browse the feed, or a citizen requested a zone that is not theirs.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
+
+# ---------------------------------------------------------------------------
+# SHARED (Admin + Officer)
+# ---------------------------------------------------------------------------
+
+  /clusters:
+    get:
+      tags: [Shared]
+      operationId: getClusters
+      summary: Get clusters
+
+      description: >
+        Returns complaint clusters.
+
+        Admins receive clusters across every zone.
+
+        Officers receive only clusters belonging to their assigned zone.
+
+      parameters:
+        - name: zoneId
+          in: query
+          required: false
+          description: Admin only.
+          schema:
+            type: string
+
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+
+      responses:
+        "200":
+          description: Cluster list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClusterListResponse"
+
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /clusters/{clusterId}:
+    get:
+      tags: [Shared]
+      operationId: getClusterById
+
+      summary: Get one cluster
+
+      description: >
+        Returns a cluster together with all complaints currently
+        belonging to it.
+
+        Officers may only access clusters in their assigned zone.
+
+        Admins may access any cluster.
+
+      parameters:
+        - $ref: "#/components/parameters/ClusterId"
+
+      responses:
+        "200":
+          description: Cluster details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClusterDetail"
+
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /zones/{zoneId}/summary:
+    get:
+      tags: [Shared]
+      operationId: getZoneSummary
+
+      summary: Get zone summary
+
+      description: >
+        Returns summary information for a zone, including complaint,
+        cluster and status counts.
+
+        Officers may request only their assigned zone.
+
+        Admins may request any zone.
+
+      parameters:
+        - $ref: "#/components/parameters/ZoneId"
+
+      responses:
+        "200":
+          description: Zone summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ZoneSummary"
+
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # ---------------------------------------------------------------------------
   # OFFICER
@@ -647,7 +797,7 @@ paths:
           schema:
             type: array
             items:
-              $ref: '#/components/schemas/ComplaintStatus'
+              $ref: "#/components/schemas/ComplaintStatus"
         - name: categoryId
           in: query
           required: false
@@ -657,26 +807,64 @@ paths:
           in: query
           required: false
           schema:
-            $ref: '#/components/schemas/SlaLabel'
+            $ref: "#/components/schemas/SlaLabel"
         - name: severityLabel
           in: query
           required: false
           schema:
-            $ref: '#/components/schemas/SeverityLabel'
-        - $ref: '#/components/parameters/Sort'
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
+            $ref: "#/components/schemas/SeverityLabel"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
       responses:
-        '200':
+        "200":
           description: The officer's zone queue.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ComplaintListResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+                $ref: "#/components/schemas/ComplaintListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /officer/complaints/{complaintId}/claim:
+    post:
+      tags: [Officer]
+      operationId: claimComplaint
+      summary: Pick up a submitted complaint for evidence review
+      description: >
+        The officer picks a `SUBMITTED` complaint from their zone queue to
+        start working on it. The complaint moves to `EVIDENCE_UNDER_REVIEW`
+        and `assignedOfficerId` is set to the calling officer, so the queue
+        shows other officers it is taken. This is the **only door** out of
+        `SUBMITTED`: the evidence-review endpoint requires the complaint to
+        already be at `EVIDENCE_UNDER_REVIEW`, and the generic status
+        endpoint does not accept this transition. No request body — claiming
+        is the whole action.
+      parameters:
+        - $ref: "#/components/parameters/ComplaintId"
+      responses:
+        "200":
+          description: Complaint claimed and moved to EVIDENCE_UNDER_REVIEW.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplaintDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: >
+            The complaint is not in the SUBMITTED stage — most likely another
+            officer already claimed it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /officer/complaints/{complaintId}/evidence-review:
     post:
@@ -695,44 +883,59 @@ paths:
 
         - `REJECTED` — turned down as fake or invalid. The complaint is closed
           as rejected, a reason is **required**, and the citizen loses 20 CSP.
+          **Only offered on a complaint's first evidence round** — i.e. one
+          that has never yet reached `UNDER_REVIEW` (`sla_started_at` is still
+          null). This call is also reached a second way: after an officer
+          later recalls an already-accepted complaint via
+          `PATCH /officer/complaints/{complaintId}/status` (see that
+          endpoint's `UNDER_REVIEW` → `NEEDS_MORE_EVIDENCE` transition) and
+          the citizen re-uploads. On that path `REJECTED` is not legal —
+          the complaint was already validated once and may be actively being
+          worked, so declaring it fake now would be a false accusation with a
+          real point penalty. Only `VALID` (resumes at `UNDER_REVIEW`) or
+          `NEEDS_MORE_EVIDENCE` (loop again) are available; requesting
+          `REJECTED` here returns `409`.
 
 
         The verdict and reason are stored on the evidence record and become part
         of the permanent history. The AI confidence note (if any) is advisory
         only — the officer's verdict always wins.
       parameters:
-        - $ref: '#/components/parameters/ComplaintId'
+        - $ref: "#/components/parameters/ComplaintId"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EvidenceReviewRequest'
+              $ref: "#/components/schemas/EvidenceReviewRequest"
       responses:
-        '200':
+        "200":
           description: Verdict recorded and the complaint moved accordingly.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ComplaintDetail'
-        '400':
+                $ref: "#/components/schemas/ComplaintDetail"
+        "400":
           description: A reason is required for NEEDS_MORE_EVIDENCE and REJECTED but was missing.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          description: The complaint is not at the evidence-review stage.
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: >
+            The complaint is not at the evidence-review stage, or `REJECTED`
+            was requested on a complaint that has already passed its first
+            evidence round (see the description above).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
 
   /officer/complaints/{complaintId}/status:
     patch:
@@ -751,95 +954,165 @@ paths:
 
         - `UNDER_RESOLUTION` → `RESOLVED` (optionally with a closing note)
 
-        - `REOPENED` → `IN_PROGRESS` (the officer picks a disputed complaint
-          back up from their queue)
+        - `UNDER_REVIEW` → `NEEDS_MORE_EVIDENCE` (**reason required**) — the
+          officer needs a better photo before proceeding, even though the
+          complaint already passed its initial evidence check. Pauses the SLA
+          clock; the citizen re-uploads through the normal evidence flow and
+          the officer re-verdicts via evidence-review (only `VALID` or
+          `NEEDS_MORE_EVIDENCE` are available there once a complaint has
+          reached this stage — not `REJECTED`).
 
         - any active stage → `UNRESOLVABLE` (**reason required**)
 
 
         Marking `RESOLVED` does **not** close the complaint — the citizen must
         still confirm. An illegal jump (e.g. `SUBMITTED` → `RESOLVED`) is
-        rejected with 409.
+        rejected with 409. A `REOPENED` complaint **cannot** be moved through
+        this endpoint at all, by any officer — it must first go through
+        `POST /admin/complaints/{complaintId}/dispute-review`, which is the
+        only door out of `REOPENED`.
+
+
+        **Cluster cascade:** if this complaint belongs to a cluster, moving it
+        to `RESOLVED` automatically cascades every other member of the same
+        cluster to `RESOLVED` too — every member that has passed evidence
+        review and is not awaiting a dispute verdict (`UNDER_REVIEW`,
+        `IN_PROGRESS`, `UNDER_RESOLUTION`) — recorded as its own
+        `status_history` entry per complaint with actor `SYSTEM`. Members
+        the move is not legal for are **skipped, never forced**: anything
+        already terminal (`CLOSED`, `REJECTED`, `UNRESOLVABLE`), already
+        `RESOLVED`, still in the evidence phase (`SUBMITTED`,
+        `EVIDENCE_UNDER_REVIEW`, `NEEDS_MORE_EVIDENCE` — the evidence gate is
+        never bypassed; those members keep going through review individually),
+        or currently `REOPENED` (a pending dispute is never bypassed either —
+        the complaint keeps waiting for an explicit admin verdict via
+        `POST /admin/complaints/{complaintId}/dispute-review` no matter what
+        happens elsewhere in the cluster) keeps its status. The response's
+        `cascade` array reports the outcome (`CASCADED` or `SKIPPED`) for
+        every other member, so the officer sees exactly what moved. This is
+        the only automatic cascade in the system; no other status transition
+        propagates across a cluster on its own. To move a cluster through an
+        earlier stage together (e.g. `UNDER_RESOLUTION`), or to resolve only
+        part of a cluster, use `POST /officer/complaints/batch-status`
+        instead — see that endpoint for how it relates to this cascade.
       parameters:
-        - $ref: '#/components/parameters/ComplaintId'
+        - $ref: "#/components/parameters/ComplaintId"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/StatusUpdateRequest'
+              $ref: "#/components/schemas/StatusUpdateRequest"
       responses:
-        '200':
-          description: Status updated; a new history entry was recorded.
+        "200":
+          description: >
+            Status updated; a new history entry was recorded. When the update
+            set a clustered complaint to RESOLVED, `cascade` reports the
+            outcome for every other member of the cluster.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ComplaintDetail'
-        '400':
-          description: A reason is required for UNRESOLVABLE but was missing.
+                $ref: "#/components/schemas/StatusUpdateResult"
+        "400":
+          description: A reason is required for UNRESOLVABLE or NEEDS_MORE_EVIDENCE but was missing.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
           description: That status change is not allowed from the current stage.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
 
   /officer/complaints/batch-status:
     post:
       tags: [Officer]
       operationId: batchUpdateStatus
-      summary: Move several complaints at once
+      summary: Apply the same status update to multiple complaints
       description: >
-        Lets an officer move many complaints to the same status in one action —
-        for example, sending a whole street of pothole reports to
-        `UNDER_RESOLUTION` together after monsoon damage.
+        Lets an officer apply the same status transition to multiple
+        complaints in one action — for example, sending a whole street of
+        pothole reports to `UNDER_RESOLUTION` together after monsoon damage.
+
+
+        The target complaints may be selected in one of two ways:
+
+        - provide `complaintIds` to update an explicit list of complaints.
+
+        - provide `clusterId` to update every complaint belonging to that
+          cluster at the time the request is processed.
+
+        Exactly one of `complaintIds` or `clusterId` must be supplied —
+        both or neither is a `400`.
+
+
+        **Relationship to the cluster cascade:** only the `RESOLVED` transition
+        cascades automatically (see `PATCH /officer/complaints/{complaintId}/status`)
+        — no other stage does. This endpoint is how an officer batch-moves a
+        cluster through an earlier stage together (e.g. sending it to
+        `UNDER_RESOLUTION` as a group), or picks a specific subset of a
+        cluster's complaints via `complaintIds` instead of all of them, or
+        batches an arbitrary list that spans multiple clusters or no cluster
+        at all. Calling this with `clusterId` and `status: RESOLVED` after the
+        cascade has already resolved some members is safe: those members just
+        come back as a per-item failure with `errorCode: INVALID_TRANSITION`,
+        same as any other already-terminal complaint in a batch.
 
 
         The same rules as `PATCH /officer/complaints/{complaintId}/status`
-        apply to every item: only legal, officer-triggerable transitions are
-        allowed (`IN_PROGRESS`, `UNDER_RESOLUTION`, `RESOLVED`, `REOPENED` →
-        `IN_PROGRESS`, or any active stage → `UNRESOLVABLE` with a reason).
-        Targets reserved for other actors — `CLOSED` (citizen confirmation
-        only), `REJECTED`/`UNDER_REVIEW` (evidence-review only) — are rejected
-        per-item, the same as an illegal single-item transition. `RESOLVED` is
-        allowed in a batch, but unlike the single-item endpoint there is no way
-        to attach a per-complaint closing `note` — officers who need one should
-        resolve that complaint individually instead.
+        apply to every item: `status` only accepts the officer-triggerable
+        targets (`OfficerTargetStatus` — statuses reserved for other doors,
+        like `CLOSED` or the first-round-only `REJECTED`, are a schema-level
+        `400`), and each item is still validated against the transition map
+        from its own current status (`SUBMITTED` → `RESOLVED` is not legal;
+        `UNRESOLVABLE` and `NEEDS_MORE_EVIDENCE` both require a `reason`, and
+        `NEEDS_MORE_EVIDENCE` is only legal from `UNDER_REVIEW`). A complaint
+        currently `REOPENED` fails every item in this batch with
+        `errorCode: INVALID_TRANSITION` — like the single-item endpoint, this
+        door never accepts `REOPENED` as a source status; only
+        `POST /admin/complaints/{complaintId}/dispute-review` can move it.
 
 
         Each complaint is validated and recorded individually (its own history
-        entry and timestamp). The response reports success or failure
-        per-complaint, so a single bad one does not silently fail the rest. The
-        frontend should show a confirmation prompt before calling this.
+        entry and timestamp), and the whole batch is processed in a single
+        transaction. The response reports success or failure per-complaint
+        with a machine-readable `errorCode`, so a single bad item does not
+        silently fail the rest — an unknown ID in `complaintIds` is a
+        per-item `UNKNOWN_COMPLAINT` failure, not a `404`. The frontend
+        should show a confirmation prompt before calling this.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/BatchStatusUpdateRequest'
+              $ref: "#/components/schemas/BatchStatusUpdateRequest"
       responses:
-        '200':
+        "200":
           description: Batch processed. Check each item's result.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BatchStatusUpdateResult'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+                $ref: "#/components/schemas/BatchStatusUpdateResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The supplied clusterId does not exist. (Unknown complaint IDs are reported per-item in the 200 response instead.)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /officer/complaints/{complaintId}/notes:
     post:
@@ -853,38 +1126,105 @@ paths:
         are permanent — they cannot be edited or deleted, since they form an
         audit trail.
       parameters:
-        - $ref: '#/components/parameters/ComplaintId'
+        - $ref: "#/components/parameters/ComplaintId"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ProgressNoteRequest'
+              $ref: "#/components/schemas/ProgressNoteRequest"
       responses:
-        '201':
+        "201":
           description: Note added.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProgressNote'
-        '400':
+                $ref: "#/components/schemas/ProgressNote"
+        "400":
           description: Empty note or over 500 characters.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
           description: Notes can only be added in the IN_PROGRESS or UNDER_RESOLUTION stages.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
+
+  /officer/clusters/{clusterId}/notes:
+    post:
+      tags: [Officer]
+      operationId: addClusterProgressNote
+      summary: Add a progress update to every complaint in a cluster
+      description: >
+        Adds the same progress note (up to 500 characters) to every complaint
+        belonging to the cluster at the time the request is processed —
+        equivalent to posting `POST /officer/complaints/{complaintId}/notes`
+        on each member individually, with the same rules: the note appears on
+        each citizen's complaint page with the officer's ID (not name) and a
+        timestamp, and is permanent.
+
+
+        As with the single-complaint endpoint, a note can only be attached to
+        a complaint that is `IN_PROGRESS` or `UNDER_RESOLUTION`. Members in
+        any other stage are skipped; the response lists exactly the notes
+        that were created, so a skipped member is visible as a missing entry.
+        If no member is eligible, nothing is created and the request fails
+        with `409`.
+
+
+        Officers may only update clusters within their assigned zone.
+
+      parameters:
+        - $ref: "#/components/parameters/ClusterId"
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProgressNoteRequest"
+
+      responses:
+        "201":
+          description: Notes added — one entry per complaint that received the note.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProgressNote"
+
+        "400":
+          description: Empty note or over 500 characters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+        "409":
+          description: No complaint in the cluster is in the IN_PROGRESS or UNDER_RESOLUTION stage.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /officer/analytics:
     get:
@@ -896,19 +1236,19 @@ paths:
         overdue count, average resolution time this month, and a breakdown by
         category. The officer cannot see other zones or admin-level metrics.
       parameters:
-        - $ref: '#/components/parameters/DateFrom'
-        - $ref: '#/components/parameters/DateTo'
+        - $ref: "#/components/parameters/DateFrom"
+        - $ref: "#/components/parameters/DateTo"
       responses:
-        '200':
+        "200":
           description: Zone analytics.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ZoneAnalytics'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+                $ref: "#/components/schemas/ZoneAnalytics"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   # ---------------------------------------------------------------------------
   # OFFICER (public stats for citizens)
@@ -924,18 +1264,18 @@ paths:
         total number of complaints they have resolved (like a delivery app
         rating). No personal details, no performance breakdown.
       parameters:
-        - $ref: '#/components/parameters/OfficerId'
+        - $ref: "#/components/parameters/OfficerId"
       responses:
-        '200':
+        "200":
           description: Public officer stats.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PublicOfficerStats'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
+                $ref: "#/components/schemas/PublicOfficerStats"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # ---------------------------------------------------------------------------
   # ADMIN — complaints
@@ -967,28 +1307,28 @@ paths:
           schema:
             type: array
             items:
-              $ref: '#/components/schemas/ComplaintStatus'
+              $ref: "#/components/schemas/ComplaintStatus"
         - name: slaLabel
           in: query
           required: false
           schema:
-            $ref: '#/components/schemas/SlaLabel'
-        - $ref: '#/components/parameters/DateFrom'
-        - $ref: '#/components/parameters/DateTo'
-        - $ref: '#/components/parameters/Sort'
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
+            $ref: "#/components/schemas/SlaLabel"
+        - $ref: "#/components/parameters/DateFrom"
+        - $ref: "#/components/parameters/DateTo"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
       responses:
-        '200':
+        "200":
           description: Filtered complaints.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ComplaintListResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+                $ref: "#/components/schemas/ComplaintListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /admin/complaints/{complaintId}:
     patch:
@@ -1011,28 +1351,97 @@ paths:
         would have set — so `slaLabel` stays meaningful immediately after the
         override.
       parameters:
-        - $ref: '#/components/parameters/ComplaintId'
+        - $ref: "#/components/parameters/ComplaintId"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ComplaintOverrideRequest'
+              $ref: "#/components/schemas/ComplaintOverrideRequest"
       responses:
-        '200':
+        "200":
           description: Complaint updated.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ComplaintDetail'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
+                $ref: "#/components/schemas/ComplaintDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /admin/complaints/{complaintId}/dispute-review:
+    post:
+      tags: [Admin]
+      operationId: reviewDispute
+      summary: Rule on a citizen's dispute
+      description: >
+        Renders the verdict on a `REOPENED` complaint — the **only** door out
+        of `REOPENED`. An officer can no longer move a disputed complaint
+        themselves; this endpoint is admin-only.
+
+
+        - `UPHELD` — the citizen was right, the fix didn't hold. The
+          complaint returns to `IN_PROGRESS`, back in the same officer's
+          queue.
+
+        - `REJECTED` — the original resolution stands. The complaint moves
+          straight to `CLOSED`. **No points are credited** — same as an
+          auto-close timeout — so a citizen cannot use a losing dispute to
+          manufacture a second shot at the confirm reward they gave up by
+          disputing instead of confirming.
+
+
+        A `reason` is always required and is recorded on the `status_history`
+        entry as the admin's justification. The citizen's dispute reason and
+        photo (submitted with `POST /complaints/{complaintId}/dispute`) are
+        available on the complaint's evidence history for the admin to weigh.
+
+
+        This transition never cascades — only a move to `RESOLVED` cascades a
+        cluster (see `PATCH /officer/complaints/{complaintId}/status`).
+      parameters:
+        - $ref: "#/components/parameters/ComplaintId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DisputeReviewRequest"
+      responses:
+        "200":
+          description: Verdict recorded and the complaint moved accordingly.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplaintDetail"
+        "400":
+          description: Missing verdict or reason.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: >
+            The complaint is not currently `REOPENED` — most likely it was
+            already ruled on. (A cluster cascade can never cause this: a
+            `REOPENED` complaint is always skipped by the cascade, precisely
+            so a pending dispute is never swept aside without an admin
+            verdict.)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   # ---------------------------------------------------------------------------
   # ADMIN — users
@@ -1049,7 +1458,7 @@ paths:
           in: query
           required: false
           schema:
-            $ref: '#/components/schemas/Role'
+            $ref: "#/components/schemas/Role"
         - name: zoneId
           in: query
           required: false
@@ -1060,19 +1469,19 @@ paths:
           required: false
           schema:
             type: boolean
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
       responses:
-        '200':
+        "200":
           description: The user list.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserListResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+                $ref: "#/components/schemas/UserListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     post:
       tags: [Admin]
       operationId: createUser
@@ -1086,26 +1495,26 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateUserRequest'
+              $ref: "#/components/schemas/CreateUserRequest"
       responses:
-        '201':
+        "201":
           description: Account created.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/User'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
           description: An account with this email already exists.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
 
   /admin/users/{userId}:
     get:
@@ -1113,20 +1522,20 @@ paths:
       operationId: getUserById
       summary: Get one user
       parameters:
-        - $ref: '#/components/parameters/UserId'
+        - $ref: "#/components/parameters/UserId"
       responses:
-        '200':
+        "200":
           description: The user.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/User'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     patch:
       tags: [Admin]
       operationId: updateUser
@@ -1144,34 +1553,34 @@ paths:
         covers that zone, rather than staying stuck with someone who can no
         longer see them.
       parameters:
-        - $ref: '#/components/parameters/UserId'
+        - $ref: "#/components/parameters/UserId"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpdateUserRequest'
+              $ref: "#/components/schemas/UpdateUserRequest"
       responses:
-        '200':
+        "200":
           description: User updated.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/User'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
           description: The new email is already taken by another account.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
     delete:
       tags: [Admin]
       operationId: deleteUser
@@ -1183,22 +1592,22 @@ paths:
         will be refused. This endpoint is intended only for truly empty/test
         accounts.
       parameters:
-        - $ref: '#/components/parameters/UserId'
+        - $ref: "#/components/parameters/UserId"
       responses:
-        '204':
+        "204":
           description: User deleted (no content).
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
           description: This account has linked records and cannot be hard-deleted. Deactivate it instead.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
 
   # ---------------------------------------------------------------------------
   # ADMIN — zones, SLAs, settings
@@ -1218,26 +1627,26 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateZoneRequest'
+              $ref: "#/components/schemas/CreateZoneRequest"
       responses:
-        '201':
+        "201":
           description: Zone created.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Zone'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
+                $ref: "#/components/schemas/Zone"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
           description: A zone with this code already exists.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
 
   /admin/zones/{zoneId}:
     patch:
@@ -1252,28 +1661,28 @@ paths:
         history. Moving a zone's centre is deliberately not offered here, because
         existing complaints keep their originally assigned zone regardless.
       parameters:
-        - $ref: '#/components/parameters/ZoneId'
+        - $ref: "#/components/parameters/ZoneId"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpdateZoneRequest'
+              $ref: "#/components/schemas/UpdateZoneRequest"
       responses:
-        '200':
+        "200":
           description: Zone updated.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Zone'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
+                $ref: "#/components/schemas/Zone"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     delete:
       tags: [Admin]
       operationId: deleteZone
@@ -1289,22 +1698,22 @@ paths:
         This endpoint exists mainly to clean up zones created by mistake,
         before real citizens have registered against them.
       parameters:
-        - $ref: '#/components/parameters/ZoneId'
+        - $ref: "#/components/parameters/ZoneId"
       responses:
-        '204':
+        "204":
           description: Zone deleted (no content).
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
           description: The zone has complaints, assigned officers, or citizens whose home zone is this one (or it is the catch-all) and cannot be deleted. Deactivate it instead.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
 
   /admin/zones/{zoneId}/assign-officer:
     post:
@@ -1319,32 +1728,32 @@ paths:
         has `assignedOfficerId` cleared back to `null`, the same as
         `PATCH /admin/users/{userId}`.
       parameters:
-        - $ref: '#/components/parameters/ZoneId'
+        - $ref: "#/components/parameters/ZoneId"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AssignOfficerRequest'
+              $ref: "#/components/schemas/AssignOfficerRequest"
       responses:
-        '200':
+        "200":
           description: Officer assigned to the zone.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/User'
-        '400':
+                $ref: "#/components/schemas/User"
+        "400":
           description: The user is not an officer, or the officer/zone does not exist.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /admin/slas/{categoryId}:
     patch:
@@ -1357,32 +1766,32 @@ paths:
         already in progress keep the target they started with. Minimum 1 hour.
         To read current targets, use `GET /categories`.
       parameters:
-        - $ref: '#/components/parameters/CategoryId'
+        - $ref: "#/components/parameters/CategoryId"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SlaUpdateRequest'
+              $ref: "#/components/schemas/SlaUpdateRequest"
       responses:
-        '200':
+        "200":
           description: SLA target updated.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Category'
-        '400':
+                $ref: "#/components/schemas/Category"
+        "400":
           description: Target below the 1-hour minimum, or zero/negative.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /admin/settings:
     get:
@@ -1391,16 +1800,16 @@ paths:
       summary: Get system settings
       description: Returns adjustable system-wide settings, such as the auto-close timeout.
       responses:
-        '200':
+        "200":
           description: Current settings.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Settings'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+                $ref: "#/components/schemas/Settings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     patch:
       tags: [Admin]
       operationId: updateSettings
@@ -1408,26 +1817,27 @@ paths:
       description: >
         Updates system-wide settings. The main one here is
         `autoCloseTimeoutHours` — how long a `RESOLVED` complaint waits for the
-        citizen to respond before it auto-closes.
+        citizen to respond before it auto-closes. An auto-close credits no
+        points; only an explicit citizen confirm does.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/Settings'
+              $ref: "#/components/schemas/Settings"
       responses:
-        '200':
+        "200":
           description: Settings updated.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Settings'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+                $ref: "#/components/schemas/Settings"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   # ---------------------------------------------------------------------------
   # ADMIN — analytics, officer performance, AI report, export
@@ -1444,16 +1854,16 @@ paths:
         complaints, the top 3 citizens by points in each zone, and a
         severity heatmap grid. Always reflects the current database state.
       responses:
-        '200':
+        "200":
           description: System analytics.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SystemAnalytics'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+                $ref: "#/components/schemas/SystemAnalytics"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /admin/officers/{officerId}/performance:
     get:
@@ -1467,7 +1877,7 @@ paths:
         are not penalised for things outside their control. Filterable by time
         period.
       parameters:
-        - $ref: '#/components/parameters/OfficerId'
+        - $ref: "#/components/parameters/OfficerId"
         - name: period
           in: query
           description: Convenience window for the stats.
@@ -1476,21 +1886,21 @@ paths:
             type: string
             enum: [this_month, last_month, all_time]
             default: this_month
-        - $ref: '#/components/parameters/DateFrom'
-        - $ref: '#/components/parameters/DateTo'
+        - $ref: "#/components/parameters/DateFrom"
+        - $ref: "#/components/parameters/DateTo"
       responses:
-        '200':
+        "200":
           description: Officer performance summary.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/OfficerPerformance'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
+                $ref: "#/components/schemas/OfficerPerformance"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /admin/zones/{zoneId}/ai-report:
     post:
@@ -1509,20 +1919,20 @@ paths:
         `FAILED` and `aiAvailable: false`, and the rest of the dashboard keeps
         working.
       parameters:
-        - $ref: '#/components/parameters/ZoneId'
+        - $ref: "#/components/parameters/ZoneId"
       responses:
-        '202':
+        "202":
           description: Report generation started.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AiZoneReport'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
+                $ref: "#/components/schemas/AiZoneReport"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     get:
       tags: [Admin]
       operationId: getAiZoneReport
@@ -1533,24 +1943,24 @@ paths:
         produced, its status is `PENDING`; once ready it is `READY` with the full
         text.
       parameters:
-        - $ref: '#/components/parameters/ZoneId'
+        - $ref: "#/components/parameters/ZoneId"
       responses:
-        '200':
+        "200":
           description: The stored report (may still be PENDING).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AiZoneReport'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
+                $ref: "#/components/schemas/AiZoneReport"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
           description: No report has ever been generated for this zone.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
 
   /admin/export/complaints:
     get:
@@ -1579,26 +1989,26 @@ paths:
           schema:
             type: array
             items:
-              $ref: '#/components/schemas/ComplaintStatus'
+              $ref: "#/components/schemas/ComplaintStatus"
         - name: slaLabel
           in: query
           required: false
           schema:
-            $ref: '#/components/schemas/SlaLabel'
-        - $ref: '#/components/parameters/DateFrom'
-        - $ref: '#/components/parameters/DateTo'
+            $ref: "#/components/schemas/SlaLabel"
+        - $ref: "#/components/parameters/DateFrom"
+        - $ref: "#/components/parameters/DateTo"
       responses:
-        '200':
+        "200":
           description: A CSV file.
           content:
             text/csv:
               schema:
                 type: string
                 format: binary
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   # ---------------------------------------------------------------------------
   # GAMIFICATION
@@ -1614,17 +2024,17 @@ paths:
         paged ledger of every points change (so the total is always auditable
         and never a single editable number).
       parameters:
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
       responses:
-        '200':
+        "200":
           description: Points summary and ledger.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PointsSummary'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
+                $ref: "#/components/schemas/PointsSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /gamification/badges:
     get:
@@ -1633,16 +2043,16 @@ paths:
       summary: Get my badges
       description: Returns the badges the citizen has earned, each with the date earned.
       responses:
-        '200':
+        "200":
           description: Earned badges.
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Badge'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
+                  $ref: "#/components/schemas/Badge"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /leaderboard:
     get:
@@ -1671,23 +2081,23 @@ paths:
             type: string
             enum: [monthly, all_time]
             default: monthly
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
       responses:
-        '200':
+        "200":
           description: Leaderboard rankings.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LeaderboardResponse'
-        '400':
+                $ref: "#/components/schemas/LeaderboardResponse"
+        "400":
           description: Missing or invalid scope.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   # ---------------------------------------------------------------------------
   # AI
@@ -1714,29 +2124,28 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CategorySuggestionRequest'
+              $ref: "#/components/schemas/CategorySuggestionRequest"
       responses:
-        '200':
+        "200":
           description: A suggestion (or a clean "unavailable" response).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CategorySuggestionResponse'
-        '400':
+                $ref: "#/components/schemas/CategorySuggestionResponse"
+        "400":
           description: Empty description.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
 # =============================================================================
 # COMPONENTS
 # =============================================================================
 
 components:
-
   securitySchemes:
     bearerAuth:
       type: http
@@ -1801,6 +2210,12 @@ components:
       required: true
       schema:
         type: string
+    ClusterId:
+      name: clusterId
+      in: path
+      required: true
+      schema:
+        type: string
     UserId:
       name: userId
       in: path
@@ -1835,31 +2250,30 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: "#/components/schemas/Error"
     Unauthorized:
       description: No valid token was provided.
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: "#/components/schemas/Error"
     Forbidden:
       description: You are authenticated but not allowed to do this (wrong role or wrong zone).
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: "#/components/schemas/Error"
     NotFound:
       description: The requested resource does not exist.
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: "#/components/schemas/Error"
 
   # ---------------------------------------------------------------------------
   # Schemas
   # ---------------------------------------------------------------------------
   schemas:
-
     # ---- Shared enums ----
 
     Role:
@@ -1884,21 +2298,53 @@ components:
 
         - `SUBMITTED` → `EVIDENCE_UNDER_REVIEW`
 
-        - `EVIDENCE_UNDER_REVIEW` → `UNDER_REVIEW` (Valid) | `NEEDS_MORE_EVIDENCE` | `REJECTED`
+        - `EVIDENCE_UNDER_REVIEW` → `UNDER_REVIEW` (Valid) | `NEEDS_MORE_EVIDENCE` |
+          `REJECTED` (only on a complaint's first evidence round, before it
+          has ever reached `UNDER_REVIEW`)
 
-        - `NEEDS_MORE_EVIDENCE` → `EVIDENCE_UNDER_REVIEW` (citizen re-uploads)
+        - `NEEDS_MORE_EVIDENCE` → `EVIDENCE_UNDER_REVIEW` (citizen re-uploads —
+          this is the one edge shared by both the pre-acceptance loop and the
+          post-acceptance recall below)
 
         - `UNDER_REVIEW` → `IN_PROGRESS`
+
+        - `UNDER_REVIEW` → `NEEDS_MORE_EVIDENCE` (officer recalls an
+          already-accepted complaint for better evidence; **reason
+          required**; pauses the running SLA clock. The citizen re-uploads
+          the same way as above, and the officer re-verdicts — `VALID`
+          resumes at `UNDER_REVIEW`, `REJECTED` is not offered here)
 
         - `IN_PROGRESS` → `UNDER_RESOLUTION`
 
         - `UNDER_RESOLUTION` → `RESOLVED`
 
-        - `RESOLVED` → `CLOSED` (citizen confirms) | `REOPENED` (citizen disputes)
+        - `RESOLVED` → `CLOSED` (citizen confirms, or the auto-close timeout
+          fires as `SYSTEM` — the timeout credits no points) | `REOPENED`
+          (citizen disputes; a reason and a fresh photo are both required)
 
-        - `REOPENED` → `IN_PROGRESS`
+        - `REOPENED` → `IN_PROGRESS` (dispute upheld) | `CLOSED` (dispute
+          rejected — **no points credited**, same as an auto-close). Both are
+          **admin-only**, rendered via
+          `POST /admin/complaints/{complaintId}/dispute-review` — no officer
+          endpoint, single or batch, and no cluster cascade, can move a
+          complaint out of `REOPENED`.
 
         - any active stage (`UNDER_REVIEW`, `IN_PROGRESS`, `UNDER_RESOLUTION`) → `UNRESOLVABLE`
+
+
+        **`SYSTEM`-only exception — the cluster cascade:** when one member of
+        a cluster reaches `RESOLVED`, every other member that has already
+        passed evidence review (`UNDER_REVIEW`, `IN_PROGRESS`,
+        `UNDER_RESOLUTION`) is moved straight to `RESOLVED` with actor
+        `SYSTEM`. This is the only place a complaint may skip intermediate
+        stages; no user-triggered endpoint can. Members still in the
+        evidence phase (`SUBMITTED`, `EVIDENCE_UNDER_REVIEW`,
+        `NEEDS_MORE_EVIDENCE`) are never cascaded — their photos still need a
+        verdict, so the evidence gate (and its `REJECTED` penalty) cannot be
+        bypassed by riding a cluster resolution. A `REOPENED` member is never
+        cascaded either, for the same reason: a pending dispute always waits
+        for an explicit admin verdict, never swept along by an unrelated
+        sibling's resolution.
 
 
         `REJECTED`, `CLOSED`, and `UNRESOLVABLE` are terminal.
@@ -1915,6 +2361,31 @@ components:
         - REOPENED
         - UNRESOLVABLE
 
+    OfficerTargetStatus:
+      type: string
+      description: >
+        The statuses an officer may target through the status and
+        batch-status endpoints. Every other status is reached through its own
+        dedicated door — claim (EVIDENCE_UNDER_REVIEW), evidence-review
+        (UNDER_REVIEW / REJECTED, plus NEEDS_MORE_EVIDENCE on a complaint's
+        first evidence round), citizen confirm (CLOSED), citizen dispute
+        (REOPENED), and the admin's dispute-review verdict (IN_PROGRESS or
+        CLOSED **from `REOPENED` specifically**) — so requesting one of those
+        here is a schema-level error, not just a 409. `NEEDS_MORE_EVIDENCE` is
+        the one status reachable both ways: evidence-review sets it on the
+        first round (before `UNDER_REVIEW`), and this generic status door
+        sets it again later — legal only from `UNDER_REVIEW` — when an
+        officer needs to recall an already-accepted complaint for better
+        evidence. `IN_PROGRESS` itself stays a normal officer-reachable
+        target, but only from `UNDER_REVIEW` — an officer can no longer reach
+        it from `REOPENED`; that source status is admin-only.
+      enum:
+        - IN_PROGRESS
+        - UNDER_RESOLUTION
+        - RESOLVED
+        - UNRESOLVABLE
+        - NEEDS_MORE_EVIDENCE
+
     SeverityLabel:
       type: string
       description: Auto-calculated from nearby reports and upvotes. Officers can see it but not change it.
@@ -1928,6 +2399,17 @@ components:
     EvidenceVerdict:
       type: string
       enum: [VALID, NEEDS_MORE_EVIDENCE, REJECTED]
+
+    DisputeVerdict:
+      type: string
+      description: >
+        The admin's ruling on a citizen's dispute. Deliberately a separate
+        enum from `EvidenceVerdict` — an admin adjudicating a dispute and an
+        officer judging a photo are different reviewers making different
+        calls, and reusing one vocabulary for both would blur that.
+      enum:
+        - UPHELD
+        - REJECTED
 
     # ---- Error ----
 
@@ -2023,7 +2505,7 @@ components:
           type: string
           example: Bearer
         user:
-          $ref: '#/components/schemas/User'
+          $ref: "#/components/schemas/User"
       required: [token, tokenType, user]
 
     # ---- User ----
@@ -2036,7 +2518,7 @@ components:
           type: string
           example: user_1001
         role:
-          $ref: '#/components/schemas/Role'
+          $ref: "#/components/schemas/Role"
         name:
           type: string
           example: Asha Verma
@@ -2195,7 +2677,7 @@ components:
       properties:
         suggestedZone:
           allOf:
-            - $ref: '#/components/schemas/Zone'
+            - $ref: "#/components/schemas/Zone"
           nullable: true
           description: The closest active zone by centre distance, or null if every zone in the system is deactivated.
       required: [suggestedZone]
@@ -2255,13 +2737,13 @@ components:
           type: string
           example: cmp_5001
         category:
-          $ref: '#/components/schemas/Category'
+          $ref: "#/components/schemas/Category"
         status:
-          $ref: '#/components/schemas/ComplaintStatus'
+          $ref: "#/components/schemas/ComplaintStatus"
         severityLabel:
-          $ref: '#/components/schemas/SeverityLabel'
+          $ref: "#/components/schemas/SeverityLabel"
         slaLabel:
-          $ref: '#/components/schemas/SlaLabel'
+          $ref: "#/components/schemas/SlaLabel"
         upvoteCount:
           type: integer
           example: 14
@@ -2286,12 +2768,12 @@ components:
           type: string
           nullable: true
           description: A hint for the citizen dashboard, e.g. "CONFIRM_FIX" or "PROVIDE_MORE_EVIDENCE".
-          enum: [CONFIRM_FIX, PROVIDE_MORE_EVIDENCE, null]
+          enum: [CONFIRM_FIX, PROVIDE_MORE_EVIDENCE]
       required: [id, category, status, createdAt]
 
     ComplaintDetail:
       allOf:
-        - $ref: '#/components/schemas/Complaint'
+        - $ref: "#/components/schemas/Complaint"
         - type: object
           properties:
             description:
@@ -2304,7 +2786,14 @@ components:
               format: double
             severityScore:
               type: integer
-              description: The raw score behind the label = (nearby similar reports × 3) + (upvotes × 1).
+              description: >
+                The raw score behind the label = (unique_reporter_count − 1) ×
+                3 + upvote count. unique_reporter_count is the number of
+                distinct citizens who have reported this complaint's issue
+                (via its cluster), not the raw number of reports — so one
+                citizen filing the same complaint repeatedly cannot inflate
+                severity. A standalone complaint (no cluster) contributes 0
+                from this term, plus its own upvotes.
               example: 17
             slaTargetHours:
               type: integer
@@ -2316,21 +2805,21 @@ components:
               description: Set if this complaint is linked to nearby duplicates.
             reporter:
               allOf:
-                - $ref: '#/components/schemas/User'
+                - $ref: "#/components/schemas/User"
               nullable: true
               description: Only present for admins. Always omitted from officer and feed views.
             evidence:
               type: array
               items:
-                $ref: '#/components/schemas/Evidence'
+                $ref: "#/components/schemas/Evidence"
             statusHistory:
               type: array
               items:
-                $ref: '#/components/schemas/StatusHistoryEntry'
+                $ref: "#/components/schemas/StatusHistoryEntry"
             progressNotes:
               type: array
               items:
-                $ref: '#/components/schemas/ProgressNote'
+                $ref: "#/components/schemas/ProgressNote"
 
     ComplaintListResponse:
       type: object
@@ -2338,9 +2827,9 @@ components:
         data:
           type: array
           items:
-            $ref: '#/components/schemas/Complaint'
+            $ref: "#/components/schemas/Complaint"
         pagination:
-          $ref: '#/components/schemas/PaginationMeta'
+          $ref: "#/components/schemas/PaginationMeta"
       required: [data, pagination]
 
     FeedItem:
@@ -2350,11 +2839,11 @@ components:
         id:
           type: string
         category:
-          $ref: '#/components/schemas/Category'
+          $ref: "#/components/schemas/Category"
         status:
-          $ref: '#/components/schemas/ComplaintStatus'
+          $ref: "#/components/schemas/ComplaintStatus"
         severityLabel:
-          $ref: '#/components/schemas/SeverityLabel'
+          $ref: "#/components/schemas/SeverityLabel"
         upvoteCount:
           type: integer
         hasUpvoted:
@@ -2374,9 +2863,9 @@ components:
         data:
           type: array
           items:
-            $ref: '#/components/schemas/FeedItem'
+            $ref: "#/components/schemas/FeedItem"
         pagination:
-          $ref: '#/components/schemas/PaginationMeta'
+          $ref: "#/components/schemas/PaginationMeta"
       required: [data, pagination]
 
     UserListResponse:
@@ -2385,9 +2874,9 @@ components:
         data:
           type: array
           items:
-            $ref: '#/components/schemas/User'
+            $ref: "#/components/schemas/User"
         pagination:
-          $ref: '#/components/schemas/PaginationMeta'
+          $ref: "#/components/schemas/PaginationMeta"
       required: [data, pagination]
 
     # ---- Evidence / history / notes ----
@@ -2405,10 +2894,10 @@ components:
           description: 1 for the original photo, 2+ for re-submissions.
           example: 1
         aiConfidenceNote:
-          $ref: '#/components/schemas/AiConfidenceNote'
+          $ref: "#/components/schemas/AiConfidenceNote"
         verdict:
           allOf:
-            - $ref: '#/components/schemas/EvidenceVerdict'
+            - $ref: "#/components/schemas/EvidenceVerdict"
           nullable: true
           description: Null until the officer reviews it.
         verdictReason:
@@ -2460,12 +2949,12 @@ components:
           type: string
         fromStatus:
           allOf:
-            - $ref: '#/components/schemas/ComplaintStatus'
+            - $ref: "#/components/schemas/ComplaintStatus"
           nullable: true
         toStatus:
-          $ref: '#/components/schemas/ComplaintStatus'
+          $ref: "#/components/schemas/ComplaintStatus"
         changedByRole:
-          $ref: '#/components/schemas/StatusActor'
+          $ref: "#/components/schemas/StatusActor"
         changedByOfficerId:
           type: string
           nullable: true
@@ -2518,7 +3007,7 @@ components:
       required: [verdict]
       properties:
         verdict:
-          $ref: '#/components/schemas/EvidenceVerdict'
+          $ref: "#/components/schemas/EvidenceVerdict"
         reason:
           type: string
           description: Required when verdict is NEEDS_MORE_EVIDENCE or REJECTED.
@@ -2528,34 +3017,110 @@ components:
       required: [status]
       properties:
         status:
-          $ref: '#/components/schemas/ComplaintStatus'
+          $ref: "#/components/schemas/OfficerTargetStatus"
         reason:
           type: string
-          description: Required when moving to UNRESOLVABLE.
+          description: Required when moving to UNRESOLVABLE or NEEDS_MORE_EVIDENCE.
         note:
           type: string
           description: Optional closing note when marking RESOLVED.
 
+    StatusUpdateResult:
+      type: object
+      required: [complaint]
+      properties:
+        complaint:
+          $ref: "#/components/schemas/ComplaintDetail"
+        cascade:
+          type: array
+          description: >
+            Present only when this update set a clustered complaint to
+            RESOLVED — one entry per other member of the cluster. CASCADED
+            members were moved to RESOLVED with their own SYSTEM history
+            entry; SKIPPED members were left untouched because the move is
+            not legal for them (already terminal, already RESOLVED, still
+            in the evidence phase, or currently REOPENED awaiting an admin's
+            dispute-review verdict). Absent for standalone complaints and for
+            every non-RESOLVED update.
+          items:
+            type: object
+            required: [complaintId, outcome, previousStatus]
+            properties:
+              complaintId:
+                type: string
+              outcome:
+                type: string
+                enum: [CASCADED, SKIPPED]
+              previousStatus:
+                $ref: "#/components/schemas/ComplaintStatus"
+
     BatchStatusUpdateRequest:
       type: object
-      required: [complaintIds, status]
+      required:
+        - status
+      oneOf:
+        - required: [complaintIds]
+        - required: [clusterId]
+
       properties:
         complaintIds:
           type: array
           minItems: 1
+          maxItems: 100
+          description: >
+            Explicit list of complaint IDs to update. Exactly one of
+            complaintIds or clusterId must be supplied — the oneOf above
+            enforces it, so both or neither fails schema validation (400).
+            Unknown IDs are reported as per-item failures in the result, not
+            a 404.
           items:
             type: string
+
+        clusterId:
+          type: string
+          description: >
+            Update every complaint belonging to this cluster at the time the
+            request is processed. Exactly one of complaintIds or clusterId
+            must be supplied (enforced by the oneOf above). An unknown
+            clusterId is a 404. Clusters are zone-scoped, but every member is
+            still zone-checked individually — a member whose zone was later
+            changed by an admin override fails per-item with NOT_IN_ZONE
+            instead of being silently updated.
+
         status:
           allOf:
-            - $ref: '#/components/schemas/ComplaintStatus'
+            - $ref: "#/components/schemas/OfficerTargetStatus"
           description: >
-            Typically UNDER_RESOLUTION for batch processing. Only legal,
-            officer-triggerable transitions are allowed — CLOSED, REJECTED,
-            and UNDER_REVIEW are reserved for citizen confirmation and
-            evidence review respectively, and are rejected per-item.
+            Typically UNDER_RESOLUTION for batch processing. Statuses
+            reserved for other doors (CLOSED, first-round REJECTED,
+            UNDER_REVIEW, ...) are not in the enum at all, and each item is
+            still validated against the transition map individually — e.g.
+            NEEDS_MORE_EVIDENCE only succeeds for items currently at
+            UNDER_REVIEW, letting an officer recall a batch of
+            already-accepted complaints for better evidence in one call.
+
         reason:
           type: string
-          description: Required if the target status needs one (e.g. UNRESOLVABLE).
+          description: >
+            Required if the target status needs one (UNRESOLVABLE or
+            NEEDS_MORE_EVIDENCE).
+
+        note:
+          type: string
+          description: >
+            Optional closing note when marking RESOLVED — the same note is
+            attached to every complaint in the batch. Officers who need a
+            different note per complaint should resolve those individually.
+
+
+    TransitionFailureCode:
+      type: string
+      description: Machine-readable reason a per-item status update failed.
+      enum:
+        - INVALID_TRANSITION   # not legal from the complaint's current status
+        - NOT_IN_ZONE          # outside the calling officer's assigned zone
+        - UNKNOWN_COMPLAINT    # no complaint with this ID exists
+        - REASON_REQUIRED      # the target status needs a reason and none was given
 
     BatchStatusUpdateResult:
       type: object
@@ -2571,16 +3136,30 @@ components:
                 type: boolean
               status:
                 allOf:
-                  - $ref: '#/components/schemas/ComplaintStatus'
+                  - $ref: "#/components/schemas/ComplaintStatus"
                 nullable: true
                 description: The new status if it succeeded.
-              error:
+              previousStatus:
+                allOf:
+                  - $ref: "#/components/schemas/ComplaintStatus"
+                nullable: true
+                description: >
+                  The status the complaint held before this batch. Also set
+                  on failures (except UNKNOWN_COMPLAINT), so the officer can
+                  see why an item was refused without a second lookup.
+              errorCode:
+                allOf:
+                  - $ref: "#/components/schemas/TransitionFailureCode"
+                nullable: true
+                description: Machine-readable failure reason; null on success.
+              errorMessage:
                 type: string
                 nullable: true
-                description: Why it failed (e.g. "invalid transition", "not in your zone").
+                description: Human-readable detail (e.g. "CLOSED is terminal").
             required: [complaintId, success]
         summary:
           type: object
+          required: [requested, succeeded, failed]
           properties:
             requested:
               type: integer
@@ -2588,7 +3167,7 @@ components:
               type: integer
             failed:
               type: integer
-      required: [results]
+      required: [results, summary]
 
     ProgressNoteRequest:
       type: object
@@ -2600,11 +3179,36 @@ components:
 
     DisputeRequest:
       type: object
-      required: [reason]
+      required: [reason, photo]
       properties:
         reason:
           type: string
           description: Why the citizen believes the issue is not actually fixed.
+        photo:
+          type: string
+          format: binary
+          description: >
+            Required proof that the issue persists — JPEG or PNG, max 5 MB.
+            The burden of evidence for a dispute is on the citizen, the same
+            way it is for the original complaint. Stored as the next
+            `sequence` in the complaint's evidence history; it is never
+            routed through an officer's evidence-review verdict, so its
+            `verdict` stays permanently null — the admin judges it directly
+            when ruling on the dispute.
+
+    DisputeReviewRequest:
+      type: object
+      required: [verdict, reason]
+      properties:
+        verdict:
+          $ref: "#/components/schemas/DisputeVerdict"
+        reason:
+          type: string
+          description: >
+            The admin's justification, always required. Recorded on the
+            `status_history` entry — this is the only place the ruling is
+            stored; the dispute's evidence row itself is never marked with a
+            verdict of its own.
 
     UpvoteResult:
       type: object
@@ -2614,7 +3218,7 @@ components:
         upvoteCount:
           type: integer
         severityLabel:
-          $ref: '#/components/schemas/SeverityLabel'
+          $ref: "#/components/schemas/SeverityLabel"
       required: [complaintId, upvoteCount]
 
     ComplaintOverrideRequest:
@@ -2622,7 +3226,7 @@ components:
       description: Admin override — send only the fields to change.
       properties:
         status:
-          $ref: '#/components/schemas/ComplaintStatus'
+          $ref: "#/components/schemas/ComplaintStatus"
         categoryId:
           type: string
         zoneId:
@@ -2691,9 +3295,9 @@ components:
         ledger:
           type: array
           items:
-            $ref: '#/components/schemas/PointsLedgerEntry'
+            $ref: "#/components/schemas/PointsLedgerEntry"
         pagination:
-          $ref: '#/components/schemas/PaginationMeta'
+          $ref: "#/components/schemas/PaginationMeta"
       required: [totalLifetimeCsp, currentMonthCsp]
 
     Badge:
@@ -2752,15 +3356,15 @@ components:
           format: date-time
         currentUser:
           allOf:
-            - $ref: '#/components/schemas/LeaderboardEntry'
+            - $ref: "#/components/schemas/LeaderboardEntry"
           nullable: true
           description: The caller's own rank, even if not in the visible page.
         data:
           type: array
           items:
-            $ref: '#/components/schemas/LeaderboardEntry'
+            $ref: "#/components/schemas/LeaderboardEntry"
         pagination:
-          $ref: '#/components/schemas/PaginationMeta'
+          $ref: "#/components/schemas/PaginationMeta"
       required: [scope, period, data, pagination]
 
     # ---- Analytics ----
@@ -2793,7 +3397,7 @@ components:
         categoryBreakdown:
           type: array
           items:
-            $ref: '#/components/schemas/CategoryBreakdownItem'
+            $ref: "#/components/schemas/CategoryBreakdownItem"
       required: [zoneId, activeComplaints, overdueCount]
 
     ZoneMetrics:
@@ -2820,7 +3424,7 @@ components:
           type: array
           description: Top 3 citizens by CSP in this zone.
           items:
-            $ref: '#/components/schemas/LeaderboardEntry'
+            $ref: "#/components/schemas/LeaderboardEntry"
         severityHeat:
           type: object
           description: Counts per severity, for the heatmap grid.
@@ -2843,7 +3447,7 @@ components:
         zones:
           type: array
           items:
-            $ref: '#/components/schemas/ZoneMetrics'
+            $ref: "#/components/schemas/ZoneMetrics"
       required: [generatedAt, zones]
 
     OfficerPerformance:
@@ -2981,3 +3585,125 @@ components:
           format: date-time
           nullable: true
       required: [reportId, zoneId, status, aiAvailable]
+
+
+    Cluster:
+      type: object
+      description: >
+        A group of nearby same-category complaints treated as one physical
+        issue. The cluster itself has no status — its state is always derived
+        from its members' statuses (see statusSummary), never stored.
+      required:
+        - id
+        - zoneId
+        - category
+        - reportCount
+        - uniqueReporterCount
+        - severityScore
+        - severityLabel
+        - statusSummary
+        - centroidLat
+        - centroidLng
+        - createdAt
+
+      properties:
+        id:
+          type: string
+
+        zoneId:
+          type: string
+
+        category:
+          $ref: "#/components/schemas/Category"
+
+        reportCount:
+          type: integer
+          description: >
+            Total member complaints — may include several filed by the same
+            citizen.
+
+        uniqueReporterCount:
+          type: integer
+          description: >
+            Distinct citizens in the cluster. This — not reportCount — drives
+            severity, so one person filing repeatedly cannot inflate urgency.
+
+        severityScore:
+          type: integer
+          description: (uniqueReporterCount - 1) * 3 + total upvotes across members.
+
+        severityLabel:
+          $ref: "#/components/schemas/SeverityLabel"
+
+        statusSummary:
+          type: object
+          description: >
+            Derived on read, never stored. Maps each ComplaintStatus present
+            among the members to how many members currently hold it, e.g.
+            {"RESOLVED": 3, "CLOSED": 2, "REOPENED": 1}. Statuses no member
+            holds are omitted. This is the only representation of "cluster
+            state" — there is deliberately no status field on the cluster.
+          additionalProperties:
+            type: integer
+
+        centroidLat:
+          type: number
+          format: float
+
+        centroidLng:
+          type: number
+          format: float
+
+        createdAt:
+          type: string
+          format: date-time
+
+    ClusterDetail:
+      allOf:
+        - $ref: "#/components/schemas/Cluster"
+
+        - type: object
+          required: [complaints]
+          properties:
+            complaints:
+              type: array
+              description: >
+                All current members. Uses the same anonymized Complaint shape
+                as everywhere else — reporter identity is never included.
+              items:
+                $ref: "#/components/schemas/Complaint"
+
+    ClusterListResponse:
+      type: object
+      required: [data, pagination]
+
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Cluster"
+
+        pagination:
+          $ref: "#/components/schemas/PaginationMeta"
+
+    ZoneSummary:
+      type: object
+
+      properties:
+        zoneId:
+          type: string
+
+        totalComplaints:
+          type: integer
+
+        activeComplaints:
+          type: integer
+
+        resolvedComplaints:
+          type: integer
+
+        totalClusters:
+          type: integer
+
+        activeClusters:
+          type: integer

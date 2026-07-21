@@ -44,14 +44,14 @@ The 11 stages a complaint can be in. The database only stores the current stage;
 |---|---|
 | `SUBMITTED` | Just filed by the citizen. Waiting for an officer to open it. |
 | `EVIDENCE_UNDER_REVIEW` | An officer has opened it and is judging the photo. |
-| `NEEDS_MORE_EVIDENCE` | Officer rejected the photo quality. Citizen must resubmit. SLA timer is paused here. |
+| `NEEDS_MORE_EVIDENCE` | Officer needs a better photo; citizen must resubmit. SLA timer is paused here. Reached two ways: before acceptance (from `EVIDENCE_UNDER_REVIEW`, the normal first-look loop) or as an officer's later recall of an already-accepted complaint (from `UNDER_REVIEW`, reason required) — the second path is what actually pauses a running SLA clock. |
 | `REJECTED` | Turned down as fake or invalid. A reason is mandatory. **Terminal — goes no further.** |
 | `UNDER_REVIEW` | Photo accepted. Complaint enters the work queue. **SLA timer starts here.** |
 | `IN_PROGRESS` | Officer has started investigating the issue. |
 | `UNDER_RESOLUTION` | Officer is actively fixing it. Progress notes are allowed. |
 | `RESOLVED` | Officer says it's done. Now waiting for the citizen to confirm. |
 | `CLOSED` | Citizen confirmed the fix. Points credited. **Terminal — the happy ending.** |
-| `REOPENED` | Citizen disputed the fix. Sent back to the officer with a reason. |
+| `REOPENED` | Citizen disputed the fix, with a reason and a fresh photo. Waits for an admin's dispute-review verdict — the only way out, to `IN_PROGRESS` (upheld) or `CLOSED` (rejected, no points). |
 | `UNRESOLVABLE` | Officer cannot fix it due to budget, elections, or something beyond their control. Reason is mandatory. **Terminal.** |
 
 > **What "terminal" means:** Once a complaint reaches `REJECTED`, `CLOSED`, or `UNRESOLVABLE`, it cannot be moved again. Its story is over.
@@ -68,7 +68,7 @@ The urgency label shown to officers and on the public feed. **This label is neve
 | `HIGH` | 15 – 29 | Widespread, needs prompt attention |
 | `CRITICAL` | 30+ | Dangerous or affecting many; should be first in queue |
 
-The score formula is: `(number of nearby linked complaints − 1) × 3 + number of upvotes`. Every new linked complaint and every new upvote recalculates the score instantly.
+The score formula is: `(number of distinct citizens who reported it − 1) × 3 + number of upvotes`. This deliberately counts **distinct reporters**, not the raw number of linked complaints — see `complaint_clusters.unique_reporter_count` in [Table 4](#table-4-complaint_clusters), which is what actually drives this, precisely so one citizen filing the same issue repeatedly cannot inflate it. Every new distinct reporter and every new upvote recalculates the score instantly.
 
 ---
 
@@ -88,9 +88,11 @@ The three decisions an officer can give after reviewing a photo.
 
 | Value | What happens |
 |---|---|
-| `VALID` | Photo accepted. Complaint moves to `UNDER_REVIEW`. SLA clock starts. |
+| `VALID` | Photo accepted. Complaint moves to `UNDER_REVIEW`. SLA clock starts (or resumes, if this was a re-review after an officer's recall). |
 | `NEEDS_MORE_EVIDENCE` | Photo unclear. Citizen is asked to resubmit. |
-| `REJECTED` | Photo rejected as fake/irrelevant. Citizen loses 20 CSP. Requires a reason. |
+| `REJECTED` | Photo rejected as fake/irrelevant. Citizen loses 20 CSP. Requires a reason. **Only available on a complaint's first evidence round** — once a complaint has reached `UNDER_REVIEW` at least once (`sla_started_at` is set), a later re-review (from an officer's `NEEDS_MORE_EVIDENCE` recall) can only resolve `VALID` or `NEEDS_MORE_EVIDENCE`. |
+
+A fourth kind of evidence row exists that never gets one of these three verdicts: the photo a citizen attaches when filing a dispute (`POST /complaints/{id}/dispute`). That row's `verdict` stays permanently `NULL` — it's never routed through an officer's evidence-review, an admin judges it directly when ruling on the dispute.
 
 ---
 
@@ -112,7 +114,7 @@ Who or what caused a complaint's status to change. Needed because the `SYSTEM` a
 |---|---|
 | `CITIZEN` | The citizen acted (confirm fix, dispute, submit more evidence) |
 | `OFFICER` | An officer moved the status |
-| `ADMIN` | An admin overrode the complaint |
+| `ADMIN` | An admin overrode the complaint, or ruled on a citizen's dispute (`REOPENED` → `IN_PROGRESS`/`CLOSED`) |
 | `SYSTEM` | An automated process (e.g. the auto-close timeout) |
 
 ---
@@ -333,11 +335,12 @@ Citizen B files another Pothole complaint 60 metres away.
 → The app finds the existing cluster (Haversine distance < 100 m) → links B's complaint to it → `report_count` and `unique_reporter_count` both become 2 → both complaints' `severity_score` updates to `(2-1) × 3 = 3`.
 
 ### Cluster reward distribution
-When the officer resolves the shared issue, every member cascades to `RESOLVED` together (a `SYSTEM`-actor `status_history` entry per complaint). Confirmation is still per-complaint — each citizen confirms or disputes only their own:
+When the officer resolves the shared issue, every member that has passed evidence review and is not awaiting a dispute verdict cascades to `RESOLVED` together (a `SYSTEM`-actor `status_history` entry per complaint); members that are already terminal, already `RESOLVED`, still in the evidence phase, or currently `REOPENED` are skipped, never forced. Confirmation is still per-complaint — each citizen confirms or disputes only their own:
 - The **first** citizen whose confirmation succeeds wins the full `COMPLAINT_CLOSED` bonus (+50), and `reward_granted` flips to `true`.
 - Every other citizen who confirms afterward gets `CLUSTER_MEMBER_CLOSED` (+10) instead — their complaint still closes normally, they just don't get the full reward a second time.
+- Cluster rewards are paid **at most once per citizen per cluster**: a citizen who filed several member complaints is paid only on their first successful confirm — confirming their remaining duplicates closes them with no points, so duplicate filing cannot farm rewards.
 - `ON_TIME_BONUS` (+15) is unaffected by any of this — it's evaluated per-complaint against that complaint's own `sla_target_hours`/`sla_started_at`, so a citizen who only gets +10 can still separately earn the on-time bonus.
-- If a citizen disputes instead of confirming, only their complaint detaches from the cluster (`cluster_id` set to `null`) and is handled individually from then on; it never re-fires `reward_granted` even if later re-closed.
+- If a citizen disputes instead of confirming, only their complaint reopens — and it **stays in the cluster** (`cluster_id` is never cleared). The other members keep their statuses. A dispute requires a reason and a fresh photo, and an admin (not the officer) rules on it: upheld sends it back to `IN_PROGRESS` to be re-fixed, rejected sends it straight to `CLOSED` with **no points**, same as an auto-close. A `REOPENED` member is excluded from the cascade above, so a sibling being re-fixed elsewhere in the cluster can never sweep a pending dispute to `RESOLVED` before the admin rules on it — only after the admin upholds it (moving it back to `IN_PROGRESS`) can a later sibling cascade pick it back up. Because membership is permanent, `reward_granted` is never re-fired by a dispute-and-refix loop.
 
 ---
 
@@ -368,8 +371,8 @@ Almost everything else in the database is a child of a complaint (evidence, hist
 | `severity_score` | integer | ✅ | The raw numeric score. **Defaults to 0.** Updated when new related complaints join the cluster and when new upvotes are received. The severity label (`LOW` / `MEDIUM` / `HIGH` / `CRITICAL`) is calculated from this on read — never stored separately. |
 | `sla_target_hours` | integer | ❌ | A **snapshot** of `complaint_categories.sla_hours` taken at the moment the complaint entered `UNDER_REVIEW`. `NULL` before that. Frozen permanently — later SLA changes by the admin do not affect this complaint. Also backfilled by an admin override (see below) if it force-jumps the complaint to `UNDER_REVIEW` or later while this is still unset. |
 | `sla_started_at` | datetime | ❌ | Timestamp of when the complaint entered `UNDER_REVIEW` — **this is when the SLA clock started ticking.** `NULL` before acceptance. **Admin override backfill:** `PATCH /admin/complaints/{id}` can force `status` straight to `UNDER_REVIEW` or beyond, skipping the normal evidence-review path. If this column is still `NULL` when that happens, the app sets it to "now" (and snapshots `sla_target_hours` too) so `slaLabel` never silently comes back null for an overridden complaint. |
-| `sla_paused_seconds` | integer | ✅ | A running total of time (in seconds) spent waiting on the citizen, e.g. in `NEEDS_MORE_EVIDENCE`. **This time is deducted from SLA calculation** so an officer is not penalized for delays caused by the citizen. Starts at 0. |
-| `sla_paused_at` | datetime | ❌ | If the SLA clock is currently paused (the complaint is in `NEEDS_MORE_EVIDENCE` right now), this holds the timestamp when it paused. When the citizen resubmits, the app calculates `now - sla_paused_at`, adds it to `sla_paused_seconds`, and clears this field. |
+| `sla_paused_seconds` | integer | ✅ | A running total of time (in seconds) spent waiting on the citizen while in `NEEDS_MORE_EVIDENCE`. **This time is deducted from SLA calculation** so an officer is not penalized for delays caused by the citizen. Starts at 0. Only actually accrues once `sla_started_at` is set — i.e. from an officer's post-acceptance recall (`PATCH .../status` → `NEEDS_MORE_EVIDENCE`), not the pre-acceptance loop, since the clock hasn't started yet at that point. |
+| `sla_paused_at` | datetime | ❌ | If the SLA clock is currently paused (the complaint is in `NEEDS_MORE_EVIDENCE` right now, after acceptance), this holds the timestamp when it paused. When the citizen resubmits, the app calculates `now - sla_paused_at`, adds it to `sla_paused_seconds`, and clears this field. |
 | `created_at` | datetime | ✅ | When the complaint was filed. |
 | `updated_at` | datetime | ✅ | Automatically refreshed on every change to this row. Used in the feed sort order and "last updated" display. |
 | `resolved_at` | datetime | ❌ | Set when the officer marks the complaint `RESOLVED`. Used to compute resolution time for officer performance metrics. |
@@ -461,7 +464,7 @@ If we only stored the current status on the `complaints` table, we'd know where 
 | `to_status` | `complaint_status` | ✅ | The status the complaint moved **to**. |
 | `actor_role` | `status_actor` | ✅ | Who made this change: `CITIZEN`, `OFFICER`, `ADMIN`, or `SYSTEM`. Maps to the API's `StatusActor` enum on `StatusHistoryEntry.changedByRole` — a separate, 4-value enum from the 3-value `Role` used on user accounts, since `SYSTEM` is never a valid account role. |
 | `changed_by_user_id` | integer (FK) | ❌ | The `users.id` of the person who made the change. `NULL` when `actor_role = SYSTEM` (because automated actions have no human behind them). **The FK is `RESTRICT` on delete** — an officer or admin who has ever changed a complaint's status cannot be hard-deleted, protecting this audit trail the same way `complaint_notes.officer_id` protects note attribution. |
-| `reason` | text | ❌ | The written reason accompanying this transition. Populated for: officer rejections, Unresolvable declarations, citizen disputes, and admin overrides. |
+| `reason` | text | ❌ | The written reason accompanying this transition. Populated for: officer rejections, officer NEEDS_MORE_EVIDENCE recalls (both the pre-acceptance and post-acceptance kind), Unresolvable declarations, citizen disputes, admin dispute-review verdicts, and admin overrides. |
 | `remark` | text | ❌ | An optional free-text remark, distinct from `reason` — e.g. the officer's closing note (`StatusUpdateRequest.note`) when marking `RESOLVED`. Maps 1:1 to `StatusHistoryEntry.remark` in the API. |
 | `created_at` | datetime | ✅ | The exact timestamp of this transition. Combined with `from_status`/`to_status`, this gives a full timeline with durations. |
 
@@ -479,11 +482,25 @@ Row 8: from: UNDER_RESOLUTION → to: RESOLVED              actor: OFFICER
 Row 9: from: RESOLVED        → to: CLOSED                  actor: CITIZEN
 ```
 
-If the citizen disputes instead of confirming at Row 9, the officer picks the complaint back up the same way they picked up any other queued complaint — via `PATCH /officer/complaints/{id}/status`, not automatically:
+If the citizen disputes instead of confirming at Row 9, the complaint does **not** go straight back to the officer. It waits in `REOPENED` for an admin's dispute-review verdict — the only door out — via `POST /admin/complaints/{id}/dispute-review`:
 
 ```
-Row 9: from: RESOLVED        → to: REOPENED                actor: CITIZEN   reason: "Pothole is still there."
-Row 10: from: REOPENED       → to: IN_PROGRESS              actor: OFFICER
+Row 9:  from: RESOLVED        → to: REOPENED                actor: CITIZEN   reason: "Pothole is still there."
+                                                                                (fresh photo appended to complaint_evidence, sequence+1)
+Row 10: from: REOPENED        → to: IN_PROGRESS              actor: ADMIN     reason: "Photo shows the hole reopened; dispute upheld."
+```
+
+Had the admin instead sided with the officer, Row 10 would read `to: CLOSED`, `reason: "Fix looks intact in the photo; dispute rejected."`, and no points would be credited for that closure — same as an auto-close timeout.
+
+An officer can also recall an already-accepted complaint for better evidence — this is the path that actually pauses a running SLA clock. Branching off Row 6 (`UNDER_REVIEW`) instead of moving straight to `IN_PROGRESS`:
+
+```
+Row 6:  from: UNDER_REVIEW    → to: NEEDS_MORE_EVIDENCE      actor: OFFICER   reason: "Need a daylight photo to confirm depth."
+                                                                                (sla_paused_at set now)
+Row 7:  from: NEEDS_MORE      → to: EVIDENCE_UNDER_REVIEW    actor: CITIZEN
+                                                                                (elapsed pause folded into sla_paused_seconds, sla_paused_at cleared)
+Row 8:  from: EVIDENCE_REVIEW → to: UNDER_REVIEW              actor: OFFICER   (VALID — REJECTED is not offered on this re-review)
+Row 9:  from: UNDER_REVIEW    → to: IN_PROGRESS               actor: OFFICER
 ```
 
 ---

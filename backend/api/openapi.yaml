@@ -613,9 +613,13 @@ paths:
       description: >
         The "Instagram Explore"-style feed for citizens. Shows complaints in the
         citizen's own zone with photo, category, severity label, upvote count,
-        and status — but **never** who filed them. By default it shows active
-        complaints; closed and rejected ones are hidden unless explicitly
-        requested, in which case they are clearly marked.
+        location, and status — but **never** who filed them. The location is
+        the same latitude/longitude captured at filing time, exposed here so
+        the client can show a nearby-landmark hint (e.g. via reverse
+        geocoding) — precise enough to find the issue in person, which is the
+        point of the feed, but never tied to a reporter identity. By default
+        it shows active complaints; closed and rejected ones are hidden
+        unless explicitly requested, in which case they are clearly marked.
 
 
         Citizens can upvote straight from this feed (subject to the
@@ -2852,6 +2856,18 @@ components:
         photoUrl:
           type: string
           format: uri
+        latitude:
+          type: number
+          format: double
+          description: >
+            Same coordinate captured at filing time. Lets the client derive a
+            nearby-landmark hint (e.g. via reverse geocoding) — never used to
+            identify who reported the issue.
+          example: 12.9716
+        longitude:
+          type: number
+          format: double
+          example: 77.5946
         createdAt:
           type: string
           format: date-time

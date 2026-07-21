@@ -56,8 +56,8 @@ info:
     lists needed to fill the registration form).
 
   contact:
-    name: Kartavya Backend Team
-    url: https://github.com/
+    name: Kartavya Project Manager (Shreyan)
+    url: https://github.com/thethinkmachine/
 
 servers:
   - url: /api/v1
@@ -533,9 +533,21 @@ paths:
       description: >
         The citizen says a `RESOLVED` complaint is not actually fixed. **Only
         the citizen who filed this complaint may call this** — anyone else
-        gets `403`. A reason is **required**. The complaint moves to
-        `REOPENED` and goes back to the officer's queue with the citizen's
-        reason attached. No points are credited.
+        gets `403`. A reason **and a fresh photo are both required** — the
+        burden of proof is on the citizen, the same as when the complaint was
+        first filed. The photo is appended to the complaint's evidence
+        history (next `sequence`); it is not routed through an officer's
+        evidence-review verdict. The complaint moves to `REOPENED` and goes
+        back to the queue with the citizen's reason and photo attached. No
+        points are credited.
+
+
+        **Review:** unlike the original complaint, an officer can no longer
+        pick a `REOPENED` complaint back up directly. An admin renders a
+        verdict via `POST /admin/complaints/{complaintId}/dispute-review`
+        first — only if the dispute is upheld does it return to the officer's
+        queue (`IN_PROGRESS`); if rejected, it goes straight to `CLOSED` with
+        no points credited, same as an auto-close.
 
 
         **Clusters:** disputing affects **this complaint only**, and the
@@ -544,12 +556,12 @@ paths:
         members stay closed), so a cluster may hold members at different
         stages; the cluster's overall state is always derived from its
         members' statuses, never stored. When the officer re-fixes the issue
-        — by working this reopened complaint directly (`REOPENED` →
-        `IN_PROGRESS` → … → `RESOLVED`), or by resolving any other still-open
-        member, whose cascade then returns this one to `RESOLVED` too — the
-        citizen is simply asked to confirm again. Because membership is
-        permanent, the one-time +50 cluster reward can never be re-fired by
-        this dispute-and-refix loop.
+        after an admin upholds the dispute — by working this complaint
+        directly (`IN_PROGRESS` → … → `RESOLVED`), or by resolving any other
+        still-open member, whose cascade then returns this one to `RESOLVED`
+        too — the citizen is simply asked to confirm again. Because
+        membership is permanent, the one-time +50 cluster reward can never be
+        re-fired by this dispute-and-refix loop.
 
 
         **Repeat calls:** valid only while the complaint is in the `RESOLVED`
@@ -560,18 +572,18 @@ paths:
       requestBody:
         required: true
         content:
-          application/json:
+          multipart/form-data:
             schema:
               $ref: "#/components/schemas/DisputeRequest"
       responses:
         "200":
-          description: Complaint reopened and returned to the officer.
+          description: Complaint reopened, evidence attached, and queued for an admin's dispute-review verdict.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ComplaintDetail"
         "400":
-          description: Missing reason.
+          description: Missing reason or photo, or wrong file type/size.
           content:
             application/json:
               schema:
@@ -942,9 +954,6 @@ paths:
 
         - `UNDER_RESOLUTION` → `RESOLVED` (optionally with a closing note)
 
-        - `REOPENED` → `IN_PROGRESS` (the officer picks a disputed complaint
-          back up from their queue)
-
         - `UNDER_REVIEW` → `NEEDS_MORE_EVIDENCE` (**reason required**) — the
           officer needs a better photo before proceeding, even though the
           complaint already passed its initial evidence check. Pauses the SLA
@@ -958,23 +967,29 @@ paths:
 
         Marking `RESOLVED` does **not** close the complaint — the citizen must
         still confirm. An illegal jump (e.g. `SUBMITTED` → `RESOLVED`) is
-        rejected with 409.
+        rejected with 409. A `REOPENED` complaint **cannot** be moved through
+        this endpoint at all, by any officer — it must first go through
+        `POST /admin/complaints/{complaintId}/dispute-review`, which is the
+        only door out of `REOPENED`.
 
 
         **Cluster cascade:** if this complaint belongs to a cluster, moving it
         to `RESOLVED` automatically cascades every other member of the same
         cluster to `RESOLVED` too — every member that has passed evidence
-        review (`UNDER_REVIEW`, `IN_PROGRESS`, `UNDER_RESOLUTION`), including
-        previously disputed members sitting in `REOPENED` — recorded as its
-        own `status_history` entry per complaint with actor `SYSTEM`. Members
+        review and is not awaiting a dispute verdict (`UNDER_REVIEW`,
+        `IN_PROGRESS`, `UNDER_RESOLUTION`) — recorded as its own
+        `status_history` entry per complaint with actor `SYSTEM`. Members
         the move is not legal for are **skipped, never forced**: anything
         already terminal (`CLOSED`, `REJECTED`, `UNRESOLVABLE`), already
-        `RESOLVED`, or still in the evidence phase (`SUBMITTED`,
+        `RESOLVED`, still in the evidence phase (`SUBMITTED`,
         `EVIDENCE_UNDER_REVIEW`, `NEEDS_MORE_EVIDENCE` — the evidence gate is
-        never bypassed; those members keep going through review individually)
-        keeps its status. The response's `cascade` array reports the outcome
-        (`CASCADED` or `SKIPPED`) for every other member, so the officer sees
-        exactly what moved. This is
+        never bypassed; those members keep going through review individually),
+        or currently `REOPENED` (a pending dispute is never bypassed either —
+        the complaint keeps waiting for an explicit admin verdict via
+        `POST /admin/complaints/{complaintId}/dispute-review` no matter what
+        happens elsewhere in the cluster) keeps its status. The response's
+        `cascade` array reports the outcome (`CASCADED` or `SKIPPED`) for
+        every other member, so the officer sees exactly what moved. This is
         the only automatic cascade in the system; no other status transition
         propagates across a cluster on its own. To move a cluster through an
         earlier stage together (e.g. `UNDER_RESOLUTION`), or to resolve only
@@ -1057,10 +1072,13 @@ paths:
         targets (`OfficerTargetStatus` — statuses reserved for other doors,
         like `CLOSED` or the first-round-only `REJECTED`, are a schema-level
         `400`), and each item is still validated against the transition map
-        from its own current status (`REOPENED` → `IN_PROGRESS` is fine;
-        `SUBMITTED` → `RESOLVED` is not; `UNRESOLVABLE` and
-        `NEEDS_MORE_EVIDENCE` both require a `reason`, and
-        `NEEDS_MORE_EVIDENCE` is only legal from `UNDER_REVIEW`).
+        from its own current status (`SUBMITTED` → `RESOLVED` is not legal;
+        `UNRESOLVABLE` and `NEEDS_MORE_EVIDENCE` both require a `reason`, and
+        `NEEDS_MORE_EVIDENCE` is only legal from `UNDER_REVIEW`). A complaint
+        currently `REOPENED` fails every item in this batch with
+        `errorCode: INVALID_TRANSITION` — like the single-item endpoint, this
+        door never accepts `REOPENED` as a source status; only
+        `POST /admin/complaints/{complaintId}/dispute-review` can move it.
 
 
         Each complaint is validated and recorded individually (its own history
@@ -1355,6 +1373,75 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  /admin/complaints/{complaintId}/dispute-review:
+    post:
+      tags: [Admin]
+      operationId: reviewDispute
+      summary: Rule on a citizen's dispute
+      description: >
+        Renders the verdict on a `REOPENED` complaint — the **only** door out
+        of `REOPENED`. An officer can no longer move a disputed complaint
+        themselves; this endpoint is admin-only.
+
+
+        - `UPHELD` — the citizen was right, the fix didn't hold. The
+          complaint returns to `IN_PROGRESS`, back in the same officer's
+          queue.
+
+        - `REJECTED` — the original resolution stands. The complaint moves
+          straight to `CLOSED`. **No points are credited** — same as an
+          auto-close timeout — so a citizen cannot use a losing dispute to
+          manufacture a second shot at the confirm reward they gave up by
+          disputing instead of confirming.
+
+
+        A `reason` is always required and is recorded on the `status_history`
+        entry as the admin's justification. The citizen's dispute reason and
+        photo (submitted with `POST /complaints/{complaintId}/dispute`) are
+        available on the complaint's evidence history for the admin to weigh.
+
+
+        This transition never cascades — only a move to `RESOLVED` cascades a
+        cluster (see `PATCH /officer/complaints/{complaintId}/status`).
+      parameters:
+        - $ref: "#/components/parameters/ComplaintId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DisputeReviewRequest"
+      responses:
+        "200":
+          description: Verdict recorded and the complaint moved accordingly.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplaintDetail"
+        "400":
+          description: Missing verdict or reason.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: >
+            The complaint is not currently `REOPENED` — most likely it was
+            already ruled on. (A cluster cascade can never cause this: a
+            `REOPENED` complaint is always skipped by the cascade, precisely
+            so a pending dispute is never swept aside without an admin
+            verdict.)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   # ---------------------------------------------------------------------------
   # ADMIN — users
@@ -2233,9 +2320,14 @@ components:
 
         - `RESOLVED` → `CLOSED` (citizen confirms, or the auto-close timeout
           fires as `SYSTEM` — the timeout credits no points) | `REOPENED`
-          (citizen disputes)
+          (citizen disputes; a reason and a fresh photo are both required)
 
-        - `REOPENED` → `IN_PROGRESS`
+        - `REOPENED` → `IN_PROGRESS` (dispute upheld) | `CLOSED` (dispute
+          rejected — **no points credited**, same as an auto-close). Both are
+          **admin-only**, rendered via
+          `POST /admin/complaints/{complaintId}/dispute-review` — no officer
+          endpoint, single or batch, and no cluster cascade, can move a
+          complaint out of `REOPENED`.
 
         - any active stage (`UNDER_REVIEW`, `IN_PROGRESS`, `UNDER_RESOLUTION`) → `UNRESOLVABLE`
 
@@ -2243,13 +2335,16 @@ components:
         **`SYSTEM`-only exception — the cluster cascade:** when one member of
         a cluster reaches `RESOLVED`, every other member that has already
         passed evidence review (`UNDER_REVIEW`, `IN_PROGRESS`,
-        `UNDER_RESOLUTION`, or `REOPENED`) is moved straight to `RESOLVED`
-        with actor `SYSTEM`. This is the only place a complaint may skip
-        intermediate stages; no user-triggered endpoint can. Members still in
-        the evidence phase (`SUBMITTED`, `EVIDENCE_UNDER_REVIEW`,
+        `UNDER_RESOLUTION`) is moved straight to `RESOLVED` with actor
+        `SYSTEM`. This is the only place a complaint may skip intermediate
+        stages; no user-triggered endpoint can. Members still in the
+        evidence phase (`SUBMITTED`, `EVIDENCE_UNDER_REVIEW`,
         `NEEDS_MORE_EVIDENCE`) are never cascaded — their photos still need a
         verdict, so the evidence gate (and its `REJECTED` penalty) cannot be
-        bypassed by riding a cluster resolution.
+        bypassed by riding a cluster resolution. A `REOPENED` member is never
+        cascaded either, for the same reason: a pending dispute always waits
+        for an explicit admin verdict, never swept along by an unrelated
+        sibling's resolution.
 
 
         `REJECTED`, `CLOSED`, and `UNRESOLVABLE` are terminal.
@@ -2273,13 +2368,17 @@ components:
         batch-status endpoints. Every other status is reached through its own
         dedicated door — claim (EVIDENCE_UNDER_REVIEW), evidence-review
         (UNDER_REVIEW / REJECTED, plus NEEDS_MORE_EVIDENCE on a complaint's
-        first evidence round), citizen confirm (CLOSED) and dispute
-        (REOPENED) — so requesting one of those here is a schema-level error,
-        not just a 409. `NEEDS_MORE_EVIDENCE` is the one status reachable
-        both ways: evidence-review sets it on the first round (before
-        `UNDER_REVIEW`), and this generic status door sets it again later —
-        legal only from `UNDER_REVIEW` — when an officer needs to recall an
-        already-accepted complaint for better evidence.
+        first evidence round), citizen confirm (CLOSED), citizen dispute
+        (REOPENED), and the admin's dispute-review verdict (IN_PROGRESS or
+        CLOSED **from `REOPENED` specifically**) — so requesting one of those
+        here is a schema-level error, not just a 409. `NEEDS_MORE_EVIDENCE` is
+        the one status reachable both ways: evidence-review sets it on the
+        first round (before `UNDER_REVIEW`), and this generic status door
+        sets it again later — legal only from `UNDER_REVIEW` — when an
+        officer needs to recall an already-accepted complaint for better
+        evidence. `IN_PROGRESS` itself stays a normal officer-reachable
+        target, but only from `UNDER_REVIEW` — an officer can no longer reach
+        it from `REOPENED`; that source status is admin-only.
       enum:
         - IN_PROGRESS
         - UNDER_RESOLUTION
@@ -2300,6 +2399,17 @@ components:
     EvidenceVerdict:
       type: string
       enum: [VALID, NEEDS_MORE_EVIDENCE, REJECTED]
+
+    DisputeVerdict:
+      type: string
+      description: >
+        The admin's ruling on a citizen's dispute. Deliberately a separate
+        enum from `EvidenceVerdict` — an admin adjudicating a dispute and an
+        officer judging a photo are different reviewers making different
+        calls, and reusing one vocabulary for both would blur that.
+      enum:
+        - UPHELD
+        - REJECTED
 
     # ---- Error ----
 
@@ -2928,8 +3038,9 @@ components:
             RESOLVED — one entry per other member of the cluster. CASCADED
             members were moved to RESOLVED with their own SYSTEM history
             entry; SKIPPED members were left untouched because the move is
-            not legal for them (already terminal, already RESOLVED, or still
-            in the evidence phase). Absent for standalone complaints and for
+            not legal for them (already terminal, already RESOLVED, still
+            in the evidence phase, or currently REOPENED awaiting an admin's
+            dispute-review verdict). Absent for standalone complaints and for
             every non-RESOLVED update.
           items:
             type: object
@@ -3068,11 +3179,36 @@ components:
 
     DisputeRequest:
       type: object
-      required: [reason]
+      required: [reason, photo]
       properties:
         reason:
           type: string
           description: Why the citizen believes the issue is not actually fixed.
+        photo:
+          type: string
+          format: binary
+          description: >
+            Required proof that the issue persists — JPEG or PNG, max 5 MB.
+            The burden of evidence for a dispute is on the citizen, the same
+            way it is for the original complaint. Stored as the next
+            `sequence` in the complaint's evidence history; it is never
+            routed through an officer's evidence-review verdict, so its
+            `verdict` stays permanently null — the admin judges it directly
+            when ruling on the dispute.
+
+    DisputeReviewRequest:
+      type: object
+      required: [verdict, reason]
+      properties:
+        verdict:
+          $ref: "#/components/schemas/DisputeVerdict"
+        reason:
+          type: string
+          description: >
+            The admin's justification, always required. Recorded on the
+            `status_history` entry — this is the only place the ruling is
+            stored; the dispute's evidence row itself is never marked with a
+            verdict of its own.
 
     UpvoteResult:
       type: object

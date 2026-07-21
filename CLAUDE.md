@@ -7,8 +7,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Kartavya is a gamified civic grievance platform (citizens report infrastructure problems, officers resolve them, admins run the system, points/badges reward participation). The repository is **contract-first and currently scaffold-only**:
 
 - `backend/api/openapi.yaml` and `backend/database/schema.dbml` are fully designed and are the single source of truth for the whole system.
-- `backend/app/*` (config, controllers, middlewares, models, routes, services, views) and `frontend/src/*` (assets, components, hooks, pages, routes, services, types) contain only `.gitkeep` placeholders — no application code has been implemented yet, and no `package.json` / `requirements.txt` / build tooling exists in the repo yet.
-- There are no build/lint/test commands to run yet because there is no application code. When implementing the backend or frontend for the first time, set up the toolchain (Flask + SQLAlchemy + SQLite for backend per the schema notes; React + Vite/TS implied by the `frontend/src` layout) consistent with `CONTRIBUTING.md` before writing app code, and update this file with the actual commands once they exist.
+- `backend/app/*` (config, controllers, middlewares, models, routes, services, views) still contains only `.gitkeep` placeholders — no backend application code exists yet, and this repo's frontend work does not implement it (a separate team owns the backend). When it does get implemented, set up the toolchain (Flask + SQLAlchemy + SQLite per the schema notes) consistent with `CONTRIBUTING.md` and update this file with the real commands.
+- `frontend/` now has a real toolchain: React 19 + Vite + TypeScript + Tailwind CSS v4, no UI component library (all interactive components are bespoke, under `frontend/src/components/ui/`). Because the backend doesn't exist yet, the app runs against an MSW mock layer (`frontend/src/mocks/`) by default (`VITE_USE_MOCKS=true` in `.env.development`) — this is purely client-side TypeScript, not a backend implementation. Run everything from `frontend/`:
+  - `npm run dev` — start the Vite dev server.
+  - `npm run build` — typecheck (`tsc -b`) then production build.
+  - `npm run lint` / `npm run format` — ESLint / Prettier.
+  - `npm test` — Vitest + React Testing Library, single run (`npm run test:watch` for watch mode).
+  - `npm run gen:types` — regenerates `frontend/src/types/api.generated.ts` from `backend/api/openapi.yaml` via `openapi-typescript`; re-run any time the contract changes.
 
 **Before writing any implementation code, read `backend/api/openapi.yaml` and `backend/database/schema.dbml` in full.** If a field, endpoint, or behavior isn't in one of these two files, do not invent it — raise it instead of guessing.
 

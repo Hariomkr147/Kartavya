@@ -405,7 +405,7 @@ Six indexes cover every common access pattern:
 ## Table 6: `complaint_evidence`
 
 ### What it is
-Stores one row per uploaded photo. A complaint starts with one photo; if the officer requests more, the citizen uploads again and a second (or third) row is added. All photos are kept permanently.
+Stores one row per uploaded photo. A complaint starts with 1 to 3 photos, filed together; if the officer requests more afterward, the citizen uploads again and further rows are added. All photos are kept permanently.
 
 ### Why evidence is its own table
 The charter makes evidence complex: it carries AI pre-screening results, an officer verdict, a reason, and a sequence number. Putting all of that as columns on `complaints` would mean either repeated columns (photo1_path, photo2_path, photo3_path) or lossy overwriting. A separate table handles any number of photos cleanly.
@@ -416,7 +416,7 @@ The charter makes evidence complex: it carries AI pre-screening results, an offi
 |---|---|---|---|
 | `id` | integer | ✅ | Primary key. |
 | `complaint_id` | integer (FK) | ✅ | Which complaint this photo belongs to. |
-| `sequence` | integer | ✅ | `1` for the original photo, `2` for the first resubmission, `3` for the second, and so on. The unique constraint on `(complaint_id, sequence)` makes sure no two photos can share a sequence number for the same complaint. |
+| `sequence` | integer | ✅ | `1` through `3` for the photos filed with the original complaint, then `4`, `5`, ... for any later resubmission or dispute evidence. The unique constraint on `(complaint_id, sequence)` makes sure no two photos can share a sequence number for the same complaint. |
 | `file_path` | text | ✅ | The path to the photo file on the local filesystem (e.g. `/uploads/complaints/5023/1.jpg`). The image itself is never stored in the database — only the path. |
 | `ai_screen_status` | `ai_screen_status` | ✅ | The AI screening state: `PENDING` (running), `DONE` (complete), or `UNAVAILABLE` (AI was down). Starts as `PENDING` the moment the photo is uploaded. This three-state field is important because `NULL` confidence is ambiguous — it could mean "not screened" or "AI was down." This Enum removes that ambiguity. |
 | `ai_matches_category` | boolean | ❌ | `true` if the AI thinks the photo matches the chosen category, `false` if it suspects a mismatch. `NULL` until screening is `DONE`. |

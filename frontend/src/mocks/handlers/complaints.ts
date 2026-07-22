@@ -22,8 +22,10 @@ export const complaintsHandlers = [
     const form = await request.formData();
     const categoryId = fromApiId(String(form.get("categoryId") ?? ""));
     const zoneId = fromApiId(String(form.get("zoneId") ?? ""));
-    const latitude = Number(form.get("latitude"));
-    const longitude = Number(form.get("longitude"));
+    const latitudeRaw = form.get("latitude");
+    const longitudeRaw = form.get("longitude");
+    const latitude = typeof latitudeRaw === "string" ? Number(latitudeRaw) : NaN;
+    const longitude = typeof longitudeRaw === "string" ? Number(longitudeRaw) : NaN;
     const description = form.get("description");
     const categorySuggestedByAi = form.get("categorySuggestedByAi") === "true";
     const photos = form.getAll("photos").filter((p): p is File => p instanceof File);

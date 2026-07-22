@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { cloneElement, useId, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 
@@ -36,27 +36,29 @@ export function Tooltip({ content, children, side = "top" }: TooltipProps) {
     setOpen(false);
   }
 
+  // aria-describedby has to live on the child that actually receives focus —
+  // a screen reader only reads ARIA relationships off the focused element,
+  // not an ancestor wrapper — so it's cloned onto `children` rather than set
+  // on the positioning <span> below.
+  const describedChild = cloneElement(children, {
+    "aria-describedby": open ? id : undefined,
+  });
+
   return (
     <>
-      {(() => {
-        const child = children;
-        return (
-          <span
-            ref={(node) => {
-              anchorRef.current = node;
-            }}
-            onMouseEnter={show}
-            onMouseLeave={hide}
-            onFocus={show}
-            onBlur={hide}
-            onKeyDown={(e) => e.key === "Escape" && hide()}
-            aria-describedby={open ? id : undefined}
-            className="inline-flex"
-          >
-            {child}
-          </span>
-        );
-      })()}
+      <span
+        ref={(node) => {
+          anchorRef.current = node;
+        }}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+        onKeyDown={(e) => e.key === "Escape" && hide()}
+        className="inline-flex"
+      >
+        {describedChild}
+      </span>
       {open &&
         createPortal(
           <div

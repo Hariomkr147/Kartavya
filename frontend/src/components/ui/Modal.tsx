@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -32,6 +32,8 @@ export function Modal({
 }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<Element | null>(null);
+  const titleId = useId();
+  const descriptionId = useId();
 
   useEffect(() => {
     if (!open) return;
@@ -81,8 +83,8 @@ export function Modal({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={title ? "modal-title" : undefined}
-        aria-describedby={description ? "modal-description" : undefined}
+        aria-labelledby={title ? titleId : undefined}
+        aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         className={cn(
           "animate-in fade-in zoom-in-95 relative flex max-h-[90vh] w-full flex-col rounded-lg bg-surface shadow-lg duration-150",
@@ -95,14 +97,14 @@ export function Modal({
             <div>
               {title && (
                 <h2
-                  id="modal-title"
+                  id={titleId}
                   className="font-display text-lg font-semibold text-ink"
                 >
                   {title}
                 </h2>
               )}
               {description && (
-                <p id="modal-description" className="text-ink-muted mt-0.5 text-sm">
+                <p id={descriptionId} className="text-ink-muted mt-0.5 text-sm">
                   {description}
                 </p>
               )}

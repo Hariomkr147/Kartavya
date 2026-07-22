@@ -1,10 +1,20 @@
-import { ComponentPlayground } from "@/pages/_playground/ComponentPlayground";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { MotionConfig } from "framer-motion";
+import { RouterProvider } from "react-router-dom";
+import { queryClient } from "@/lib/queryClient";
+import { AuthProvider } from "@/contexts/AuthContext";
+import { router } from "@/routes/router";
 
-// Temporary: replaced by real routing (RequireAuth/RequireRole, landing page,
-// role dashboards) in Stage 5. This playground proves out every Stage 4
-// bespoke UI primitive visually and gets removed once real screens exist.
 function App() {
-  return <ComponentPlayground />;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <MotionConfig reducedMotion="user">
+          <RouterProvider router={router} />
+        </MotionConfig>
+      </AuthProvider>
+    </QueryClientProvider>
+  );
 }
 
 export default App;

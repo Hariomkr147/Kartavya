@@ -49,6 +49,8 @@ export const feedHandlers = [
             (u) => u.complaintId === row.id && u.citizenId === auth.user.id,
           ),
           photoUrl: evidence ? photoUrlFor(evidence) : undefined,
+          latitude: row.latitude,
+          longitude: row.longitude,
           createdAt: row.createdAt,
         };
       }),

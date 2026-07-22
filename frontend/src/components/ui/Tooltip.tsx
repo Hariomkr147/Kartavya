@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 export interface TooltipProps {
   content: ReactNode;
   children: ReactElement<Record<string, unknown>>;
-  side?: "top" | "bottom";
+  side?: "top" | "bottom" | "right";
 }
 
 /** Bespoke tooltip: shows on hover/focus (keyboard-accessible), hides on blur/mouseleave/Escape. */
@@ -18,11 +18,18 @@ export function Tooltip({ content, children, side = "top" }: TooltipProps) {
   function show() {
     const rect = anchorRef.current?.getBoundingClientRect();
     if (!rect) return;
-    setPosition({
-      top:
-        side === "top" ? rect.top + window.scrollY - 8 : rect.bottom + window.scrollY + 8,
-      left: rect.left + window.scrollX + rect.width / 2,
-    });
+    if (side === "right") {
+      setPosition({
+        top: rect.top + window.scrollY + rect.height / 2,
+        left: rect.right + window.scrollX + 8,
+      });
+    } else {
+      setPosition({
+        top:
+          side === "top" ? rect.top + window.scrollY - 8 : rect.bottom + window.scrollY + 8,
+        left: rect.left + window.scrollX + rect.width / 2,
+      });
+    }
     setOpen(true);
   }
   function hide() {
@@ -59,7 +66,10 @@ export function Tooltip({ content, children, side = "top" }: TooltipProps) {
               position: "absolute",
               top: position.top,
               left: position.left,
-              transform: `translate(-50%, ${side === "top" ? "-100%" : "0"})`,
+              transform:
+                side === "right"
+                  ? "translateY(-50%)"
+                  : `translate(-50%, ${side === "top" ? "-100%" : "0"})`,
             }}
             className={cn(
               "pointer-events-none z-50 rounded bg-ink px-2 py-1 text-xs whitespace-nowrap text-canvas shadow-md",

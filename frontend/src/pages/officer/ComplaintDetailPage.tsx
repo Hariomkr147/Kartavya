@@ -1,0 +1,571 @@
+import { useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import {
+  ArrowLeft,
+  Boxes,
+  CheckCircle2,
+  FileQuestion,
+  ShieldAlert,
+  UserCog,
+  XCircle,
+} from "lucide-react";
+import { StatusPill, SeverityPill, SlaPill } from "@/components/ui/pills";
+import { Button } from "@/components/ui/Button";
+import { Textarea } from "@/components/ui/Textarea";
+import { Label } from "@/components/ui/Label";
+import { Modal } from "@/components/ui/Modal";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { useToast } from "@/components/ui/Toast";
+import { DynamicIcon } from "@/components/DynamicIcon";
+import { EvidenceGallery } from "@/components/complaint/EvidenceGallery";
+import { TimelineSidebar } from "@/components/complaint/TimelineSidebar";
+import { useAuth } from "@/contexts/AuthContext";
+import { useComplaint } from "@/hooks/useComplaint";
+import { useCluster } from "@/hooks/useCluster";
+import { useClaimComplaint } from "@/hooks/useClaimComplaint";
+import { useReviewEvidence } from "@/hooks/useReviewEvidence";
+import { useUpdateComplaintStatus } from "@/hooks/useUpdateComplaintStatus";
+import { useAddProgressNote } from "@/hooks/useAddProgressNote";
+import { iconForCategory } from "@/lib/categoryIcons";
+import { relativeTime } from "@/lib/datetime";
+import { ApiRequestError } from "@/services/http";
+import type { EvidenceVerdict, OfficerTargetStatus, StatusUpdateResult } from "@/types/api";
+
+type ActionModalType = "resolve" | "recall" | "unresolvable";
+
+const ACTION_MODAL_CONFIG: Record<
+  ActionModalType,
+  {
+    title: string;
+    description: string;
+    targetStatus: OfficerTargetStatus;
+    reasonRequired: boolean;
+    noteField: boolean;
+    confirmLabel: string;
+  }
+> = {
+  resolve: {
+    title: "Mark resolved",
+    description: "The citizen will be asked to confirm the fix. An optional closing note is visible to them.",
+    targetStatus: "RESOLVED",
+    reasonRequired: false,
+    noteField: true,
+    confirmLabel: "Mark resolved",
+  },
+  recall: {
+    title: "Recall for more evidence",
+    description: "Pauses the SLA clock until the citizen re-uploads a photo for you to re-verdict.",
+    targetStatus: "NEEDS_MORE_EVIDENCE",
+    reasonRequired: true,
+    noteField: false,
+    confirmLabel: "Recall complaint",
+  },
+  unresolvable: {
+    title: "Mark unresolvable",
+    description: "This closes the complaint permanently. This cannot be undone.",
+    targetStatus: "UNRESOLVABLE",
+    reasonRequired: true,
+    noteField: false,
+    confirmLabel: "Mark unresolvable",
+  },
+};
+
+export function OfficerComplaintDetailPage() {
+  const { complaintId } = useParams<{ complaintId: string }>();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const { data: complaint, isLoading, isError } = useComplaint(complaintId);
+  const { data: cluster } = useCluster(complaint?.clusterId);
+
+  const claim = useClaimComplaint();
+  const reviewEvidence = useReviewEvidence(complaintId ?? "");
+  const updateStatus = useUpdateComplaintStatus(complaintId ?? "");
+  const addNote = useAddProgressNote(complaintId ?? "");
+
+  const [reviewVerdict, setReviewVerdict] = useState<EvidenceVerdict | "">("");
+  const [reviewReason, setReviewReason] = useState("");
+  const [reviewError, setReviewError] = useState<string | null>(null);
+
+  const [actionModal, setActionModal] = useState<ActionModalType | null>(null);
+  const [modalReason, setModalReason] = useState("");
+  const [modalNote, setModalNote] = useState("");
+  const [modalError, setModalError] = useState<string | null>(null);
+
+  const [cascade, setCascade] = useState<StatusUpdateResult["cascade"] | null>(null);
+  const [noteText, setNoteText] = useState("");
+
+  if (isLoading) {
+    return (
+      <div className="mx-auto w-full max-w-3xl space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-64 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </div>
+    );
+  }
+
+  if (isError || !complaint) {
+    return (
+      <EmptyState
+        icon={FileQuestion}
+        title="Complaint not found"
+        description="It may not exist, or it isn't in your assigned zone."
+        action={
+          <Link to="/officer/queue" className="text-brand text-sm font-medium hover:underline">
+            Back to Queue
+          </Link>
+        }
+        className="mx-auto max-w-md py-24"
+      />
+    );
+  }
+
+  const latestEvidence = complaint.evidence?.length
+    ? [...complaint.evidence].sort((a, b) => b.sequence - a.sequence)[0]
+    : null;
+  const needsEvidenceReview =
+    complaint.status === "EVIDENCE_UNDER_REVIEW" &&
+    latestEvidence != null &&
+    latestEvidence.verdict == null;
+  // REJECTED is only legal before the complaint has ever reached UNDER_REVIEW
+  // — once slaTargetHours is set (on first acceptance), only VALID or
+  // NEEDS_MORE_EVIDENCE remain (see openapi.yaml's evidence-review notes).
+  const canReject = complaint.slaTargetHours == null;
+
+  async function runStatusUpdate(
+    status: OfficerTargetStatus,
+    opts?: { reason?: string; note?: string },
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
+    try {
+      const result = await updateStatus.mutateAsync({ status, ...opts });
+      setCascade(result.cascade ?? null);
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        message:
+          error instanceof ApiRequestError
+            ? error.message
+            : "Something went wrong. Please try again.",
+      };
+    }
+  }
+
+  async function handleClaim() {
+    if (!complaintId) return;
+    try {
+      await claim.mutateAsync(complaintId);
+      toast({
+        title: "Complaint claimed",
+        description: "Review the submitted photo below.",
+        variant: "success",
+      });
+    } catch (error) {
+      toast({
+        title: "Couldn't claim this complaint",
+        description: error instanceof ApiRequestError ? error.message : undefined,
+        variant: "error",
+      });
+    }
+  }
+
+  async function handleReviewSubmit() {
+    setReviewError(null);
+    if (!reviewVerdict) {
+      setReviewError("Choose a verdict.");
+      return;
+    }
+    if (
+      (reviewVerdict === "NEEDS_MORE_EVIDENCE" || reviewVerdict === "REJECTED") &&
+      !reviewReason.trim()
+    ) {
+      setReviewError("A reason is required for this verdict.");
+      return;
+    }
+    try {
+      await reviewEvidence.mutateAsync({
+        verdict: reviewVerdict,
+        reason: reviewReason.trim() || undefined,
+      });
+      toast({ title: "Verdict recorded", variant: "success" });
+      setReviewVerdict("");
+      setReviewReason("");
+    } catch (error) {
+      setReviewError(
+        error instanceof ApiRequestError
+          ? error.message
+          : "Something went wrong. Please try again.",
+      );
+    }
+  }
+
+  async function handleSimpleTransition(status: OfficerTargetStatus, successTitle: string) {
+    const result = await runStatusUpdate(status);
+    if (result.ok) toast({ title: successTitle, variant: "success" });
+    else toast({ title: "Couldn't update status", description: result.message, variant: "error" });
+  }
+
+  function openActionModal(type: ActionModalType) {
+    setActionModal(type);
+    setModalReason("");
+    setModalNote("");
+    setModalError(null);
+  }
+
+  async function handleModalConfirm() {
+    if (!actionModal) return;
+    setModalError(null);
+    const config = ACTION_MODAL_CONFIG[actionModal];
+    if (config.reasonRequired && !modalReason.trim()) {
+      setModalError("A reason is required.");
+      return;
+    }
+    const result = await runStatusUpdate(config.targetStatus, {
+      reason: modalReason.trim() || undefined,
+      note: modalNote.trim() || undefined,
+    });
+    if (result.ok) {
+      toast({ title: config.title, variant: "success" });
+      setActionModal(null);
+    } else {
+      setModalError(result.message);
+    }
+  }
+
+  async function handleAddNote() {
+    if (!noteText.trim()) return;
+    try {
+      await addNote.mutateAsync(noteText.trim());
+      toast({ title: "Note posted", variant: "success" });
+      setNoteText("");
+    } catch (error) {
+      toast({
+        title: "Couldn't post note",
+        description: error instanceof ApiRequestError ? error.message : undefined,
+        variant: "error",
+      });
+    }
+  }
+
+  const assignedLabel =
+    complaint.assignedOfficerId == null
+      ? "Unassigned"
+      : complaint.assignedOfficerId === user?.id
+        ? "You"
+        : `Officer #${complaint.assignedOfficerId}`;
+
+  const canAddNote = complaint.status === "IN_PROGRESS" || complaint.status === "UNDER_RESOLUTION";
+  const modalConfig = actionModal ? ACTION_MODAL_CONFIG[actionModal] : null;
+
+  return (
+    <div className="mx-auto w-full max-w-5xl space-y-6 pb-12">
+      <Link
+        to="/officer/queue"
+        className="text-ink-muted inline-flex items-center gap-1.5 text-sm hover:text-ink"
+      >
+        <ArrowLeft className="size-4" aria-hidden="true" />
+        Queue
+      </Link>
+
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <span className="bg-surface-hover flex size-11 shrink-0 items-center justify-center rounded-full">
+            <DynamicIcon
+              icon={iconForCategory(complaint.category.name)}
+              className="text-ink-muted size-5"
+              aria-hidden="true"
+            />
+          </span>
+          <div>
+            <h1 className="font-display text-xl font-semibold text-ink">
+              {complaint.category.name}
+            </h1>
+            <p className="text-ink-faint font-mono text-xs">
+              {complaint.id} · filed {relativeTime(complaint.createdAt)}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusPill status={complaint.status} />
+          {complaint.severityLabel && <SeverityPill severity={complaint.severityLabel} />}
+          {complaint.slaLabel && <SlaPill sla={complaint.slaLabel} />}
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
+        <div className="min-w-0 space-y-6">
+          <div className="text-ink-muted flex items-center gap-2 rounded-md border border-line bg-surface p-3 text-sm">
+            <UserCog className="size-4 shrink-0" aria-hidden="true" />
+            Assigned: {assignedLabel}
+          </div>
+
+          {cluster && (
+            <Link
+              to={`/officer/clusters/${cluster.id}`}
+              className="border-brand/30 bg-brand/5 hover:bg-brand/10 flex items-center gap-2 rounded-md border p-3 text-sm text-ink transition-colors"
+            >
+              <Boxes className="text-brand size-4 shrink-0" aria-hidden="true" />
+              Part of a cluster of {cluster.reportCount} report
+              {cluster.reportCount === 1 ? "" : "s"} ({cluster.uniqueReporterCount} unique
+              reporter{cluster.uniqueReporterCount === 1 ? "" : "s"}) — resolving this may
+              resolve others automatically.
+            </Link>
+          )}
+
+          {complaint.description && (
+            <p className="text-ink-muted text-sm leading-relaxed">
+              {complaint.description}
+            </p>
+          )}
+
+          {cascade && cascade.length > 0 && (
+            <section className="rounded-lg border border-status-resolved/30 bg-status-resolved-subtle p-4">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="font-display flex items-center gap-2 text-base font-semibold text-ink">
+                  <CheckCircle2 className="text-status-resolved size-5" aria-hidden="true" />
+                  Cluster cascade
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setCascade(null)}
+                  className="text-ink-faint hover:text-ink text-xs"
+                >
+                  Dismiss
+                </button>
+              </div>
+              <ul className="space-y-1 text-sm">
+                {cascade.map((item) => (
+                  <li key={item.complaintId} className="flex items-center gap-2">
+                    {item.outcome === "CASCADED" ? (
+                      <CheckCircle2 className="text-status-resolved size-4 shrink-0" aria-hidden="true" />
+                    ) : (
+                      <XCircle className="text-ink-faint size-4 shrink-0" aria-hidden="true" />
+                    )}
+                    <span className="text-ink-muted">
+                      {item.complaintId} — {item.outcome === "CASCADED" ? "moved to Resolved" : `left at ${item.previousStatus}`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {complaint.status === "SUBMITTED" && (
+            <section className="rounded-lg border border-line bg-surface p-4">
+              <h2 className="font-display text-base font-semibold text-ink">
+                Pick up this complaint
+              </h2>
+              <p className="text-ink-muted mt-1 text-sm">
+                Claim it to start reviewing the submitted evidence.
+              </p>
+              <Button size="sm" className="mt-3" loading={claim.isPending} onClick={handleClaim}>
+                Claim
+              </Button>
+            </section>
+          )}
+
+          {complaint.evidence && complaint.evidence.length > 0 && (
+            <section>
+              <h2 className="font-display mb-3 text-base font-semibold text-ink">
+                Evidence
+              </h2>
+              <EvidenceGallery evidence={complaint.evidence} />
+            </section>
+          )}
+
+          {needsEvidenceReview && (
+            <section className="border-brand/30 bg-brand/5 rounded-lg border p-4">
+              <h2 className="font-display text-base font-semibold text-ink">
+                Review the latest photo
+              </h2>
+              <p className="text-ink-muted mt-1 text-sm">
+                The AI note above is advisory only — your verdict decides what happens
+                next.
+              </p>
+              {reviewError && (
+                <p role="alert" className="bg-status-rejected-subtle text-status-rejected mt-3 rounded-md px-3 py-2 text-sm">
+                  {reviewError}
+                </p>
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant={reviewVerdict === "VALID" ? "primary" : "outline"}
+                  onClick={() => setReviewVerdict("VALID")}
+                >
+                  Valid
+                </Button>
+                <Button
+                  size="sm"
+                  variant={reviewVerdict === "NEEDS_MORE_EVIDENCE" ? "primary" : "outline"}
+                  onClick={() => setReviewVerdict("NEEDS_MORE_EVIDENCE")}
+                >
+                  Needs more evidence
+                </Button>
+                {canReject && (
+                  <Button
+                    size="sm"
+                    variant={reviewVerdict === "REJECTED" ? "danger" : "outline"}
+                    onClick={() => setReviewVerdict("REJECTED")}
+                  >
+                    Reject
+                  </Button>
+                )}
+              </div>
+              {(reviewVerdict === "NEEDS_MORE_EVIDENCE" || reviewVerdict === "REJECTED") && (
+                <div className="mt-3">
+                  <Label htmlFor="review-reason" required>
+                    Reason
+                  </Label>
+                  <Textarea
+                    id="review-reason"
+                    value={reviewReason}
+                    onChange={(e) => setReviewReason(e.target.value)}
+                    placeholder="Why?"
+                  />
+                </div>
+              )}
+              <Button
+                size="sm"
+                className="mt-3"
+                disabled={!reviewVerdict}
+                loading={reviewEvidence.isPending}
+                onClick={handleReviewSubmit}
+              >
+                Submit verdict
+              </Button>
+            </section>
+          )}
+
+          {complaint.status === "REOPENED" && (
+            <div className="text-ink-muted flex items-center gap-2 rounded-md border border-status-reopened/30 bg-status-reopened-subtle p-3 text-sm">
+              <ShieldAlert className="text-status-reopened size-4 shrink-0" aria-hidden="true" />
+              This complaint was disputed by the citizen and is awaiting an admin's ruling.
+              No officer action is available until then.
+            </div>
+          )}
+
+          {(complaint.status === "UNDER_REVIEW" ||
+            complaint.status === "IN_PROGRESS" ||
+            complaint.status === "UNDER_RESOLUTION") && (
+            <section className="rounded-lg border border-line bg-surface p-4">
+              <h2 className="font-display text-base font-semibold text-ink">
+                Move this complaint
+              </h2>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {complaint.status === "UNDER_REVIEW" && (
+                  <>
+                    <Button size="sm" onClick={() => handleSimpleTransition("IN_PROGRESS", "Moved to In Progress")}>
+                      Start work
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => openActionModal("recall")}>
+                      Recall for more evidence
+                    </Button>
+                  </>
+                )}
+                {complaint.status === "IN_PROGRESS" && (
+                  <Button size="sm" onClick={() => handleSimpleTransition("UNDER_RESOLUTION", "Moved to Under Resolution")}>
+                    Move to Under Resolution
+                  </Button>
+                )}
+                {complaint.status === "UNDER_RESOLUTION" && (
+                  <Button size="sm" onClick={() => openActionModal("resolve")}>
+                    Mark resolved
+                  </Button>
+                )}
+                <Button size="sm" variant="danger" onClick={() => openActionModal("unresolvable")}>
+                  Mark unresolvable
+                </Button>
+              </div>
+            </section>
+          )}
+
+          {canAddNote && (
+            <section className="rounded-lg border border-line bg-surface p-4">
+              <h2 className="font-display text-base font-semibold text-ink">
+                Post a progress note
+              </h2>
+              <p className="text-ink-muted mt-1 text-sm">
+                Visible to the citizen, with your officer ID.
+              </p>
+              <div className="mt-3">
+                <Textarea
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  placeholder="What's the latest update?"
+                  maxLength={500}
+                />
+              </div>
+              <Button size="sm" className="mt-2" disabled={!noteText.trim()} loading={addNote.isPending} onClick={handleAddNote}>
+                Post note
+              </Button>
+            </section>
+          )}
+        </div>
+
+        <aside className="order-first lg:order-none lg:sticky lg:top-6 lg:self-start">
+          <TimelineSidebar
+            statusHistory={complaint.statusHistory}
+            progressNotes={complaint.progressNotes}
+            viewerRole="OFFICER"
+            viewerOfficerId={user?.id}
+          />
+        </aside>
+      </div>
+
+      <Modal
+        open={actionModal !== null}
+        onClose={() => setActionModal(null)}
+        title={modalConfig?.title}
+        description={modalConfig?.description}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setActionModal(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant={actionModal === "unresolvable" ? "danger" : "primary"}
+              loading={updateStatus.isPending}
+              onClick={handleModalConfirm}
+            >
+              {modalConfig?.confirmLabel}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {modalError && (
+            <p role="alert" className="bg-status-rejected-subtle text-status-rejected rounded-md px-3 py-2 text-sm">
+              {modalError}
+            </p>
+          )}
+          {modalConfig?.reasonRequired && (
+            <div>
+              <Label htmlFor="action-reason" required>
+                Reason
+              </Label>
+              <Textarea
+                id="action-reason"
+                value={modalReason}
+                onChange={(e) => setModalReason(e.target.value)}
+                placeholder="Explain why."
+              />
+            </div>
+          )}
+          {modalConfig?.noteField && (
+            <div>
+              <Label htmlFor="action-note">Closing note (optional)</Label>
+              <Textarea
+                id="action-note"
+                value={modalNote}
+                onChange={(e) => setModalNote(e.target.value)}
+                placeholder="Visible to the citizen."
+              />
+            </div>
+          )}
+        </div>
+      </Modal>
+    </div>
+  );
+}

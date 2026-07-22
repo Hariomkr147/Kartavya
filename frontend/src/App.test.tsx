@@ -1,11 +1,15 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import App from "./App";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { ToastProvider } from "./components/ui/Toast";
 
+afterEach(() => {
+  localStorage.clear();
+});
+
 describe("App", () => {
-  it("renders the Stage 4 component playground", () => {
+  it("renders the public landing page by default", async () => {
     render(
       <ThemeProvider>
         <ToastProvider>
@@ -14,7 +18,10 @@ describe("App", () => {
       </ThemeProvider>,
     );
     expect(
-      screen.getByRole("heading", { name: "Kartavya component playground" }),
+      await screen.findByRole("heading", {
+        name: "What gets seen, gets fixed.",
+        level: 1,
+      }),
     ).toBeInTheDocument();
   });
 });

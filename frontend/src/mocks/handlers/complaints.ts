@@ -26,7 +26,7 @@ export const complaintsHandlers = [
     const longitude = Number(form.get("longitude"));
     const description = form.get("description");
     const categorySuggestedByAi = form.get("categorySuggestedByAi") === "true";
-    const photo = form.get("photo");
+    const photos = form.getAll("photos").filter((p): p is File => p instanceof File);
 
     if (categoryId == null || !db.categories.some((c) => c.id === categoryId)) {
       return Errors.badRequest("categoryId does not refer to a known category.");
@@ -41,8 +41,15 @@ export const complaintsHandlers = [
     if (!zone.isActive) {
       return Errors.badRequest("This zone is no longer accepting new complaints.");
     }
-    const photoCheck = validateAndStorePhoto(photo instanceof File ? photo : null);
-    if (!photoCheck.ok) return Errors.badRequest(photoCheck.message);
+    if (photos.length === 0) {
+      return Errors.badRequest("At least one photo is required.");
+    }
+    if (photos.length > 3) {
+      return Errors.badRequest("At most 3 photos are allowed.");
+    }
+    const photoChecks = photos.map((p) => validateAndStorePhoto(p));
+    const firstBad = photoChecks.find((p) => !p.ok);
+    if (firstBad && !firstBad.ok) return Errors.badRequest(firstBad.message);
 
     const now = new Date().toISOString();
     const complaintId = nextId("complaints");
@@ -72,21 +79,24 @@ export const complaintsHandlers = [
     };
     db.complaints.push(complaint);
 
-    const evidenceId = nextId("evidence");
-    db.evidence.push({
-      id: evidenceId,
-      complaintId: complaint.id,
-      sequence: 1,
-      filePath: photoCheck.url,
-      aiScreenStatus: "PENDING",
-      aiMatchesCategory: null,
-      aiConfidence: null,
-      aiNote: null,
-      verdict: null,
-      verdictReason: null,
-      reviewedBy: null,
-      reviewedAt: null,
-      createdAt: now,
+    const evidenceIds = photoChecks.map((check, index) => {
+      const evidenceId = nextId("evidence");
+      db.evidence.push({
+        id: evidenceId,
+        complaintId: complaint.id,
+        sequence: index + 1,
+        filePath: check.ok ? check.url : "",
+        aiScreenStatus: "PENDING",
+        aiMatchesCategory: null,
+        aiConfidence: null,
+        aiNote: null,
+        verdict: null,
+        verdictReason: null,
+        reviewedBy: null,
+        reviewedAt: null,
+        createdAt: now,
+      });
+      return evidenceId;
     });
 
     db.statusHistory.push({
@@ -112,10 +122,8 @@ export const complaintsHandlers = [
     }
 
     persist();
-    simulateEvidenceScreening(
-      evidenceId,
-      db.categories.find((c) => c.id === categoryId)!.categoryName,
-    );
+    const categoryName = db.categories.find((c) => c.id === categoryId)!.categoryName;
+    evidenceIds.forEach((evidenceId) => simulateEvidenceScreening(evidenceId, categoryName));
 
     return HttpResponse.json(toComplaintDetail(complaint, "CITIZEN", auth.user.id), {
       status: 201,

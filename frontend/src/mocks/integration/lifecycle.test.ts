@@ -44,7 +44,7 @@ async function fileComplaint(
   form.set("longitude", String(opts.longitude ?? 77.5946));
   form.set("zoneId", ZONE_WARD_12);
   form.set("description", opts.description ?? "A deep pothole near the junction.");
-  form.set("photo", makePhoto());
+  form.append("photos", makePhoto());
 
   const res = await authedFetch(token)("/complaints", { method: "POST", body: form });
   expect(res.status).toBe(201);

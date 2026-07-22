@@ -165,15 +165,18 @@ export interface paths {
         put?: never;
         /**
          * File a new complaint
-         * @description A citizen files a complaint by choosing one of the 12 categories, uploading a single photo (JPEG or PNG, max 5 MB), and sharing a location (latitude/longitude).
+         * @description A citizen files a complaint by choosing one of the 12 categories, uploading 1 to 3 photos (JPEG or PNG, max 5 MB each), and sharing a location (latitude/longitude).
          *
          *     On submission the server automatically:
          *     - routes the complaint to the citizen-confirmed `zoneId` (validated
          *       active, never re-derived from location),
          *
          *     - sets the status to `SUBMITTED`,
-         *     - kicks off AI photo pre-screening in the background (non-blocking — the
-         *       confidence note is attached to the evidence record when it is ready),
+         *     - stores each photo as its own evidence record (`sequence` 1, 2, 3…)
+         *       and kicks off AI photo pre-screening for each one independently in
+         *       the background (non-blocking — each confidence note is attached to
+         *       its evidence record when ready; an officer's evidence-review
+         *       verdict still applies once, to the whole round, not per photo),
          *
          *     - checks for nearby open complaints of the same category (Haversine,
          *       ~50–100 m) and links them into a cluster, recomputing severity.
@@ -338,7 +341,7 @@ export interface paths {
         };
         /**
          * Browse the public complaint feed
-         * @description The "Instagram Explore"-style feed for citizens. Shows complaints in the citizen's own zone with photo, category, severity label, upvote count, and status — but **never** who filed them. By default it shows active complaints; closed and rejected ones are hidden unless explicitly requested, in which case they are clearly marked.
+         * @description The "Instagram Explore"-style feed for citizens. Shows complaints in the citizen's own zone with photo, category, severity label, upvote count, location, and status — but **never** who filed them. The location is the same latitude/longitude captured at filing time, exposed here so the client can show a nearby-landmark hint (e.g. via reverse geocoding) — precise enough to find the issue in person, which is the point of the feed, but never tied to a reporter identity. By default it shows active complaints; closed and rejected ones are hidden unless explicitly requested, in which case they are clearly marked.
          *
          *     Citizens can upvote straight from this feed (subject to the one-upvote-per-complaint rule).
          */
@@ -1342,11 +1345,8 @@ export interface components {
             categoryId: string;
             /** @description Free-text description of the issue. */
             description?: string;
-            /**
-             * Format: binary
-             * @description JPEG or PNG, max 5 MB.
-             */
-            photo: string;
+            /** @description 1 to 3 photos (JPEG or PNG, max 5 MB each). Each becomes its own evidence record (`sequence` 1, 2, 3…) with its own independent AI pre-screening note. */
+            photos: string[];
             /**
              * Format: double
              * @example 12.9716
@@ -1430,6 +1430,17 @@ export interface components {
             hasUpvoted: boolean;
             /** Format: uri */
             photoUrl?: string;
+            /**
+             * Format: double
+             * @description Same coordinate captured at filing time. Lets the client derive a nearby-landmark hint (e.g. via reverse geocoding) — never used to identify who reported the issue.
+             * @example 12.9716
+             */
+            latitude?: number;
+            /**
+             * Format: double
+             * @example 77.5946
+             */
+            longitude?: number;
             /** Format: date-time */
             createdAt?: string;
         };

@@ -20,6 +20,21 @@ const SIZE_CLASSES: Record<ButtonSize, string> = {
   icon: "h-11 w-11 rounded-md",
 };
 
+/** Shared with LinkButton so a react-router <Link> can look exactly like a <Button>. */
+export function buttonClasses(
+  variant: ButtonVariant = "primary",
+  size: ButtonSize = "md",
+  className?: string,
+) {
+  return cn(
+    "inline-flex items-center justify-center font-medium whitespace-nowrap transition-colors",
+    "disabled:pointer-events-none disabled:opacity-50",
+    VARIANT_CLASSES[variant],
+    SIZE_CLASSES[size],
+    className,
+  );
+}
+
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;
@@ -48,13 +63,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         disabled={disabled || loading}
-        className={cn(
-          "inline-flex items-center justify-center font-medium whitespace-nowrap transition-colors",
-          "disabled:pointer-events-none disabled:opacity-50",
-          VARIANT_CLASSES[variant],
-          SIZE_CLASSES[size],
-          className,
-        )}
+        className={buttonClasses(variant, size, className)}
         {...props}
       >
         {loading ? (

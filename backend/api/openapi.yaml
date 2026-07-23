@@ -237,7 +237,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: An OFFICER attempted to change their own zoneId.
+          description: A non-citizen (OFFICER or ADMIN) attempted to change their own zoneId.
           content:
             application/json:
               schema:

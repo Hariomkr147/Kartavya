@@ -53,7 +53,10 @@ export function MiniMap({
 
   return (
     <div
-      className={cn("relative overflow-hidden rounded-md border border-line", className)}
+      className={cn(
+        "relative isolate overflow-hidden rounded-md border border-line",
+        className,
+      )}
       style={{ height }}
     >
       <MapContainer

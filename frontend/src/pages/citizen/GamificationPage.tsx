@@ -95,7 +95,7 @@ export function GamificationPage() {
     <div className="mx-auto w-full max-w-5xl space-y-8">
       <h1 className="font-display text-display-sm font-semibold text-ink">My Kartavya</h1>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid items-start gap-6 lg:grid-cols-2">
         <section className="rounded-lg border border-line bg-surface p-5">
           <div className="flex items-center gap-2">
             <Trophy className="text-csp size-5" aria-hidden="true" />
@@ -165,7 +165,7 @@ export function GamificationPage() {
       </div>
 
       {!pointsLoading && ledger.length > 0 && (
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid items-start gap-6 lg:grid-cols-2">
           <section className="rounded-lg border border-line bg-surface p-5">
             <div className="mb-3 flex items-center gap-2">
               <TrendingUp className="text-ink-muted size-4" aria-hidden="true" />

@@ -35,6 +35,11 @@ export function Modal({
   const titleId = useId();
   const descriptionId = useId();
 
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   useEffect(() => {
     if (!open) return;
     triggerRef.current = document.activeElement;
@@ -44,7 +49,7 @@ export function Modal({
 
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== "Tab" || !node) return;
@@ -68,7 +73,10 @@ export function Modal({
       document.body.style.overflow = "";
       if (triggerRef.current instanceof HTMLElement) triggerRef.current.focus();
     };
-  }, [open, onClose]);
+    // Only re-run when the dialog opens/closes, not when `onClose` is a fresh
+    // inline function on every parent re-render (e.g. typing in a form field
+    // inside the modal) — otherwise focus gets stolen back on every keystroke.
+  }, [open]);
 
   if (!open) return null;
 

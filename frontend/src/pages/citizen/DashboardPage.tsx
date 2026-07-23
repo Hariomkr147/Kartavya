@@ -193,7 +193,7 @@ export function CitizenDashboardPage() {
       {!isLoading &&
         complaints.length > 0 &&
         (categoryBreakdown.length > 0 || zoneBreakdown.length > 0) && (
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2 sm:items-start">
             {categoryBreakdown.length > 0 && (
               <section className="rounded-lg border border-line bg-surface p-5">
                 <div className="mb-3 flex items-center gap-2">

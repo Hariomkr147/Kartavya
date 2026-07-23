@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Boxes, FileQuestion } from "lucide-react";
-import { SeverityPill } from "@/components/ui/pills";
+import { ArrowLeft, Boxes, FileQuestion, ImageOff } from "lucide-react";
+import { StatusPill, SeverityPill, SlaPill } from "@/components/ui/pills";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Textarea } from "@/components/ui/Textarea";
@@ -10,10 +10,21 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useToast } from "@/components/ui/Toast";
 import { DynamicIcon } from "@/components/DynamicIcon";
-import { ComplaintListItem } from "@/components/complaint/ComplaintListItem";
 import { BatchStatusModal } from "@/components/complaint/BatchStatusModal";
+import { MiniMap } from "@/components/ui/MiniMap";
+import { HorizontalBarChart } from "@/components/charts/HorizontalBarChart";
+import {
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableHeaderCell,
+  TableCell,
+} from "@/components/ui/DataTable";
+import { useAuth } from "@/contexts/AuthContext";
 import { useCluster } from "@/hooks/useCluster";
 import { useAddClusterProgressNote } from "@/hooks/useAddClusterProgressNote";
+import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
 import { iconForCategory } from "@/lib/categoryIcons";
 import { relativeTime } from "@/lib/datetime";
 import { ApiRequestError } from "@/services/http";
@@ -33,16 +44,39 @@ const STATUS_ORDER: ComplaintStatus[] = [
   "UNRESOLVABLE",
 ];
 
+function humanStatusLabel(status: ComplaintStatus): string {
+  return status
+    .toLowerCase()
+    .split("_")
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
 export function OfficerClusterDetailPage() {
   const { clusterId } = useParams<{ clusterId: string }>();
+  const { user } = useAuth();
   const { toast } = useToast();
   const { data: cluster, isLoading, isError } = useCluster(clusterId);
   const addClusterNote = useAddClusterProgressNote(clusterId ?? "");
+  const { record: recordRecentlyViewed } = useRecentlyViewed(
+    `officer:${user?.id ?? "anon"}`,
+  );
 
   const [batchOpen, setBatchOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [noteError, setNoteError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!cluster) return;
+    recordRecentlyViewed({
+      id: cluster.id,
+      label: cluster.category.name,
+      sublabel: cluster.id,
+      href: `/officer/clusters/${cluster.id}`,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cluster?.id]);
 
   if (isLoading) {
     return (
@@ -61,7 +95,10 @@ export function OfficerClusterDetailPage() {
         title="Cluster not found"
         description="It may not exist, or it isn't in your assigned zone."
         action={
-          <Link to="/officer/clusters" className="text-brand text-sm font-medium hover:underline">
+          <Link
+            to="/officer/clusters"
+            className="text-brand text-sm font-medium hover:underline"
+          >
             Back to Clusters
           </Link>
         }
@@ -71,6 +108,10 @@ export function OfficerClusterDetailPage() {
   }
 
   const statuses = STATUS_ORDER.filter((s) => cluster.statusSummary[s]);
+  const statusChartData = statuses.map((status) => ({
+    label: humanStatusLabel(status),
+    value: cluster.statusSummary[status],
+  }));
 
   async function handleAddNote() {
     setNoteError(null);
@@ -97,7 +138,7 @@ export function OfficerClusterDetailPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6 pb-12">
+    <div className="mx-auto w-full max-w-5xl space-y-6 pb-12">
       <Link
         to="/officer/clusters"
         className="text-ink-muted inline-flex items-center gap-1.5 text-sm hover:text-ink"
@@ -133,15 +174,27 @@ export function OfficerClusterDetailPage() {
         <Stat label="Severity score" value={cluster.severityScore} />
       </div>
 
-      <div className="flex flex-wrap gap-1.5">
-        {statuses.map((status) => (
-          <span
-            key={status}
-            className="bg-surface-hover text-ink-muted rounded-full px-2.5 py-1 text-xs"
-          >
-            {cluster.statusSummary[status]} {status.replace(/_/g, " ").toLowerCase()}
-          </span>
-        ))}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="rounded-lg border border-line bg-surface p-4">
+          <h2 className="font-display mb-3 text-base font-semibold text-ink">
+            Member status breakdown
+          </h2>
+          <HorizontalBarChart data={statusChartData} />
+        </div>
+        <div className="rounded-lg border border-line bg-surface p-4">
+          <h2 className="font-display mb-3 text-base font-semibold text-ink">Centroid</h2>
+          <MiniMap
+            pins={[
+              {
+                id: cluster.id,
+                lat: cluster.centroidLat,
+                lng: cluster.centroidLng,
+                label: cluster.category.name,
+              },
+            ]}
+            height={200}
+          />
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -158,11 +211,54 @@ export function OfficerClusterDetailPage() {
         <h2 className="font-display mb-3 text-base font-semibold text-ink">
           Member complaints
         </h2>
-        <div className="space-y-2">
-          {cluster.complaints.map((c) => (
-            <ComplaintListItem key={c.id} complaint={c} to={`/officer/queue/${c.id}`} />
-          ))}
-        </div>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableHeaderCell className="w-16">Photo</TableHeaderCell>
+              <TableHeaderCell>Complaint</TableHeaderCell>
+              <TableHeaderCell>Status</TableHeaderCell>
+              <TableHeaderCell>Severity</TableHeaderCell>
+              <TableHeaderCell>SLA</TableHeaderCell>
+              <TableHeaderCell>Filed</TableHeaderCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {cluster.complaints.map((c) => (
+              <TableRow key={c.id}>
+                <TableCell>
+                  <Link
+                    to={`/officer/queue/${c.id}`}
+                    className="bg-surface-hover flex size-10 items-center justify-center overflow-hidden rounded-md"
+                  >
+                    {c.photoUrl ? (
+                      <img src={c.photoUrl} alt="" className="size-full object-cover" />
+                    ) : (
+                      <ImageOff className="text-ink-faint size-4" aria-hidden="true" />
+                    )}
+                  </Link>
+                </TableCell>
+                <TableCell>
+                  <Link
+                    to={`/officer/queue/${c.id}`}
+                    className="text-ink font-mono text-xs hover:underline"
+                  >
+                    {c.id}
+                  </Link>
+                </TableCell>
+                <TableCell>
+                  <StatusPill status={c.status} />
+                </TableCell>
+                <TableCell>
+                  {c.severityLabel && <SeverityPill severity={c.severityLabel} />}
+                </TableCell>
+                <TableCell>{c.slaLabel && <SlaPill sla={c.slaLabel} />}</TableCell>
+                <TableCell className="text-ink-muted text-sm">
+                  {relativeTime(c.createdAt)}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </section>
 
       <BatchStatusModal
@@ -190,7 +286,10 @@ export function OfficerClusterDetailPage() {
       >
         <div className="space-y-4">
           {noteError && (
-            <p role="alert" className="bg-status-rejected-subtle text-status-rejected rounded-md px-3 py-2 text-sm">
+            <p
+              role="alert"
+              className="bg-status-rejected-subtle text-status-rejected rounded-md px-3 py-2 text-sm"
+            >
               {noteError}
             </p>
           )}
@@ -215,7 +314,9 @@ export function OfficerClusterDetailPage() {
 function Stat({ label, value }: { label: string; value: number }) {
   return (
     <div>
-      <p className="text-ink-faint text-xs font-medium tracking-wide uppercase">{label}</p>
+      <p className="text-ink-faint text-xs font-medium tracking-wide uppercase">
+        {label}
+      </p>
       <p className="mt-1 font-mono text-2xl font-semibold text-ink">{value}</p>
     </div>
   );

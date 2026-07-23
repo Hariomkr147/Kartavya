@@ -7,26 +7,33 @@ import {
   Bot,
   BotOff,
   Check,
+  ChevronDown,
+  ChevronUp,
+  Info,
   Loader2,
   MapPin,
   MapPinned,
   Wand2,
+  X as XIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { LinkButton } from "@/components/ui/LinkButton";
 import { DynamicIcon } from "@/components/DynamicIcon";
 import { Textarea } from "@/components/ui/Textarea";
 import { Label } from "@/components/ui/Label";
-import { Select } from "@/components/ui/Select";
+import { Combobox } from "@/components/ui/Combobox";
 import { FileDropzone } from "@/components/ui/FileDropzone";
 import { MapPicker, type LatLng } from "@/components/ui/MapPicker";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Stepper } from "@/components/ui/Stepper";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { useToast } from "@/components/ui/Toast";
 import { useCategories } from "@/hooks/useCategories";
 import { useZones } from "@/hooks/useZones";
 import { useSuggestZone } from "@/hooks/useSuggestZone";
 import { useCreateComplaint } from "@/hooks/useCreateComplaint";
+import { useLocalDraft } from "@/hooks/useLocalDraft";
+import { useDirtyFormGuard } from "@/hooks/useDirtyFormGuard";
 import { iconForCategory } from "@/lib/categoryIcons";
 import { matchCategory } from "@/lib/categoryMatcher";
 import { readExifGps, type ExifGps } from "@/lib/exifGps";
@@ -36,9 +43,22 @@ import { ApiRequestError } from "@/services/http";
 import { cn } from "@/lib/utils";
 import type { Category, ComplaintDetail } from "@/types/api";
 
-const STEP_LABELS = ["What happened", "Category", "Evidence & location", "Review"];
+const STEP_LABELS = [
+  "What happened",
+  "Complaint Category",
+  "Evidence & location",
+  "Review",
+];
 const MIN_DESCRIPTION_LENGTH = 10;
 const MAX_PHOTOS = 3;
+
+interface WizardDraft {
+  step: number;
+  description: string;
+  categoryId: string | null;
+}
+
+const EMPTY_DRAFT: WizardDraft = { step: 0, description: "", categoryId: null };
 
 export function FileComplaintPage() {
   const navigate = useNavigate();
@@ -49,13 +69,28 @@ export function FileComplaintPage() {
   const suggestZoneMutation = useSuggestZone();
   const createComplaint = useCreateComplaint();
 
-  const [step, setStep] = useState(0);
+  const [draft, setDraft, { hasDraft, clearDraft }] = useLocalDraft<WizardDraft>(
+    "file-complaint",
+    EMPTY_DRAFT,
+  );
+  const [draftNoticeDismissed, setDraftNoticeDismissed] = useState(false);
+  const { step, description, categoryId } = draft;
 
-  // Step 1 — description
-  const [description, setDescription] = useState("");
+  function setStep(next: number | ((s: number) => number)) {
+    setDraft((prev) => ({
+      ...prev,
+      step:
+        typeof next === "function" ? (next as (s: number) => number)(prev.step) : next,
+    }));
+  }
+  function setDescription(next: string) {
+    setDraft((prev) => ({ ...prev, description: next }));
+  }
+  function setCategoryId(next: string | null) {
+    setDraft((prev) => ({ ...prev, categoryId: next }));
+  }
 
   // Step 2 — category
-  const [categoryId, setCategoryId] = useState<string | null>(null);
   const [regexSuggestedId, setRegexSuggestedId] = useState<string | null>(null);
 
   // Step 3 — evidence + location
@@ -65,9 +100,10 @@ export function FileComplaintPage() {
   const [zoneManuallySet, setZoneManuallySet] = useState(false);
   // Keyed by file identity so "checking" is derived (not set synchronously
   // in the effect below) — it's simply "no result yet for this file".
-  const [exifResult, setExifResult] = useState<{ file: File; gps: ExifGps | null } | null>(
-    null,
-  );
+  const [exifResult, setExifResult] = useState<{
+    file: File;
+    gps: ExifGps | null;
+  } | null>(null);
   const [showManualMap, setShowManualMap] = useState(false);
   const exifStatus: "idle" | "checking" | "found" | "not-found" =
     photos.length === 0
@@ -80,6 +116,14 @@ export function FileComplaintPage() {
 
   const [formError, setFormError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState<ComplaintDetail | null>(null);
+
+  const isDirty =
+    !submitted &&
+    (description.trim().length > 0 ||
+      categoryId != null ||
+      photos.length > 0 ||
+      step > 0);
+  useDirtyFormGuard(isDirty);
 
   // Auto-read EXIF GPS from the first photo, falling back to the manual map
   // when it's absent — most demo/downloaded photos have no GPS tags at all.
@@ -173,9 +217,11 @@ export function FileComplaintPage() {
         latitude: location.lat,
         longitude: location.lng,
         zoneId,
-        categorySuggestedByAi: categoryId === regexSuggestedId && regexSuggestedId !== null,
+        categorySuggestedByAi:
+          categoryId === regexSuggestedId && regexSuggestedId !== null,
       });
       setSubmitted(complaint);
+      clearDraft();
     } catch (error) {
       setFormError(
         error instanceof ApiRequestError
@@ -222,10 +268,26 @@ export function FileComplaintPage() {
         <h1 className="font-display text-display-sm font-semibold text-ink">
           File a complaint
         </h1>
-        <p className="text-ink-muted mt-1 text-sm">Let us know what problems you're facing.</p>
+        <p className="text-ink-muted mt-1 text-sm">
+          Let us know what problems you're facing.
+        </p>
       </div>
 
       <Stepper steps={STEP_LABELS} currentStep={step} />
+
+      {hasDraft && !draftNoticeDismissed && (
+        <div className="border-brand/30 bg-brand/5 text-ink-muted flex items-center justify-between gap-3 rounded-md border px-4 py-2.5 text-sm">
+          <span>Draft restored — pick up where you left off.</span>
+          <button
+            type="button"
+            onClick={() => setDraftNoticeDismissed(true)}
+            aria-label="Dismiss"
+            className="text-ink-faint hover:text-ink shrink-0"
+          >
+            <XIcon className="size-4" aria-hidden="true" />
+          </button>
+        </div>
+      )}
 
       {formError && (
         <p
@@ -251,6 +313,16 @@ export function FileComplaintPage() {
               onChange={(e) => setDescription(e.target.value)}
               hint="A few sentences is enough — this also helps us guess the category on the next step."
             />
+            <p
+              className={cn(
+                "mt-1.5 text-right text-xs",
+                canContinueDescription
+                  ? "text-ink-faint"
+                  : "text-status-needs_more_evidence",
+              )}
+            >
+              {description.trim().length}/{MIN_DESCRIPTION_LENGTH} characters minimum
+            </p>
           </div>
           <div className="flex justify-end">
             <Button
@@ -272,7 +344,7 @@ export function FileComplaintPage() {
             {regexSuggestedId && (
               <p className="text-ink-muted mt-1 mb-3 flex items-center gap-1.5 text-sm">
                 <Wand2 className="text-brand size-4 shrink-0" aria-hidden="true" />
-                Matched from your description — change it below if it's wrong.
+                We tried guessing... change it below if it's wrong.
               </p>
             )}
             {!regexSuggestedId && (
@@ -323,10 +395,17 @@ export function FileComplaintPage() {
           <div>
             <Label required>Photo evidence</Label>
             <p className="text-ink-muted mb-3 text-sm">
-              Up to {MAX_PHOTOS} photos. We'll try to read the location from the first
-              one automatically.
+              Up to {MAX_PHOTOS} photos. We'll try to read the location from the first one
+              automatically.
             </p>
-            <FileDropzone files={photos} onFilesChange={setPhotos} maxFiles={MAX_PHOTOS} />
+            <FileDropzone
+              files={photos}
+              onFilesChange={setPhotos}
+              maxFiles={MAX_PHOTOS}
+            />
+            {photos.length > 1 && (
+              <ReorderablePhotoList photos={photos} onReorder={setPhotos} />
+            )}
           </div>
 
           <div>
@@ -373,28 +452,24 @@ export function FileComplaintPage() {
             {zonesLoading ? (
               <Skeleton className="h-11 w-full" />
             ) : (
-              <Select
+              <Combobox
                 id="zoneId"
                 value={zoneId}
+                placeholderDisabled
                 hint={
                   !zoneManuallySet && zoneId
                     ? "Auto-filled from the location above — change it if it's wrong."
                     : undefined
                 }
-                onChange={(e) => {
-                  setZoneId(e.target.value);
+                onChange={(v) => {
+                  setZoneId(v);
                   setZoneManuallySet(true);
                 }}
-              >
-                <option value="" disabled>
-                  Choose a zone…
-                </option>
-                {zones?.map((zone) => (
-                  <option key={zone.id} value={zone.id}>
-                    {zone.name}
-                  </option>
-                ))}
-              </Select>
+                options={[
+                  { value: "", label: "Choose a zone…" },
+                  ...(zones?.map((zone) => ({ value: zone.id, label: zone.name })) ?? []),
+                ]}
+              />
             )}
           </div>
 
@@ -499,9 +574,7 @@ function CategoryCard({
   onSelect: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onSelect}
+    <div
       className={cn(
         "relative flex flex-col items-center gap-2 rounded-md border p-3 text-center transition-colors",
         selected ? "border-brand bg-brand/10" : "border-line hover:bg-surface-hover",
@@ -512,15 +585,128 @@ function CategoryCard({
           <Wand2 className="size-3" aria-hidden="true" />
         </span>
       )}
-      <DynamicIcon
-        icon={iconForCategory(category.name)}
-        className={cn("size-6", selected ? "text-brand" : "text-ink-muted")}
-        aria-hidden="true"
-      />
-      <span className={cn("text-xs font-medium", selected ? "text-brand" : "text-ink")}>
-        {category.name}
+      {(category.description || category.slaTargetHours != null) && (
+        <Tooltip
+          side="top"
+          content={
+            <span className="block max-w-56 text-left">
+              {category.description}
+              {category.description && category.slaTargetHours != null && " · "}
+              {category.slaTargetHours != null &&
+                `Target: ${category.slaTargetHours}h to resolve`}
+            </span>
+          }
+        >
+          <button
+            type="button"
+            aria-label={`About ${category.name}`}
+            className="text-ink-faint hover:text-ink absolute top-1.5 left-1.5"
+          >
+            <Info className="size-3.5" aria-hidden="true" />
+          </button>
+        </Tooltip>
+      )}
+      <button
+        type="button"
+        onClick={onSelect}
+        className="flex flex-col items-center gap-2"
+      >
+        <DynamicIcon
+          icon={iconForCategory(category.name)}
+          className={cn("size-6", selected ? "text-brand" : "text-ink-muted")}
+          aria-hidden="true"
+        />
+        <span className={cn("text-xs font-medium", selected ? "text-brand" : "text-ink")}>
+          {category.name}
+        </span>
+      </button>
+    </div>
+  );
+}
+
+function ReorderablePhotoList({
+  photos,
+  onReorder,
+}: {
+  photos: File[];
+  onReorder: (files: File[]) => void;
+}) {
+  function move(index: number, direction: -1 | 1) {
+    const target = index + direction;
+    if (target < 0 || target >= photos.length) return;
+    const next = [...photos];
+    [next[index], next[target]] = [next[target], next[index]];
+    onReorder(next);
+  }
+
+  return (
+    <div className="mt-3 space-y-1.5">
+      <p className="text-ink-faint text-xs">
+        First photo drives the automatic location detection — reorder if needed.
+      </p>
+      <ul className="space-y-1.5">
+        {photos.map((photo, i) => (
+          <PhotoReorderRow
+            key={i}
+            file={photo}
+            index={i}
+            isFirst={i === 0}
+            isLast={i === photos.length - 1}
+            onMoveUp={() => move(i, -1)}
+            onMoveDown={() => move(i, 1)}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function PhotoReorderRow({
+  file,
+  index,
+  isFirst,
+  isLast,
+  onMoveUp,
+  onMoveDown,
+}: {
+  file: File;
+  index: number;
+  isFirst: boolean;
+  isLast: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}) {
+  const url = useMemo(() => URL.createObjectURL(file), [file]);
+  useEffect(() => {
+    return () => void setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, [url]);
+
+  return (
+    <li className="border-line bg-surface flex items-center gap-2 rounded-md border p-1.5">
+      <img src={url} alt="" className="size-8 shrink-0 rounded object-cover" />
+      <span className="text-ink-muted flex-1 text-xs">
+        Photo {index + 1}
+        {index === 0 && " (location source)"}
       </span>
-    </button>
+      <button
+        type="button"
+        onClick={onMoveUp}
+        disabled={isFirst}
+        aria-label={`Move photo ${index + 1} earlier`}
+        className="text-ink-faint hover:text-ink disabled:pointer-events-none disabled:opacity-30"
+      >
+        <ChevronUp className="size-4" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        onClick={onMoveDown}
+        disabled={isLast}
+        aria-label={`Move photo ${index + 1} later`}
+        className="text-ink-faint hover:text-ink disabled:pointer-events-none disabled:opacity-30"
+      >
+        <ChevronDown className="size-4" aria-hidden="true" />
+      </button>
+    </li>
   );
 }
 
@@ -586,7 +772,9 @@ function SubmittedView({
                 ) : (
                   <>
                     <BotOff className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-                    <span>AI screening was unavailable — an officer will review it directly.</span>
+                    <span>
+                      AI screening was unavailable — an officer will review it directly.
+                    </span>
                   </>
                 )}
               </div>

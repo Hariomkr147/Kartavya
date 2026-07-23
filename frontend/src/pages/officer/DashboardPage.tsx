@@ -4,22 +4,26 @@ import {
   ArrowRight,
   Boxes,
   CheckCircle2,
+  CircleDot,
   ClipboardList,
   Clock,
+  RefreshCcw,
+  UserCheck,
 } from "lucide-react";
 import { LinkButton } from "@/components/ui/LinkButton";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ComplaintListItem } from "@/components/complaint/ComplaintListItem";
 import { StatCard } from "@/components/dashboard/StatCard";
-import { DynamicIcon } from "@/components/DynamicIcon";
-import { iconForCategory } from "@/lib/categoryIcons";
+import { RecentlyViewedList } from "@/components/dashboard/RecentlyViewedList";
+import { HorizontalBarChart } from "@/components/charts/HorizontalBarChart";
 import { formatFullDate } from "@/lib/greeting";
 import { staggerContainer, staggerItem } from "@/lib/motionVariants";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOfficerAnalytics } from "@/hooks/useOfficerAnalytics";
 import { useZoneSummary } from "@/hooks/useZoneSummary";
 import { useOfficerQueue } from "@/hooks/useOfficerQueue";
+import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
 import type { ComplaintStatus } from "@/types/api";
 
 const ATTENTION_STATUSES: ComplaintStatus[] = [
@@ -31,6 +35,16 @@ const ATTENTION_STATUSES: ComplaintStatus[] = [
   "UNDER_RESOLUTION",
 ];
 
+function isToday(iso: string): boolean {
+  const d = new Date(iso);
+  const now = new Date();
+  return (
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  );
+}
+
 export function OfficerDashboardPage() {
   const { user } = useAuth();
   const { data: analytics, isLoading: analyticsLoading } = useOfficerAnalytics();
@@ -39,8 +53,25 @@ export function OfficerDashboardPage() {
     status: ATTENTION_STATUSES,
     pageSize: 5,
   });
+  const { items: recentItems, clear: clearRecent } = useRecentlyViewed(
+    `officer:${user?.id ?? "anon"}`,
+  );
 
   const priorityItems = queueData?.data ?? [];
+
+  // Only reflects the top-5 urgent queue already loaded above, not a real
+  // audit log — the API has no activity-feed endpoint to draw from.
+  const assignedToYouCount = priorityItems.filter(
+    (c) => c.assignedOfficerId === user?.id,
+  ).length;
+  const unassignedCount = priorityItems.filter((c) => c.assignedOfficerId == null).length;
+  const updatedTodayCount = priorityItems.filter(
+    (c) => c.updatedAt && isToday(c.updatedAt),
+  ).length;
+
+  const categoryChartData = (analytics?.categoryBreakdown ?? [])
+    .filter((item) => item.categoryName != null && item.count != null)
+    .map((item) => ({ label: item.categoryName!, value: item.count! }));
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-8">
@@ -97,10 +128,37 @@ export function OfficerDashboardPage() {
         </motion.div>
       )}
 
+      {!queueLoading && priorityItems.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+          className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-5 py-3"
+        >
+          <p className="text-ink-faint text-xs font-medium tracking-wide uppercase">
+            Today, in your urgent queue
+          </p>
+          <span className="text-ink-muted inline-flex items-center gap-1.5 text-sm">
+            <UserCheck className="text-brand size-4" aria-hidden="true" />
+            {assignedToYouCount} assigned to you
+          </span>
+          <span className="text-ink-muted inline-flex items-center gap-1.5 text-sm">
+            <CircleDot className="text-ink-faint size-4" aria-hidden="true" />
+            {unassignedCount} unassigned
+          </span>
+          <span className="text-ink-muted inline-flex items-center gap-1.5 text-sm">
+            <RefreshCcw className="text-ink-faint size-4" aria-hidden="true" />
+            {updatedTodayCount} updated today
+          </span>
+        </motion.div>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-3">
         <section className="space-y-3 lg:col-span-2">
           <div className="flex items-center justify-between">
-            <h2 className="font-display text-lg font-semibold text-ink">Needs attention</h2>
+            <h2 className="font-display text-lg font-semibold text-ink">
+              Needs attention
+            </h2>
             <LinkButton to="/officer/queue" variant="ghost" size="sm">
               Open queue
               <ArrowRight className="size-4" aria-hidden="true" />
@@ -176,26 +234,14 @@ export function OfficerDashboardPage() {
             </dl>
           </div>
 
-          {analytics?.categoryBreakdown && analytics.categoryBreakdown.length > 0 && (
+          {categoryChartData.length > 0 && (
             <div className="rounded-lg border border-line bg-surface p-5">
               <p className="font-display text-base font-semibold text-ink">By category</p>
-              <div className="mt-3 space-y-2">
-                {analytics.categoryBreakdown.map((item) => (
-                  <div key={item.categoryId} className="flex items-center gap-2 text-sm">
-                    <DynamicIcon
-                      icon={iconForCategory(item.categoryName ?? "")}
-                      className="text-ink-faint size-4 shrink-0"
-                      aria-hidden="true"
-                    />
-                    <span className="text-ink-muted flex-1 truncate">
-                      {item.categoryName}
-                    </span>
-                    <span className="font-medium text-ink">{item.count}</span>
-                  </div>
-                ))}
-              </div>
+              <HorizontalBarChart data={categoryChartData} className="mt-3" />
             </div>
           )}
+
+          <RecentlyViewedList items={recentItems} onClear={clearRecent} />
         </aside>
       </div>
     </div>

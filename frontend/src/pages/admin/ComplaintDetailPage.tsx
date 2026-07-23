@@ -1,13 +1,23 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, FileQuestion, Gavel, ShieldCheck, Sliders, UserRound } from "lucide-react";
+import {
+  ArrowLeft,
+  FileQuestion,
+  Gavel,
+  Layers,
+  ShieldCheck,
+  Sliders,
+  UserRound,
+} from "lucide-react";
 import { StatusPill, SeverityPill, SlaPill } from "@/components/ui/pills";
 import { Button } from "@/components/ui/Button";
-import { Select } from "@/components/ui/Select";
+import { Combobox } from "@/components/ui/Combobox";
 import { Textarea } from "@/components/ui/Textarea";
 import { Label } from "@/components/ui/Label";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Modal } from "@/components/ui/Modal";
+import { MiniMap } from "@/components/ui/MiniMap";
 import { useToast } from "@/components/ui/Toast";
 import { DynamicIcon } from "@/components/DynamicIcon";
 import { EvidenceGallery } from "@/components/complaint/EvidenceGallery";
@@ -69,10 +79,12 @@ export function AdminComplaintDetailPage() {
   const [zoneId, setZoneId] = useState("");
   const [reason, setReason] = useState("");
   const [overrideError, setOverrideError] = useState<string | null>(null);
+  const [overrideConfirmOpen, setOverrideConfirmOpen] = useState(false);
 
   const [verdict, setVerdict] = useState<DisputeVerdict | "">("");
   const [disputeReason, setDisputeReason] = useState("");
   const [disputeError, setDisputeError] = useState<string | null>(null);
+  const [disputeConfirmOpen, setDisputeConfirmOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -90,7 +102,10 @@ export function AdminComplaintDetailPage() {
         icon={FileQuestion}
         title="Complaint not found"
         action={
-          <Link to="/admin/complaints" className="text-brand text-sm font-medium hover:underline">
+          <Link
+            to="/admin/complaints"
+            className="text-brand text-sm font-medium hover:underline"
+          >
             Back to Complaints
           </Link>
         }
@@ -103,6 +118,11 @@ export function AdminComplaintDetailPage() {
     (status && status !== complaint.status) ||
     (categoryId && categoryId !== complaint.category.id) ||
     (zoneId && zoneId !== complaint.zoneId);
+
+  function requestOverrideConfirmation() {
+    setOverrideError(null);
+    setOverrideConfirmOpen(true);
+  }
 
   async function handleOverride() {
     setOverrideError(null);
@@ -118,6 +138,7 @@ export function AdminComplaintDetailPage() {
       setCategoryId("");
       setZoneId("");
       setReason("");
+      setOverrideConfirmOpen(false);
     } catch (error) {
       setOverrideError(
         error instanceof ApiRequestError
@@ -125,6 +146,19 @@ export function AdminComplaintDetailPage() {
           : "Something went wrong. Please try again.",
       );
     }
+  }
+
+  function requestDisputeConfirmation() {
+    setDisputeError(null);
+    if (!verdict) {
+      setDisputeError("Choose a verdict.");
+      return;
+    }
+    if (!disputeReason.trim()) {
+      setDisputeError("A reason is required.");
+      return;
+    }
+    setDisputeConfirmOpen(true);
   }
 
   async function handleDisputeReview() {
@@ -149,6 +183,7 @@ export function AdminComplaintDetailPage() {
       });
       setVerdict("");
       setDisputeReason("");
+      setDisputeConfirmOpen(false);
     } catch (error) {
       setDisputeError(
         error instanceof ApiRequestError
@@ -185,7 +220,8 @@ export function AdminComplaintDetailPage() {
               {complaint.category.name}
             </h1>
             <p className="text-ink-faint font-mono text-xs">
-              {complaint.id} · {complaint.zoneName} · filed {relativeTime(complaint.createdAt)}
+              {complaint.id} · {complaint.zoneName} · filed{" "}
+              {relativeTime(complaint.createdAt)}
             </p>
           </div>
         </div>
@@ -219,10 +255,48 @@ export function AdminComplaintDetailPage() {
               : `Officer #${complaint.assignedOfficerId}`}
           </div>
 
+          {(complaint.severityScore != null || complaint.clusterId) && (
+            <div className="text-ink-muted flex flex-wrap items-center gap-x-5 gap-y-1.5 rounded-md border border-line bg-surface p-3 text-sm">
+              {complaint.severityScore != null && (
+                <span>
+                  Severity score:{" "}
+                  <span className="font-mono font-medium text-ink">
+                    {complaint.severityScore}
+                  </span>
+                </span>
+              )}
+              {complaint.clusterId && (
+                <span className="flex items-center gap-1.5">
+                  <Layers className="size-4 shrink-0" aria-hidden="true" />
+                  Part of cluster{" "}
+                  <span className="font-mono text-ink">{complaint.clusterId}</span>
+                </span>
+              )}
+            </div>
+          )}
+
           {complaint.description && (
             <p className="text-ink-muted text-sm leading-relaxed">
               {complaint.description}
             </p>
+          )}
+
+          {complaint.latitude != null && complaint.longitude != null && (
+            <section>
+              <h2 className="font-display mb-3 text-base font-semibold text-ink">
+                Location
+              </h2>
+              <MiniMap
+                pins={[
+                  {
+                    id: complaint.id,
+                    lat: complaint.latitude,
+                    lng: complaint.longitude,
+                    label: complaint.category.name,
+                  },
+                ]}
+              />
+            </section>
           )}
 
           {complaint.evidence && complaint.evidence.length > 0 && (
@@ -248,7 +322,10 @@ export function AdminComplaintDetailPage() {
                 Neither outcome credits points.
               </p>
               {disputeError && (
-                <p role="alert" className="bg-status-rejected-subtle text-status-rejected mt-3 rounded-md px-3 py-2 text-sm">
+                <p
+                  role="alert"
+                  className="bg-status-rejected-subtle text-status-rejected mt-3 rounded-md px-3 py-2 text-sm"
+                >
                   {disputeError}
                 </p>
               )}
@@ -284,7 +361,7 @@ export function AdminComplaintDetailPage() {
                 className="mt-3"
                 disabled={!verdict}
                 loading={reviewDispute.isPending}
-                onClick={handleDisputeReview}
+                onClick={requestDisputeConfirmation}
               >
                 Submit ruling
               </Button>
@@ -297,66 +374,60 @@ export function AdminComplaintDetailPage() {
               <h2 className="font-display text-base font-semibold text-ink">Override</h2>
             </div>
             <p className="text-ink-muted mt-1 text-sm">
-              Correct the category, force a status, or reassign the zone. Every change here
-              is recorded in the status history with you as the actor.
+              Correct the category, force a status, or reassign the zone. Every change
+              here is recorded in the status history with you as the actor.
             </p>
             {overrideError && (
-              <p role="alert" className="bg-status-rejected-subtle text-status-rejected mt-3 rounded-md px-3 py-2 text-sm">
+              <p
+                role="alert"
+                className="bg-status-rejected-subtle text-status-rejected mt-3 rounded-md px-3 py-2 text-sm"
+              >
                 {overrideError}
               </p>
             )}
             <div className="mt-3 grid gap-4 sm:grid-cols-3">
               <div>
                 <Label htmlFor="override-status">Status</Label>
-                <Select
+                <Combobox
                   id="override-status"
                   value={status}
-                  onChange={(e) => setStatus(e.target.value as ComplaintStatus | "")}
-                >
-                  <option value="">No change</option>
-                  {ALL_STATUSES.map((s) => (
-                    <option key={s} value={s}>
-                      {humanizeStatus(s)}
-                    </option>
-                  ))}
-                </Select>
+                  onChange={(v) => setStatus(v as ComplaintStatus | "")}
+                  options={[
+                    { value: "", label: "No change" },
+                    ...ALL_STATUSES.map((s) => ({ value: s, label: humanizeStatus(s) })),
+                  ]}
+                />
               </div>
               <div>
                 <Label htmlFor="override-category">Category</Label>
-                <Select
+                <Combobox
                   id="override-category"
                   value={categoryId}
-                  onChange={(e) => setCategoryId(e.target.value)}
-                >
-                  <option value="">No change</option>
-                  {categories?.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </Select>
+                  onChange={setCategoryId}
+                  options={[
+                    { value: "", label: "No change" },
+                    ...(categories?.map((c) => ({ value: c.id, label: c.name })) ?? []),
+                  ]}
+                />
               </div>
               <div>
                 <Label htmlFor="override-zone">Zone</Label>
-                <Select
+                <Combobox
                   id="override-zone"
                   value={zoneId}
-                  onChange={(e) => setZoneId(e.target.value)}
-                >
-                  <option value="">No change</option>
-                  {zones?.map((z) => (
-                    <option key={z.id} value={z.id}>
-                      {z.name}
-                    </option>
-                  ))}
-                </Select>
+                  onChange={setZoneId}
+                  options={[
+                    { value: "", label: "No change" },
+                    ...(zones?.map((z) => ({ value: z.id, label: z.name })) ?? []),
+                  ]}
+                />
               </div>
             </div>
             {willBackfillSla && (
               <p className="text-ink-faint mt-3 text-xs">
                 The SLA timer hasn't started on this complaint yet — forcing it to{" "}
-                {humanizeStatus(status as ComplaintStatus)} will backfill the timer to start
-                now, using the category's current SLA target.
+                {humanizeStatus(status as ComplaintStatus)} will backfill the timer to
+                start now, using the category's current SLA target.
               </p>
             )}
             <div className="mt-3">
@@ -373,7 +444,7 @@ export function AdminComplaintDetailPage() {
               className="mt-3"
               disabled={!hasOverrideChanges}
               loading={override.isPending}
-              onClick={handleOverride}
+              onClick={requestOverrideConfirmation}
             >
               Apply override
             </Button>
@@ -388,6 +459,81 @@ export function AdminComplaintDetailPage() {
           />
         </aside>
       </div>
+
+      <Modal
+        open={overrideConfirmOpen}
+        onClose={() => setOverrideConfirmOpen(false)}
+        title="Confirm override"
+        description="This is recorded in the status history with you as the actor and can't be undone from here."
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setOverrideConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button loading={override.isPending} onClick={handleOverride}>
+              Apply override
+            </Button>
+          </>
+        }
+      >
+        <ul className="text-ink-muted space-y-1 text-sm">
+          {status && (
+            <li>
+              Status →{" "}
+              <span className="font-medium text-ink">{humanizeStatus(status)}</span>
+            </li>
+          )}
+          {categoryId && (
+            <li>
+              Category →{" "}
+              <span className="font-medium text-ink">
+                {categories?.find((c) => c.id === categoryId)?.name ?? categoryId}
+              </span>
+            </li>
+          )}
+          {zoneId && (
+            <li>
+              Zone →{" "}
+              <span className="font-medium text-ink">
+                {zones?.find((z) => z.id === zoneId)?.name ?? zoneId}
+              </span>
+            </li>
+          )}
+          {reason.trim() && <li>Reason: &ldquo;{reason.trim()}&rdquo;</li>}
+        </ul>
+      </Modal>
+
+      <Modal
+        open={disputeConfirmOpen}
+        onClose={() => setDisputeConfirmOpen(false)}
+        title="Confirm dispute ruling"
+        description="Neither outcome credits points, and this can't be undone from here."
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setDisputeConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant={verdict === "REJECTED" ? "danger" : "primary"}
+              loading={reviewDispute.isPending}
+              onClick={handleDisputeReview}
+            >
+              Submit ruling
+            </Button>
+          </>
+        }
+      >
+        <p className="text-ink-muted text-sm">
+          {verdict === "UPHELD"
+            ? "The dispute will be upheld — this complaint goes back to the officer as In Progress."
+            : "The dispute will be rejected — the original resolution stands and the complaint is closed."}
+        </p>
+        {disputeReason.trim() && (
+          <p className="text-ink-muted mt-2 text-sm">
+            Reason: &ldquo;{disputeReason.trim()}&rdquo;
+          </p>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { CheckCircle2, XCircle } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { Select } from "@/components/ui/Select";
+import { Combobox } from "@/components/ui/Combobox";
 import { Label } from "@/components/ui/Label";
 import { Textarea } from "@/components/ui/Textarea";
 import { StatusPill } from "@/components/ui/pills";
@@ -24,8 +24,7 @@ const REASON_REQUIRED = new Set<OfficerTargetStatus>([
 ]);
 
 export type BatchStatusTarget =
-  | { type: "ids"; complaintIds: string[] }
-  | { type: "cluster"; clusterId: string };
+  { type: "ids"; complaintIds: string[] } | { type: "cluster"; clusterId: string };
 
 export interface BatchStatusModalProps {
   open: boolean;
@@ -35,7 +34,12 @@ export interface BatchStatusModalProps {
   count: number;
 }
 
-export function BatchStatusModal({ open, onClose, target, count }: BatchStatusModalProps) {
+export function BatchStatusModal({
+  open,
+  onClose,
+  target,
+  count,
+}: BatchStatusModalProps) {
   const batch = useBatchUpdateStatus();
   const [status, setStatus] = useState<OfficerTargetStatus | "">("");
   const [reason, setReason] = useState("");
@@ -158,18 +162,13 @@ export function BatchStatusModal({ open, onClose, target, count }: BatchStatusMo
             <Label htmlFor="batch-status" required>
               Target status
             </Label>
-            <Select
+            <Combobox
               id="batch-status"
               value={status}
-              onChange={(e) => setStatus(e.target.value as OfficerTargetStatus)}
-            >
-              <option value="">Select a status…</option>
-              {STATUS_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </Select>
+              onChange={(v) => setStatus(v as OfficerTargetStatus)}
+              placeholderDisabled
+              options={[{ value: "", label: "Select a status…" }, ...STATUS_OPTIONS]}
+            />
           </div>
           {status && REASON_REQUIRED.has(status) && (
             <div>

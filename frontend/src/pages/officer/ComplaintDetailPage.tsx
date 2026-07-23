@@ -1,10 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
+  ArrowUp,
   Boxes,
+  Check,
   CheckCircle2,
+  Copy,
   FileQuestion,
+  Gauge,
   ShieldAlert,
   UserCog,
   XCircle,
@@ -20,6 +24,7 @@ import { useToast } from "@/components/ui/Toast";
 import { DynamicIcon } from "@/components/DynamicIcon";
 import { EvidenceGallery } from "@/components/complaint/EvidenceGallery";
 import { TimelineSidebar } from "@/components/complaint/TimelineSidebar";
+import { MiniMap, type MiniMapPin } from "@/components/ui/MiniMap";
 import { useAuth } from "@/contexts/AuthContext";
 import { useComplaint } from "@/hooks/useComplaint";
 import { useCluster } from "@/hooks/useCluster";
@@ -27,10 +32,15 @@ import { useClaimComplaint } from "@/hooks/useClaimComplaint";
 import { useReviewEvidence } from "@/hooks/useReviewEvidence";
 import { useUpdateComplaintStatus } from "@/hooks/useUpdateComplaintStatus";
 import { useAddProgressNote } from "@/hooks/useAddProgressNote";
+import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
 import { iconForCategory } from "@/lib/categoryIcons";
-import { relativeTime } from "@/lib/datetime";
+import { relativeTime, absoluteDateTime } from "@/lib/datetime";
 import { ApiRequestError } from "@/services/http";
-import type { EvidenceVerdict, OfficerTargetStatus, StatusUpdateResult } from "@/types/api";
+import type {
+  EvidenceVerdict,
+  OfficerTargetStatus,
+  StatusUpdateResult,
+} from "@/types/api";
 
 type ActionModalType = "resolve" | "recall" | "unresolvable";
 
@@ -47,7 +57,8 @@ const ACTION_MODAL_CONFIG: Record<
 > = {
   resolve: {
     title: "Mark resolved",
-    description: "The citizen will be asked to confirm the fix. An optional closing note is visible to them.",
+    description:
+      "The citizen will be asked to confirm the fix. An optional closing note is visible to them.",
     targetStatus: "RESOLVED",
     reasonRequired: false,
     noteField: true,
@@ -55,7 +66,8 @@ const ACTION_MODAL_CONFIG: Record<
   },
   recall: {
     title: "Recall for more evidence",
-    description: "Pauses the SLA clock until the citizen re-uploads a photo for you to re-verdict.",
+    description:
+      "Pauses the SLA clock until the citizen re-uploads a photo for you to re-verdict.",
     targetStatus: "NEEDS_MORE_EVIDENCE",
     reasonRequired: true,
     noteField: false,
@@ -94,6 +106,22 @@ export function OfficerComplaintDetailPage() {
 
   const [cascade, setCascade] = useState<StatusUpdateResult["cascade"] | null>(null);
   const [noteText, setNoteText] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const { record: recordRecentlyViewed } = useRecentlyViewed(
+    `officer:${user?.id ?? "anon"}`,
+  );
+
+  useEffect(() => {
+    if (!complaint) return;
+    recordRecentlyViewed({
+      id: complaint.id,
+      label: complaint.category.name,
+      sublabel: complaint.id,
+      href: `/officer/queue/${complaint.id}`,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [complaint?.id]);
 
   if (isLoading) {
     return (
@@ -112,7 +140,10 @@ export function OfficerComplaintDetailPage() {
         title="Complaint not found"
         description="It may not exist, or it isn't in your assigned zone."
         action={
-          <Link to="/officer/queue" className="text-brand text-sm font-medium hover:underline">
+          <Link
+            to="/officer/queue"
+            className="text-brand text-sm font-medium hover:underline"
+          >
             Back to Queue
           </Link>
         }
@@ -132,6 +163,34 @@ export function OfficerComplaintDetailPage() {
   // — once slaTargetHours is set (on first acceptance), only VALID or
   // NEEDS_MORE_EVIDENCE remain (see openapi.yaml's evidence-review notes).
   const canReject = complaint.slaTargetHours == null;
+
+  const mapPins: MiniMapPin[] = [];
+  if (complaint.latitude != null && complaint.longitude != null) {
+    mapPins.push({
+      id: complaint.id,
+      lat: complaint.latitude,
+      lng: complaint.longitude,
+      label: "This complaint",
+    });
+  }
+  if (cluster) {
+    mapPins.push({
+      id: `cluster-${cluster.id}`,
+      lat: cluster.centroidLat,
+      lng: cluster.centroidLng,
+      label: "Cluster centroid",
+    });
+  }
+
+  async function handleCopyId() {
+    try {
+      await navigator.clipboard.writeText(complaint!.id);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast({ title: "Couldn't copy the complaint ID", variant: "error" });
+    }
+  }
 
   async function runStatusUpdate(
     status: OfficerTargetStatus,
@@ -200,10 +259,18 @@ export function OfficerComplaintDetailPage() {
     }
   }
 
-  async function handleSimpleTransition(status: OfficerTargetStatus, successTitle: string) {
+  async function handleSimpleTransition(
+    status: OfficerTargetStatus,
+    successTitle: string,
+  ) {
     const result = await runStatusUpdate(status);
     if (result.ok) toast({ title: successTitle, variant: "success" });
-    else toast({ title: "Couldn't update status", description: result.message, variant: "error" });
+    else
+      toast({
+        title: "Couldn't update status",
+        description: result.message,
+        variant: "error",
+      });
   }
 
   function openActionModal(type: ActionModalType) {
@@ -255,7 +322,8 @@ export function OfficerComplaintDetailPage() {
         ? "You"
         : `Officer #${complaint.assignedOfficerId}`;
 
-  const canAddNote = complaint.status === "IN_PROGRESS" || complaint.status === "UNDER_RESOLUTION";
+  const canAddNote =
+    complaint.status === "IN_PROGRESS" || complaint.status === "UNDER_RESOLUTION";
   const modalConfig = actionModal ? ACTION_MODAL_CONFIG[actionModal] : null;
 
   return (
@@ -281,9 +349,21 @@ export function OfficerComplaintDetailPage() {
             <h1 className="font-display text-xl font-semibold text-ink">
               {complaint.category.name}
             </h1>
-            <p className="text-ink-faint font-mono text-xs">
+            <div className="text-ink-faint flex items-center gap-1.5 font-mono text-xs">
               {complaint.id} · filed {relativeTime(complaint.createdAt)}
-            </p>
+              <button
+                type="button"
+                onClick={handleCopyId}
+                aria-label="Copy complaint ID"
+                className="text-ink-faint hover:text-ink inline-flex items-center"
+              >
+                {copied ? (
+                  <Check className="text-status-resolved size-3.5" aria-hidden="true" />
+                ) : (
+                  <Copy className="size-3.5" aria-hidden="true" />
+                )}
+              </button>
+            </div>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -293,12 +373,39 @@ export function OfficerComplaintDetailPage() {
         </div>
       </div>
 
+      <div className="text-ink-muted flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm">
+        <span className="inline-flex items-center gap-1.5">
+          <ArrowUp className="text-ink-faint size-4" aria-hidden="true" />
+          {complaint.upvoteCount ?? 0} upvote{complaint.upvoteCount === 1 ? "" : "s"}
+        </span>
+        {complaint.severityScore != null && (
+          <span className="inline-flex items-center gap-1.5">
+            <Gauge className="text-ink-faint size-4" aria-hidden="true" />
+            Severity score {complaint.severityScore}
+          </span>
+        )}
+        {complaint.updatedAt && (
+          <span title={absoluteDateTime(complaint.updatedAt)}>
+            Last updated {relativeTime(complaint.updatedAt)}
+          </span>
+        )}
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
         <div className="min-w-0 space-y-6">
           <div className="text-ink-muted flex items-center gap-2 rounded-md border border-line bg-surface p-3 text-sm">
             <UserCog className="size-4 shrink-0" aria-hidden="true" />
             Assigned: {assignedLabel}
           </div>
+
+          {mapPins.length > 0 && (
+            <section>
+              <h2 className="font-display mb-3 text-base font-semibold text-ink">
+                Location
+              </h2>
+              <MiniMap pins={mapPins} height={220} />
+            </section>
+          )}
 
           {cluster && (
             <Link
@@ -323,7 +430,10 @@ export function OfficerComplaintDetailPage() {
             <section className="rounded-lg border border-status-resolved/30 bg-status-resolved-subtle p-4">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <p className="font-display flex items-center gap-2 text-base font-semibold text-ink">
-                  <CheckCircle2 className="text-status-resolved size-5" aria-hidden="true" />
+                  <CheckCircle2
+                    className="text-status-resolved size-5"
+                    aria-hidden="true"
+                  />
                   Cluster cascade
                 </p>
                 <button
@@ -338,12 +448,21 @@ export function OfficerComplaintDetailPage() {
                 {cascade.map((item) => (
                   <li key={item.complaintId} className="flex items-center gap-2">
                     {item.outcome === "CASCADED" ? (
-                      <CheckCircle2 className="text-status-resolved size-4 shrink-0" aria-hidden="true" />
+                      <CheckCircle2
+                        className="text-status-resolved size-4 shrink-0"
+                        aria-hidden="true"
+                      />
                     ) : (
-                      <XCircle className="text-ink-faint size-4 shrink-0" aria-hidden="true" />
+                      <XCircle
+                        className="text-ink-faint size-4 shrink-0"
+                        aria-hidden="true"
+                      />
                     )}
                     <span className="text-ink-muted">
-                      {item.complaintId} — {item.outcome === "CASCADED" ? "moved to Resolved" : `left at ${item.previousStatus}`}
+                      {item.complaintId} —{" "}
+                      {item.outcome === "CASCADED"
+                        ? "moved to Resolved"
+                        : `left at ${item.previousStatus}`}
                     </span>
                   </li>
                 ))}
@@ -359,7 +478,12 @@ export function OfficerComplaintDetailPage() {
               <p className="text-ink-muted mt-1 text-sm">
                 Claim it to start reviewing the submitted evidence.
               </p>
-              <Button size="sm" className="mt-3" loading={claim.isPending} onClick={handleClaim}>
+              <Button
+                size="sm"
+                className="mt-3"
+                loading={claim.isPending}
+                onClick={handleClaim}
+              >
                 Claim
               </Button>
             </section>
@@ -384,7 +508,10 @@ export function OfficerComplaintDetailPage() {
                 next.
               </p>
               {reviewError && (
-                <p role="alert" className="bg-status-rejected-subtle text-status-rejected mt-3 rounded-md px-3 py-2 text-sm">
+                <p
+                  role="alert"
+                  className="bg-status-rejected-subtle text-status-rejected mt-3 rounded-md px-3 py-2 text-sm"
+                >
                   {reviewError}
                 </p>
               )}
@@ -398,7 +525,9 @@ export function OfficerComplaintDetailPage() {
                 </Button>
                 <Button
                   size="sm"
-                  variant={reviewVerdict === "NEEDS_MORE_EVIDENCE" ? "primary" : "outline"}
+                  variant={
+                    reviewVerdict === "NEEDS_MORE_EVIDENCE" ? "primary" : "outline"
+                  }
                   onClick={() => setReviewVerdict("NEEDS_MORE_EVIDENCE")}
                 >
                   Needs more evidence
@@ -413,7 +542,8 @@ export function OfficerComplaintDetailPage() {
                   </Button>
                 )}
               </div>
-              {(reviewVerdict === "NEEDS_MORE_EVIDENCE" || reviewVerdict === "REJECTED") && (
+              {(reviewVerdict === "NEEDS_MORE_EVIDENCE" ||
+                reviewVerdict === "REJECTED") && (
                 <div className="mt-3">
                   <Label htmlFor="review-reason" required>
                     Reason
@@ -440,9 +570,12 @@ export function OfficerComplaintDetailPage() {
 
           {complaint.status === "REOPENED" && (
             <div className="text-ink-muted flex items-center gap-2 rounded-md border border-status-reopened/30 bg-status-reopened-subtle p-3 text-sm">
-              <ShieldAlert className="text-status-reopened size-4 shrink-0" aria-hidden="true" />
-              This complaint was disputed by the citizen and is awaiting an admin's ruling.
-              No officer action is available until then.
+              <ShieldAlert
+                className="text-status-reopened size-4 shrink-0"
+                aria-hidden="true"
+              />
+              This complaint was disputed by the citizen and is awaiting an admin's
+              ruling. No officer action is available until then.
             </div>
           )}
 
@@ -456,16 +589,33 @@ export function OfficerComplaintDetailPage() {
               <div className="mt-3 flex flex-wrap gap-2">
                 {complaint.status === "UNDER_REVIEW" && (
                   <>
-                    <Button size="sm" onClick={() => handleSimpleTransition("IN_PROGRESS", "Moved to In Progress")}>
+                    <Button
+                      size="sm"
+                      onClick={() =>
+                        handleSimpleTransition("IN_PROGRESS", "Moved to In Progress")
+                      }
+                    >
                       Start work
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => openActionModal("recall")}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openActionModal("recall")}
+                    >
                       Recall for more evidence
                     </Button>
                   </>
                 )}
                 {complaint.status === "IN_PROGRESS" && (
-                  <Button size="sm" onClick={() => handleSimpleTransition("UNDER_RESOLUTION", "Moved to Under Resolution")}>
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      handleSimpleTransition(
+                        "UNDER_RESOLUTION",
+                        "Moved to Under Resolution",
+                      )
+                    }
+                  >
                     Move to Under Resolution
                   </Button>
                 )}
@@ -474,7 +624,11 @@ export function OfficerComplaintDetailPage() {
                     Mark resolved
                   </Button>
                 )}
-                <Button size="sm" variant="danger" onClick={() => openActionModal("unresolvable")}>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  onClick={() => openActionModal("unresolvable")}
+                >
                   Mark unresolvable
                 </Button>
               </div>
@@ -497,7 +651,13 @@ export function OfficerComplaintDetailPage() {
                   maxLength={500}
                 />
               </div>
-              <Button size="sm" className="mt-2" disabled={!noteText.trim()} loading={addNote.isPending} onClick={handleAddNote}>
+              <Button
+                size="sm"
+                className="mt-2"
+                disabled={!noteText.trim()}
+                loading={addNote.isPending}
+                onClick={handleAddNote}
+              >
                 Post note
               </Button>
             </section>
@@ -510,6 +670,7 @@ export function OfficerComplaintDetailPage() {
             progressNotes={complaint.progressNotes}
             viewerRole="OFFICER"
             viewerOfficerId={user?.id}
+            slaTargetHours={complaint.slaTargetHours}
           />
         </aside>
       </div>
@@ -536,7 +697,10 @@ export function OfficerComplaintDetailPage() {
       >
         <div className="space-y-4">
           {modalError && (
-            <p role="alert" className="bg-status-rejected-subtle text-status-rejected rounded-md px-3 py-2 text-sm">
+            <p
+              role="alert"
+              className="bg-status-rejected-subtle text-status-rejected rounded-md px-3 py-2 text-sm"
+            >
               {modalError}
             </p>
           )}

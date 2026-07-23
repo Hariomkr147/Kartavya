@@ -174,7 +174,7 @@ export function OfficerClusterDetailPage() {
         <Stat label="Severity score" value={cluster.severityScore} />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2 sm:items-start">
         <div className="rounded-lg border border-line bg-surface p-4">
           <h2 className="font-display mb-3 text-base font-semibold text-ink">
             Member status breakdown

@@ -1,12 +1,12 @@
-import { useState } from "react";
-import { useForm, useWatch } from "react-hook-form";
+import { useMemo, useState } from "react";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, ShieldAlert, Users as UsersIcon } from "lucide-react";
+import { Plus, Search, ShieldAlert, Users as UsersIcon } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
-import { Select } from "@/components/ui/Select";
+import { Combobox } from "@/components/ui/Combobox";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Modal } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -19,6 +19,7 @@ import {
   TableBody,
   TableRow,
   TableHeaderCell,
+  SortableHeaderCell,
   TableCell,
   DataTableEmpty,
 } from "@/components/ui/DataTable";
@@ -27,8 +28,19 @@ import { useCreateUser } from "@/hooks/useCreateUser";
 import { useUpdateUser } from "@/hooks/useUpdateUser";
 import { useDeleteUser } from "@/hooks/useDeleteUser";
 import { useZones } from "@/hooks/useZones";
+import { useSortableRows } from "@/hooks/useSortableRows";
 import { ApiRequestError } from "@/services/http";
 import type { Role, User } from "@/types/api";
+
+type UserSortKey = "name" | "email" | "createdAt";
+
+function memberSince(createdAt?: string): string {
+  if (!createdAt) return "—";
+  return new Date(createdAt).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+  });
+}
 
 const PAGE_SIZE = 15;
 
@@ -57,6 +69,7 @@ export function AdminUsersPage() {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
   const { data: zones } = useZones();
   const { data, isLoading } = useAdminUsers({
@@ -66,7 +79,25 @@ export function AdminUsersPage() {
     page,
     pageSize: PAGE_SIZE,
   });
-  const rows = data?.data ?? [];
+  const filteredRows = useMemo(() => {
+    const fetched = data?.data ?? [];
+    const term = search.trim().toLowerCase();
+    if (!term) return fetched;
+    return fetched.filter(
+      (u) =>
+        u.name.toLowerCase().includes(term) ||
+        (u.email ?? "").toLowerCase().includes(term),
+    );
+  }, [data, search]);
+  const {
+    sorted: rows,
+    sort,
+    toggleSort,
+  } = useSortableRows<User, UserSortKey>(filteredRows, {
+    name: (u) => u.name,
+    email: (u) => u.email,
+    createdAt: (u) => u.createdAt,
+  });
 
   const createUser = useCreateUser();
   const deleteUser = useDeleteUser();
@@ -153,52 +184,61 @@ export function AdminUsersPage() {
       <div className="flex flex-wrap gap-4 rounded-lg border border-line bg-surface p-4">
         <div className="min-w-[9rem] flex-1">
           <Label htmlFor="role-filter">Role</Label>
-          <Select
+          <Combobox
             id="role-filter"
             value={roleFilter}
-            onChange={(e) => {
-              setRoleFilter(e.target.value as Role | "");
+            onChange={(v) => {
+              setRoleFilter(v as Role | "");
               setPage(1);
             }}
-          >
-            <option value="">All roles</option>
-            <option value="CITIZEN">Citizen</option>
-            <option value="OFFICER">Officer</option>
-            <option value="ADMIN">Admin</option>
-          </Select>
+            options={[
+              { value: "", label: "All roles" },
+              { value: "CITIZEN", label: "Citizen" },
+              { value: "OFFICER", label: "Officer" },
+              { value: "ADMIN", label: "Admin" },
+            ]}
+          />
         </div>
         <div className="min-w-[9rem] flex-1">
           <Label htmlFor="zone-filter">Zone</Label>
-          <Select
+          <Combobox
             id="zone-filter"
             value={zoneFilter}
-            onChange={(e) => {
-              setZoneFilter(e.target.value);
+            onChange={(v) => {
+              setZoneFilter(v);
               setPage(1);
             }}
-          >
-            <option value="">All zones</option>
-            {zones?.map((z) => (
-              <option key={z.id} value={z.id}>
-                {z.name}
-              </option>
-            ))}
-          </Select>
+            options={[
+              { value: "", label: "All zones" },
+              ...(zones?.map((z) => ({ value: z.id, label: z.name })) ?? []),
+            ]}
+          />
         </div>
         <div className="min-w-[9rem] flex-1">
           <Label htmlFor="active-filter">Status</Label>
-          <Select
+          <Combobox
             id="active-filter"
             value={activeFilter}
-            onChange={(e) => {
-              setActiveFilter(e.target.value as "" | "true" | "false");
+            onChange={(v) => {
+              setActiveFilter(v as "" | "true" | "false");
               setPage(1);
             }}
-          >
-            <option value="">All</option>
-            <option value="true">Active</option>
-            <option value="false">Deactivated</option>
-          </Select>
+            options={[
+              { value: "", label: "All" },
+              { value: "true", label: "Active" },
+              { value: "false", label: "Deactivated" },
+            ]}
+          />
+        </div>
+        <div className="min-w-[12rem] flex-1">
+          <Label htmlFor="user-search">Search this page</Label>
+          <Input
+            id="user-search"
+            placeholder="Name or email…"
+            value={search}
+            leftIcon={<Search className="size-4" aria-hidden="true" />}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
       </div>
 
@@ -212,7 +252,7 @@ export function AdminUsersPage() {
         <EmptyState
           icon={UsersIcon}
           title="No accounts match"
-          description="Try a different filter."
+          description="Try a different filter or clearing the search box."
           className="rounded-lg border border-line bg-surface"
         />
       ) : (
@@ -220,25 +260,51 @@ export function AdminUsersPage() {
           <Table>
             <TableHead>
               <TableRow>
-                <TableHeaderCell>Name</TableHeaderCell>
-                <TableHeaderCell>Email</TableHeaderCell>
+                <SortableHeaderCell
+                  active={sort.key === "name"}
+                  direction={sort.direction}
+                  onSort={() => toggleSort("name")}
+                >
+                  Name
+                </SortableHeaderCell>
+                <TableHeaderCell>Display name</TableHeaderCell>
+                <SortableHeaderCell
+                  active={sort.key === "email"}
+                  direction={sort.direction}
+                  onSort={() => toggleSort("email")}
+                >
+                  Email
+                </SortableHeaderCell>
                 <TableHeaderCell>Role</TableHeaderCell>
                 <TableHeaderCell>Zone</TableHeaderCell>
+                <SortableHeaderCell
+                  active={sort.key === "createdAt"}
+                  direction={sort.direction}
+                  onSort={() => toggleSort("createdAt")}
+                >
+                  Member since
+                </SortableHeaderCell>
                 <TableHeaderCell>Status</TableHeaderCell>
                 <TableHeaderCell className="text-right">Actions</TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {rows.length === 0 ? (
-                <DataTableEmpty colSpan={6}>—</DataTableEmpty>
+                <DataTableEmpty colSpan={8}>—</DataTableEmpty>
               ) : (
                 rows.map((u) => (
                   <TableRow key={u.id}>
                     <TableCell className="font-medium text-ink">{u.name}</TableCell>
+                    <TableCell className="text-ink-muted text-sm">
+                      {u.displayName || "—"}
+                    </TableCell>
                     <TableCell className="text-ink-muted text-sm">{u.email}</TableCell>
                     <TableCell className="text-ink-muted text-sm">{u.role}</TableCell>
                     <TableCell className="text-ink-muted text-sm">
                       {zoneName(u.zoneId)}
+                    </TableCell>
+                    <TableCell className="text-ink-muted text-sm">
+                      {memberSince(u.createdAt)}
                     </TableCell>
                     <TableCell>
                       <span
@@ -253,7 +319,11 @@ export function AdminUsersPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button size="sm" variant="outline" onClick={() => setEditingUser(u)}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setEditingUser(u)}
+                        >
                           Edit
                         </Button>
                         {u.role !== "ADMIN" && (
@@ -311,10 +381,22 @@ export function AdminUsersPage() {
             <Label htmlFor="create-role" required>
               Role
             </Label>
-            <Select id="create-role" {...register("role")}>
-              <option value="CITIZEN">Citizen</option>
-              <option value="OFFICER">Officer</option>
-            </Select>
+            <Controller
+              control={control}
+              name="role"
+              render={({ field }) => (
+                <Combobox
+                  id="create-role"
+                  value={field.value}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  options={[
+                    { value: "CITIZEN", label: "Citizen" },
+                    { value: "OFFICER", label: "Officer" },
+                  ]}
+                />
+              )}
+            />
           </div>
           <div>
             <Label htmlFor="create-name" required>
@@ -349,20 +431,27 @@ export function AdminUsersPage() {
             <Label htmlFor="create-zone" required={watchedRole === "OFFICER"}>
               Zone
             </Label>
-            <Select
-              id="create-zone"
-              error={errors.zoneId?.message}
-              {...register("zoneId")}
-            >
-              <option value="">
-                {watchedRole === "OFFICER" ? "Select a zone…" : "No home zone"}
-              </option>
-              {zones?.map((z) => (
-                <option key={z.id} value={z.id}>
-                  {z.name}
-                </option>
-              ))}
-            </Select>
+            <Controller
+              control={control}
+              name="zoneId"
+              render={({ field }) => (
+                <Combobox
+                  id="create-zone"
+                  value={field.value ?? ""}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  error={errors.zoneId?.message}
+                  options={[
+                    {
+                      value: "",
+                      label:
+                        watchedRole === "OFFICER" ? "Select a zone…" : "No home zone",
+                    },
+                    ...(zones?.map((z) => ({ value: z.id, label: z.name })) ?? []),
+                  ]}
+                />
+              )}
+            />
           </div>
         </form>
       </Modal>
@@ -385,14 +474,21 @@ export function AdminUsersPage() {
             <Button variant="outline" onClick={() => setDeletingUser(null)}>
               Cancel
             </Button>
-            <Button variant="danger" loading={deleteUser.isPending} onClick={handleDelete}>
+            <Button
+              variant="danger"
+              loading={deleteUser.isPending}
+              onClick={handleDelete}
+            >
               Delete
             </Button>
           </>
         }
       >
         {deleteError && (
-          <p role="alert" className="bg-status-rejected-subtle text-status-rejected flex items-start gap-2 rounded-md px-3 py-2 text-sm">
+          <p
+            role="alert"
+            className="bg-status-rejected-subtle text-status-rejected flex items-start gap-2 rounded-md px-3 py-2 text-sm"
+          >
             <ShieldAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             {deleteError}
           </p>
@@ -456,7 +552,10 @@ function EditUserModal({
     >
       <div className="space-y-4">
         {error && (
-          <p role="alert" className="bg-status-rejected-subtle text-status-rejected rounded-md px-3 py-2 text-sm">
+          <p
+            role="alert"
+            className="bg-status-rejected-subtle text-status-rejected rounded-md px-3 py-2 text-sm"
+          >
             {error}
           </p>
         )}
@@ -482,18 +581,15 @@ function EditUserModal({
             <Label htmlFor="edit-zone">
               {user.role === "OFFICER" ? "Assigned zone" : "Home zone"}
             </Label>
-            <Select
+            <Combobox
               id="edit-zone"
               value={zoneId}
-              onChange={(e) => setZoneId(e.target.value)}
-            >
-              <option value="">No zone</option>
-              {zones?.map((z) => (
-                <option key={z.id} value={z.id}>
-                  {z.name}
-                </option>
-              ))}
-            </Select>
+              onChange={setZoneId}
+              options={[
+                { value: "", label: "No zone" },
+                ...(zones?.map((z) => ({ value: z.id, label: z.name })) ?? []),
+              ]}
+            />
             {user.role === "OFFICER" && zoneId !== (user.zoneId ?? "") && (
               <p className="text-ink-faint mt-1.5 text-xs">
                 Reassigning takes effect immediately — this officer loses access to their

@@ -108,6 +108,17 @@
   --color-sla-overdue: var(--kv-status-rejected);
   --color-sla-overdue-subtle: var(--kv-status-rejected-subtle);
 
+  /* Dedicated chart-mark triad (good/neutral/bad) — distinct from the status/
+     severity/SLA text tokens above. Those are tuned to sit as *text* on a
+     subtle chip and lean bright in dark mode for legibility; chart marks
+     need a punchier mid-tone that reads as a filled area, so this triad is
+     validated separately (see scripts/validate_palette.js in the dataviz
+     skill) against both the light and dark chart surface, not derived from
+     the UI accent tokens. */
+  --color-chart-good: var(--kv-chart-good);
+  --color-chart-neutral: var(--kv-chart-neutral);
+  --color-chart-bad: var(--kv-chart-bad);
+
   /* Display type scale (Barlow Condensed, tighter tracking, for hero/heading use). */
   --text-display-sm: 1.75rem;
   --text-display-sm--line-height: 2.1rem;
@@ -176,6 +187,10 @@
   --kv-status-reopened-subtle: #fce3e9;
   --kv-status-unresolvable: #57534e;
   --kv-status-unresolvable-subtle: #eeebe8;
+
+  --kv-chart-good: #15803d;
+  --kv-chart-neutral: #2563eb;
+  --kv-chart-bad: #b91c1c;
 }
 
 /* ---- Dark + AMOLED share accent/status hues; only neutrals differ. ---- */
@@ -210,6 +225,10 @@
   --kv-status-reopened-subtle: #3a141f;
   --kv-status-unresolvable: #a8a29e;
   --kv-status-unresolvable-subtle: #26221d;
+
+  --kv-chart-good: #15803d;
+  --kv-chart-neutral: #2563eb;
+  --kv-chart-bad: #dc2626;
 }
 
 [data-theme="dark"] {

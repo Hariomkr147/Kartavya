@@ -1,10 +1,10 @@
-import { useState } from "react";
-import { Plus, Settings as SettingsIcon, ShieldAlert } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Plus, Search, Settings as SettingsIcon, ShieldAlert } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
-import { Select } from "@/components/ui/Select";
+import { Combobox } from "@/components/ui/Combobox";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Modal } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -73,7 +73,16 @@ function ZonesTab() {
   const [assigningZone, setAssigningZone] = useState<Zone | null>(null);
   const [deletingZone, setDeletingZone] = useState<Zone | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const deleteZone = useDeleteZone();
+
+  const visibleZones = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return zones ?? [];
+    return (zones ?? []).filter(
+      (z) => z.code.toLowerCase().includes(term) || z.name.toLowerCase().includes(term),
+    );
+  }, [zones, search]);
 
   async function handleDelete() {
     if (!deletingZone) return;
@@ -93,7 +102,17 @@ function ZonesTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-[14rem] flex-1 sm:max-w-xs">
+          <Label htmlFor="zone-search">Search zones</Label>
+          <Input
+            id="zone-search"
+            placeholder="Code or name…"
+            value={search}
+            leftIcon={<Search className="size-4" aria-hidden="true" />}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
         <Button size="sm" onClick={() => setCreateOpen(true)}>
           <Plus className="size-4" aria-hidden="true" />
           Create zone
@@ -102,6 +121,8 @@ function ZonesTab() {
 
       {isLoading ? (
         <Skeleton className="h-48 w-full" />
+      ) : visibleZones.length === 0 ? (
+        <p className="text-ink-muted text-sm">No zones match &ldquo;{search}&rdquo;.</p>
       ) : (
         <Table>
           <TableHead>
@@ -113,7 +134,7 @@ function ZonesTab() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {zones?.map((zone) => (
+            {visibleZones.map((zone) => (
               <TableRow key={zone.id}>
                 <TableCell className="text-ink-muted font-mono text-xs">
                   {zone.code}
@@ -139,10 +160,18 @@ function ZonesTab() {
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-2">
-                    <Button size="sm" variant="outline" onClick={() => setAssigningZone(zone)}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setAssigningZone(zone)}
+                    >
                       Assign officer
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => setEditingZone(zone)}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setEditingZone(zone)}
+                    >
                       Edit
                     </Button>
                     {!zone.isCatchAll && (
@@ -184,14 +213,21 @@ function ZonesTab() {
             <Button variant="outline" onClick={() => setDeletingZone(null)}>
               Cancel
             </Button>
-            <Button variant="danger" loading={deleteZone.isPending} onClick={handleDelete}>
+            <Button
+              variant="danger"
+              loading={deleteZone.isPending}
+              onClick={handleDelete}
+            >
               Delete
             </Button>
           </>
         }
       >
         {deleteError && (
-          <p role="alert" className="bg-status-rejected-subtle text-status-rejected flex items-start gap-2 rounded-md px-3 py-2 text-sm">
+          <p
+            role="alert"
+            className="bg-status-rejected-subtle text-status-rejected flex items-start gap-2 rounded-md px-3 py-2 text-sm"
+          >
             <ShieldAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             {deleteError}
           </p>
@@ -261,7 +297,10 @@ function CreateZoneModal({ open, onClose }: { open: boolean; onClose: () => void
     >
       <div className="space-y-4">
         {error && (
-          <p role="alert" className="bg-status-rejected-subtle text-status-rejected rounded-md px-3 py-2 text-sm">
+          <p
+            role="alert"
+            className="bg-status-rejected-subtle text-status-rejected rounded-md px-3 py-2 text-sm"
+          >
             {error}
           </p>
         )}
@@ -345,7 +384,10 @@ function EditZoneModal({ zone, onClose }: { zone: Zone; onClose: () => void }) {
     >
       <div className="space-y-4">
         {error && (
-          <p role="alert" className="bg-status-rejected-subtle text-status-rejected rounded-md px-3 py-2 text-sm">
+          <p
+            role="alert"
+            className="bg-status-rejected-subtle text-status-rejected rounded-md px-3 py-2 text-sm"
+          >
             {error}
           </p>
         )}
@@ -353,7 +395,11 @@ function EditZoneModal({ zone, onClose }: { zone: Zone; onClose: () => void }) {
           <Label htmlFor="edit-zone-name" required>
             Name
           </Label>
-          <Input id="edit-zone-name" value={name} onChange={(e) => setName(e.target.value)} />
+          <Input
+            id="edit-zone-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
         </div>
         <Checkbox
           id="edit-zone-active"
@@ -411,7 +457,10 @@ function AssignOfficerModal({ zone, onClose }: { zone: Zone; onClose: () => void
     >
       <div className="space-y-4">
         {error && (
-          <p role="alert" className="bg-status-rejected-subtle text-status-rejected rounded-md px-3 py-2 text-sm">
+          <p
+            role="alert"
+            className="bg-status-rejected-subtle text-status-rejected rounded-md px-3 py-2 text-sm"
+          >
             {error}
           </p>
         )}
@@ -422,18 +471,18 @@ function AssignOfficerModal({ zone, onClose }: { zone: Zone; onClose: () => void
           {isLoading ? (
             <Skeleton className="h-11 w-full" />
           ) : (
-            <Select
+            <Combobox
               id="assign-officer"
               value={officerId}
-              onChange={(e) => setOfficerId(e.target.value)}
-            >
-              <option value="">Select an officer…</option>
-              {officers?.data.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name} ({o.email})
-                </option>
-              ))}
-            </Select>
+              onChange={setOfficerId}
+              options={[
+                { value: "", label: "Select an officer…" },
+                ...(officers?.data.map((o) => ({
+                  value: o.id,
+                  label: `${o.name} (${o.email})`,
+                })) ?? []),
+              ]}
+            />
           )}
         </div>
       </div>
@@ -462,7 +511,12 @@ function SlasTab() {
         </TableHead>
         <TableBody>
           {categories?.map((category) => (
-            <SlaRow key={category.id} categoryId={category.id} name={category.name} targetHours={category.slaTargetHours} />
+            <SlaRow
+              key={category.id}
+              categoryId={category.id}
+              name={category.name}
+              targetHours={category.slaTargetHours}
+            />
           ))}
         </TableBody>
       </Table>
@@ -514,7 +568,13 @@ function SlaRow({
         />
       </TableCell>
       <TableCell className="text-right">
-        <Button size="sm" variant="outline" disabled={!dirty} loading={updateSla.isPending} onClick={handleSave}>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!dirty}
+          loading={updateSla.isPending}
+          onClick={handleSave}
+        >
           Save
         </Button>
       </TableCell>

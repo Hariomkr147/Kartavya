@@ -1,15 +1,16 @@
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Link, useLocation, useNavigate, type Location } from "react-router-dom";
-import { Mail, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, Mail, ShieldAlert, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { useAuth } from "@/contexts/AuthContext";
 import { ApiRequestError } from "@/services/http";
 import { roleHomePath } from "@/routes/roleHome";
+import { cn } from "@/lib/utils";
 
 const loginSchema = z.object({
   email: z.string().min(1, "Email is required").email("Enter a valid email address"),
@@ -18,22 +19,45 @@ const loginSchema = z.object({
 
 type LoginFormValues = z.infer<typeof loginSchema>;
 
+const REMEMBERED_EMAIL_KEY = "kartavya-remembered-email";
+
+function readRememberedEmail(): string {
+  try {
+    return localStorage.getItem(REMEMBERED_EMAIL_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [formError, setFormError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [capsLockOn, setCapsLockOn] = useState(false);
 
   const {
     register,
+    control,
     handleSubmit,
     formState: { errors, isSubmitting },
-  } = useForm<LoginFormValues>({ resolver: zodResolver(loginSchema) });
+  } = useForm<LoginFormValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: { email: readRememberedEmail() },
+  });
+
+  const passwordValue = useWatch({ control, name: "password" }) ?? "";
 
   async function onSubmit(values: LoginFormValues) {
     setFormError(null);
     try {
       const user = await login(values);
+      try {
+        localStorage.setItem(REMEMBERED_EMAIL_KEY, values.email);
+      } catch {
+        // Best-effort convenience only.
+      }
       const from = (location.state as { from?: Location })?.from?.pathname;
       navigate(from ?? roleHomePath(user.role), { replace: true });
     } catch (error) {
@@ -84,11 +108,34 @@ export function LoginPage() {
               </Label>
               <Input
                 id="password"
-                type="password"
+                type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
                 error={errors.password?.message}
+                rightIcon={
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    className="text-ink-faint hover:text-ink"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="size-4" aria-hidden="true" />
+                    ) : (
+                      <Eye className="size-4" aria-hidden="true" />
+                    )}
+                  </button>
+                }
+                onKeyUp={(e) => setCapsLockOn(e.getModifierState("CapsLock"))}
                 {...register("password")}
               />
+              {capsLockOn && (
+                <p className="text-status-needs_more_evidence mt-1.5 flex items-center gap-1 text-xs">
+                  <ShieldAlert className="size-3.5" aria-hidden="true" />
+                  Caps Lock is on
+                </p>
+              )}
+              <PasswordStrengthMeter password={passwordValue} />
             </div>
             <Button type="submit" className="w-full" loading={isSubmitting}>
               Sign in
@@ -109,6 +156,55 @@ export function LoginPage() {
           </Link>
         </p>
       </div>
+    </div>
+  );
+}
+
+interface PasswordStrength {
+  score: 0 | 1 | 2 | 3 | 4;
+  label: string;
+}
+
+function scorePassword(password: string): PasswordStrength {
+  if (!password) return { score: 0, label: "" };
+  let score = 0;
+  if (password.length >= 8) score++;
+  if (password.length >= 12) score++;
+  if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score++;
+  if (/\d/.test(password)) score++;
+  if (/[^A-Za-z0-9]/.test(password)) score++;
+  const clamped = Math.min(4, score) as 0 | 1 | 2 | 3 | 4;
+  const labels = ["Very weak", "Weak", "Fair", "Good", "Strong"];
+  return { score: clamped, label: labels[clamped] };
+}
+
+const STRENGTH_BAR_CLASSES = [
+  "bg-status-rejected",
+  "bg-status-rejected",
+  "bg-status-needs_more_evidence",
+  "bg-brand",
+  "bg-status-resolved",
+];
+
+/** Tiny local strength meter — duplicated across Account/Register/Login rather than shared, since those pages live in different owned directories. */
+function PasswordStrengthMeter({ password }: { password: string }) {
+  if (!password) return null;
+  const { score, label } = scorePassword(password);
+  return (
+    <div className="mt-1.5" aria-live="polite">
+      <div className="flex gap-1">
+        {Array.from({ length: 4 }, (_, i) => (
+          <span
+            key={i}
+            className={cn(
+              "h-1 flex-1 rounded-full transition-colors",
+              i < score ? STRENGTH_BAR_CLASSES[score] : "bg-line",
+            )}
+            aria-hidden="true"
+          />
+        ))}
+      </div>
+      <p className="text-ink-faint mt-1 text-xs">{label}</p>
     </div>
   );
 }

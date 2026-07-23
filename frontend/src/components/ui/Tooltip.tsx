@@ -1,4 +1,11 @@
-import { cloneElement, useId, useRef, useState, type ReactElement, type ReactNode } from "react";
+import {
+  cloneElement,
+  useId,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 
@@ -6,16 +13,27 @@ export interface TooltipProps {
   content: ReactNode;
   children: ReactElement<Record<string, unknown>>;
   side?: "top" | "bottom" | "right";
+  /** Extra classes for the wrapping anchor span, e.g. to stretch/center it inside a flex parent. */
+  className?: string;
+  /** Suppress showing the popup (e.g. when the trigger already has a visible label) without unmounting it. */
+  disabled?: boolean;
 }
 
 /** Bespoke tooltip: shows on hover/focus (keyboard-accessible), hides on blur/mouseleave/Escape. */
-export function Tooltip({ content, children, side = "top" }: TooltipProps) {
+export function Tooltip({
+  content,
+  children,
+  side = "top",
+  className,
+  disabled,
+}: TooltipProps) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const anchorRef = useRef<HTMLElement | null>(null);
   const id = useId();
 
   function show() {
+    if (disabled) return;
     const rect = anchorRef.current?.getBoundingClientRect();
     if (!rect) return;
     if (side === "right") {
@@ -26,7 +44,9 @@ export function Tooltip({ content, children, side = "top" }: TooltipProps) {
     } else {
       setPosition({
         top:
-          side === "top" ? rect.top + window.scrollY - 8 : rect.bottom + window.scrollY + 8,
+          side === "top"
+            ? rect.top + window.scrollY - 8
+            : rect.bottom + window.scrollY + 8,
         left: rect.left + window.scrollX + rect.width / 2,
       });
     }
@@ -55,11 +75,12 @@ export function Tooltip({ content, children, side = "top" }: TooltipProps) {
         onFocus={show}
         onBlur={hide}
         onKeyDown={(e) => e.key === "Escape" && hide()}
-        className="inline-flex"
+        className={cn("inline-flex", className)}
       >
         {describedChild}
       </span>
       {open &&
+        !disabled &&
         createPortal(
           <div
             role="tooltip"

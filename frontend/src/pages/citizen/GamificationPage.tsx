@@ -1,10 +1,17 @@
-import { useState } from "react";
-import { Trophy, Award, ListChecks } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { Trophy, Award, ListChecks, TrendingUp, PieChart } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/Tabs";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { DynamicIcon } from "@/components/DynamicIcon";
+import { TrendLineChart } from "@/components/charts/TrendLineChart";
+import {
+  HorizontalBarChart,
+  type BarDatum,
+} from "@/components/charts/HorizontalBarChart";
 import { iconForBadge } from "@/lib/badgeIcons";
 import { relativeTime, absoluteDateTime } from "@/lib/datetime";
 import { usePointsSummary } from "@/hooks/usePointsSummary";
@@ -14,6 +21,12 @@ import { cn } from "@/lib/utils";
 import type { PointsLedgerEntry } from "@/types/api";
 
 const LEDGER_PAGE_SIZE = 8;
+// A single larger fetch (mirrors the same "adjust the existing call's
+// params" pattern used elsewhere) so the trend chart and reason breakdown
+// have enough history to be meaningful — the ledger table below then
+// paginates client-side over this same fetched set instead of relying on
+// the server's page/pageSize for it.
+const LEDGER_FETCH_SIZE = 100;
 const LEADERBOARD_PAGE_SIZE = 10;
 
 const REASON_LABELS: Record<PointsLedgerEntry["reason"], string> = {
@@ -25,6 +38,32 @@ const REASON_LABELS: Record<PointsLedgerEntry["reason"], string> = {
   REJECTED_PENALTY: "Complaint rejected",
 };
 
+const shortDateFormatter = new Intl.DateTimeFormat("en", {
+  month: "short",
+  day: "numeric",
+});
+
+function cumulativeSeries(ledger: PointsLedgerEntry[]) {
+  const chronological = [...ledger].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
+  let running = 0;
+  return chronological.map((entry) => {
+    running += entry.amount;
+    return { x: shortDateFormatter.format(new Date(entry.createdAt)), y: running };
+  });
+}
+
+function reasonBreakdown(ledger: PointsLedgerEntry[]): BarDatum[] {
+  const sums = new Map<PointsLedgerEntry["reason"], number>();
+  for (const entry of ledger) {
+    sums.set(entry.reason, (sums.get(entry.reason) ?? 0) + entry.amount);
+  }
+  return [...sums.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([reason, value]) => ({ label: REASON_LABELS[reason], value }));
+}
+
 export function GamificationPage() {
   const [ledgerPage, setLedgerPage] = useState(1);
   const [scope, setScope] = useState<"zone" | "city">("zone");
@@ -32,8 +71,7 @@ export function GamificationPage() {
   const [leaderboardPage, setLeaderboardPage] = useState(1);
 
   const { data: points, isLoading: pointsLoading } = usePointsSummary({
-    page: ledgerPage,
-    pageSize: LEDGER_PAGE_SIZE,
+    pageSize: LEDGER_FETCH_SIZE,
   });
   const { data: badges, isLoading: badgesLoading } = useBadges();
   const { data: leaderboard, isLoading: leaderboardLoading } = useLeaderboard({
@@ -43,14 +81,19 @@ export function GamificationPage() {
     pageSize: LEADERBOARD_PAGE_SIZE,
   });
 
-  const ledger = points?.ledger ?? [];
+  const ledger = useMemo(() => points?.ledger ?? [], [points]);
+  const ledgerTotal = ledger.length;
+  const pagedLedger = ledger.slice(
+    (ledgerPage - 1) * LEDGER_PAGE_SIZE,
+    ledgerPage * LEDGER_PAGE_SIZE,
+  );
+  const trendData = useMemo(() => cumulativeSeries(ledger), [ledger]);
+  const breakdownData = useMemo(() => reasonBreakdown(ledger), [ledger]);
   const currentUserVisible = leaderboard?.data.some((e) => e.isCurrentUser) ?? false;
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-8">
-      <h1 className="font-display text-display-sm font-semibold text-ink">
-        My Kartavya
-      </h1>
+      <h1 className="font-display text-display-sm font-semibold text-ink">My Kartavya</h1>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-lg border border-line bg-surface p-5">
@@ -95,30 +138,54 @@ export function GamificationPage() {
           ) : (
             <div className="mt-4 flex flex-wrap gap-4">
               {badges.map((badge) => (
-                <div
-                  key={badge.code}
-                  title={badge.description}
-                  className="flex w-20 flex-col items-center gap-1.5 text-center"
-                >
-                  <span className="bg-brand/10 text-brand flex size-14 items-center justify-center rounded-full">
-                    <DynamicIcon
-                      icon={iconForBadge(badge.code)}
-                      className="size-6"
-                      aria-hidden="true"
-                    />
-                  </span>
-                  <p className="text-xs leading-tight font-medium text-ink">
-                    {badge.name}
-                  </p>
-                  <p className="text-ink-faint text-[10px]">
-                    {relativeTime(badge.earnedAt)}
-                  </p>
-                </div>
+                <Tooltip key={badge.code} content={badge.description ?? badge.name}>
+                  <button
+                    type="button"
+                    className="flex w-20 flex-col items-center gap-1.5 text-center"
+                  >
+                    <span className="bg-brand/10 text-brand flex size-14 items-center justify-center rounded-full">
+                      <DynamicIcon
+                        icon={iconForBadge(badge.code)}
+                        className="size-6"
+                        aria-hidden="true"
+                      />
+                    </span>
+                    <p className="text-xs leading-tight font-medium text-ink">
+                      {badge.name}
+                    </p>
+                    <p className="text-ink-faint text-[10px]">
+                      {relativeTime(badge.earnedAt)}
+                    </p>
+                  </button>
+                </Tooltip>
               ))}
             </div>
           )}
         </section>
       </div>
+
+      {!pointsLoading && ledger.length > 0 && (
+        <div className="grid gap-6 lg:grid-cols-2">
+          <section className="rounded-lg border border-line bg-surface p-5">
+            <div className="mb-3 flex items-center gap-2">
+              <TrendingUp className="text-ink-muted size-4" aria-hidden="true" />
+              <h2 className="font-display text-sm font-semibold text-ink">
+                CSP over time
+              </h2>
+            </div>
+            <TrendLineChart data={trendData} color="var(--color-csp)" />
+          </section>
+          <section className="rounded-lg border border-line bg-surface p-5">
+            <div className="mb-3 flex items-center gap-2">
+              <PieChart className="text-ink-muted size-4" aria-hidden="true" />
+              <h2 className="font-display text-sm font-semibold text-ink">
+                Points by reason
+              </h2>
+            </div>
+            <HorizontalBarChart data={breakdownData} color="var(--color-csp)" />
+          </section>
+        </div>
+      )}
 
       <section className="space-y-3">
         <div className="flex items-center gap-2">
@@ -140,17 +207,27 @@ export function GamificationPage() {
         ) : (
           <>
             <div className="divide-y divide-line rounded-lg border border-line bg-surface">
-              {ledger.map((entry) => (
+              {pagedLedger.map((entry) => (
                 <div
                   key={entry.id}
                   className="flex items-center justify-between gap-4 px-4 py-3"
                 >
                   <div>
                     <p className="text-sm font-medium text-ink">
-                      {REASON_LABELS[entry.reason]}
+                      {entry.complaintId ? (
+                        <Link
+                          to={`/citizen/complaints/${entry.complaintId}`}
+                          className="hover:text-brand hover:underline"
+                        >
+                          {REASON_LABELS[entry.reason]}
+                        </Link>
+                      ) : (
+                        REASON_LABELS[entry.reason]
+                      )}
                     </p>
                     <p className="text-ink-faint text-xs">
                       {absoluteDateTime(entry.createdAt)}
+                      {entry.complaintId && ` · ${entry.complaintId}`}
                     </p>
                   </div>
                   <p
@@ -165,14 +242,12 @@ export function GamificationPage() {
                 </div>
               ))}
             </div>
-            {points?.pagination && (
-              <Pagination
-                page={ledgerPage}
-                pageSize={LEDGER_PAGE_SIZE}
-                total={points.pagination.totalItems}
-                onPageChange={setLedgerPage}
-              />
-            )}
+            <Pagination
+              page={ledgerPage}
+              pageSize={LEDGER_PAGE_SIZE}
+              total={ledgerTotal}
+              onPageChange={setLedgerPage}
+            />
           </>
         )}
       </section>

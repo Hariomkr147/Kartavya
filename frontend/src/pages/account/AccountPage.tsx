@@ -1,18 +1,30 @@
-import { useForm } from "react-hook-form";
+import { useState } from "react";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { KeyRound, MapPin, UserCog } from "lucide-react";
+import {
+  CalendarClock,
+  Eye,
+  EyeOff,
+  KeyRound,
+  MapPin,
+  ShieldAlert,
+  UserCog,
+} from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
-import { Select } from "@/components/ui/Select";
+import { Combobox } from "@/components/ui/Combobox";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import { useZones } from "@/hooks/useZones";
 import { useUpdateProfile } from "@/hooks/useUpdateProfile";
 import { useChangePassword } from "@/hooks/useChangePassword";
+import { useDirtyFormGuard } from "@/hooks/useDirtyFormGuard";
 import { useToast } from "@/components/ui/Toast";
 import { ApiRequestError } from "@/services/http";
+import { absoluteDateTime } from "@/lib/datetime";
+import { cn } from "@/lib/utils";
 
 const profileSchema = z.object({
   name: z.string().min(1, "Full name is required"),
@@ -40,12 +52,19 @@ export function AccountPage() {
   const updateProfile = useUpdateProfile();
   const changePassword = useChangePassword();
   const { toast } = useToast();
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [newPasswordCapsLock, setNewPasswordCapsLock] = useState(false);
 
   const {
     register: registerProfile,
+    control: profileControl,
     handleSubmit: handleProfileSubmit,
     setError: setProfileError,
-    formState: { errors: profileErrors, isSubmitting: profileSubmitting },
+    formState: {
+      errors: profileErrors,
+      isSubmitting: profileSubmitting,
+      isDirty: profileDirty,
+    },
   } = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
     values: user
@@ -60,11 +79,17 @@ export function AccountPage() {
 
   const {
     register: registerPassword,
+    control: passwordControl,
     handleSubmit: handlePasswordSubmit,
     setError: setPasswordError,
     reset: resetPasswordForm,
     formState: { errors: passwordErrors, isSubmitting: passwordSubmitting },
   } = useForm<PasswordFormValues>({ resolver: zodResolver(passwordSchema) });
+
+  useDirtyFormGuard(profileDirty && !profileSubmitting);
+
+  const newPasswordValue =
+    useWatch({ control: passwordControl, name: "newPassword" }) ?? "";
 
   if (!user) return null;
 
@@ -117,9 +142,30 @@ export function AccountPage() {
     <div className="mx-auto w-full max-w-2xl space-y-8">
       <div>
         <h1 className="font-display text-display-sm font-semibold text-ink">Account</h1>
-        <p className="text-ink-muted mt-1 text-sm">
-          Manage your profile and password.
-        </p>
+        <p className="text-ink-muted mt-1 text-sm">Manage your profile and password.</p>
+        <div className="text-ink-faint mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+          {user.createdAt && (
+            <span className="flex items-center gap-1.5">
+              <CalendarClock className="size-3.5" aria-hidden="true" />
+              Member since {absoluteDateTime(user.createdAt)}
+            </span>
+          )}
+          <span
+            className={cn(
+              "flex items-center gap-1.5 font-medium",
+              user.active ? "text-status-resolved" : "text-status-rejected",
+            )}
+          >
+            <span
+              className={cn(
+                "size-1.5 rounded-full",
+                user.active ? "bg-status-resolved" : "bg-status-rejected",
+              )}
+              aria-hidden="true"
+            />
+            {user.active ? "Active" : "Deactivated"}
+          </span>
+        </div>
       </div>
 
       <section className="rounded-lg border border-line bg-surface p-6">
@@ -173,17 +219,26 @@ export function AccountPage() {
                 <Label htmlFor="zoneId" required>
                   Home zone
                 </Label>
-                <Select
-                  id="zoneId"
-                  error={profileErrors.zoneId?.message}
-                  {...registerProfile("zoneId")}
-                >
-                  {zones?.map((zone) => (
-                    <option key={zone.id} value={zone.id}>
-                      {zone.name}
-                    </option>
-                  ))}
-                </Select>
+                <p className="text-ink-muted mb-2 flex items-center gap-1.5 text-sm">
+                  <MapPin className="size-4" aria-hidden="true" />
+                  Current zone: {currentZoneName ?? "—"}
+                </p>
+                <Controller
+                  control={profileControl}
+                  name="zoneId"
+                  render={({ field }) => (
+                    <Combobox
+                      id="zoneId"
+                      value={field.value ?? ""}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                      error={profileErrors.zoneId?.message}
+                      options={
+                        zones?.map((zone) => ({ value: zone.id, label: zone.name })) ?? []
+                      }
+                    />
+                  )}
+                />
               </div>
             ))}
 
@@ -209,9 +264,7 @@ export function AccountPage() {
       <section className="rounded-lg border border-line bg-surface p-6">
         <div className="mb-4 flex items-center gap-2">
           <KeyRound className="text-brand size-5" aria-hidden="true" />
-          <h2 className="font-display text-lg font-semibold text-ink">
-            Change password
-          </h2>
+          <h2 className="font-display text-lg font-semibold text-ink">Change password</h2>
         </div>
         <form
           className="space-y-4"
@@ -236,12 +289,35 @@ export function AccountPage() {
             </Label>
             <Input
               id="newPassword"
-              type="password"
+              type={showNewPassword ? "text" : "password"}
               autoComplete="new-password"
               hint={!passwordErrors.newPassword ? "At least 8 characters." : undefined}
               error={passwordErrors.newPassword?.message}
+              rightIcon={
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setShowNewPassword((v) => !v)}
+                  aria-label={showNewPassword ? "Hide password" : "Show password"}
+                  className="text-ink-faint hover:text-ink pointer-events-auto"
+                >
+                  {showNewPassword ? (
+                    <EyeOff className="size-4" aria-hidden="true" />
+                  ) : (
+                    <Eye className="size-4" aria-hidden="true" />
+                  )}
+                </button>
+              }
+              onKeyUp={(e) => setNewPasswordCapsLock(e.getModifierState("CapsLock"))}
               {...registerPassword("newPassword")}
             />
+            {newPasswordCapsLock && (
+              <p className="text-status-needs_more_evidence mt-1.5 flex items-center gap-1 text-xs">
+                <ShieldAlert className="size-3.5" aria-hidden="true" />
+                Caps Lock is on
+              </p>
+            )}
+            <PasswordStrengthMeter password={newPasswordValue} />
           </div>
           <div>
             <Label htmlFor="confirmNewPassword" required>
@@ -260,6 +336,55 @@ export function AccountPage() {
           </Button>
         </form>
       </section>
+    </div>
+  );
+}
+
+interface PasswordStrength {
+  score: 0 | 1 | 2 | 3 | 4;
+  label: string;
+}
+
+function scorePassword(password: string): PasswordStrength {
+  if (!password) return { score: 0, label: "" };
+  let score = 0;
+  if (password.length >= 8) score++;
+  if (password.length >= 12) score++;
+  if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score++;
+  if (/\d/.test(password)) score++;
+  if (/[^A-Za-z0-9]/.test(password)) score++;
+  const clamped = Math.min(4, score) as 0 | 1 | 2 | 3 | 4;
+  const labels = ["Very weak", "Weak", "Fair", "Good", "Strong"];
+  return { score: clamped, label: labels[clamped] };
+}
+
+const STRENGTH_BAR_CLASSES = [
+  "bg-status-rejected",
+  "bg-status-rejected",
+  "bg-status-needs_more_evidence",
+  "bg-brand",
+  "bg-status-resolved",
+];
+
+/** Tiny local strength meter — duplicated across Account/Register/Login rather than shared, since those pages live in different owned directories. */
+function PasswordStrengthMeter({ password }: { password: string }) {
+  if (!password) return null;
+  const { score, label } = scorePassword(password);
+  return (
+    <div className="mt-1.5" aria-live="polite">
+      <div className="flex gap-1">
+        {Array.from({ length: 4 }, (_, i) => (
+          <span
+            key={i}
+            className={cn(
+              "h-1 flex-1 rounded-full transition-colors",
+              i < score ? STRENGTH_BAR_CLASSES[score] : "bg-line",
+            )}
+            aria-hidden="true"
+          />
+        ))}
+      </div>
+      <p className="text-ink-faint mt-1 text-xs">{label}</p>
     </div>
   );
 }

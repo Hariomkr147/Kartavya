@@ -9,14 +9,16 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
 import { Button } from "@/components/ui/Button";
 import { Label } from "@/components/ui/Label";
-import { Select } from "@/components/ui/Select";
+import { Combobox } from "@/components/ui/Combobox";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { StatusTriadChart } from "@/components/charts/StatusTriadChart";
 import { useAdminUsers } from "@/hooks/useAdminUsers";
 import { useZones } from "@/hooks/useZones";
 import { useOfficerPerformance } from "@/hooks/useOfficerPerformance";
 import { useAiZoneReport } from "@/hooks/useAiZoneReport";
 import { useGenerateAiZoneReport } from "@/hooks/useGenerateAiZoneReport";
+import { absoluteDateTime, relativeTime } from "@/lib/datetime";
 import type { OfficerPerformance } from "@/types/api";
 
 export function AdminOfficersPage() {
@@ -25,9 +27,7 @@ export function AdminOfficersPage() {
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6">
       <div>
-        <h1 className="font-display text-display-sm font-semibold text-ink">
-          Officers
-        </h1>
+        <h1 className="font-display text-display-sm font-semibold text-ink">Officers</h1>
         <p className="text-ink-muted mt-1 text-sm">
           Performance scorecards and AI-generated zone health reports.
         </p>
@@ -64,30 +64,31 @@ function PerformanceTab() {
       <div className="flex flex-wrap gap-4">
         <div className="min-w-[12rem] flex-1">
           <Label htmlFor="perf-officer">Officer</Label>
-          <Select
+          <Combobox
             id="perf-officer"
             value={officerId}
-            onChange={(e) => setOfficerId(e.target.value)}
-          >
-            <option value="">Select an officer…</option>
-            {officers?.data.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.name} ({o.email})
-              </option>
-            ))}
-          </Select>
+            onChange={setOfficerId}
+            options={[
+              { value: "", label: "Select an officer…" },
+              ...(officers?.data.map((o) => ({
+                value: o.id,
+                label: `${o.name} (${o.email})`,
+              })) ?? []),
+            ]}
+          />
         </div>
         <div className="min-w-[10rem] flex-1">
           <Label htmlFor="perf-period">Period</Label>
-          <Select
+          <Combobox
             id="perf-period"
             value={period}
-            onChange={(e) => setPeriod(e.target.value as typeof period)}
-          >
-            <option value="this_month">This month</option>
-            <option value="last_month">Last month</option>
-            <option value="all_time">All time</option>
-          </Select>
+            onChange={(v) => setPeriod(v as typeof period)}
+            options={[
+              { value: "this_month", label: "This month" },
+              { value: "last_month", label: "Last month" },
+              { value: "all_time", label: "All time" },
+            ]}
+          />
         </div>
       </div>
 
@@ -113,29 +114,41 @@ function PerformanceScorecard({ perf }: { perf: OfficerPerformance }) {
 
   return (
     <div className="space-y-5 rounded-lg border border-line bg-surface p-5">
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Stat label="Total handled" value={perf.totalHandled} />
-        <Stat label="On time" value={perf.onTime ?? 0} accent="text-sla-on_time" />
-        <Stat label="Delayed" value={perf.delayed ?? 0} accent="text-sla-delayed" />
-        <Stat label="Overdue" value={perf.overdue ?? 0} accent="text-sla-overdue" />
+      <Stat label="Total handled" value={perf.totalHandled} />
+
+      <div className="border-t border-line pt-4">
+        <p className="text-ink-muted mb-3 text-sm font-medium">On-time delivery</p>
+        <StatusTriadChart
+          segments={[
+            { label: "On time", value: perf.onTime ?? 0, tone: "good" },
+            { label: "Delayed", value: perf.delayed ?? 0, tone: "neutral" },
+            { label: "Overdue", value: perf.overdue ?? 0, tone: "bad" },
+          ]}
+        />
+        <p className="text-ink-faint mt-3 text-xs">
+          {perf.unresolvableExcluded ?? 0} complaint
+          {(perf.unresolvableExcluded ?? 0) === 1 ? "" : "s"} marked Unresolvable are
+          excluded from the figures above.
+        </p>
       </div>
-      <p className="text-ink-faint text-xs">
-        {perf.unresolvableExcluded ?? 0} complaint
-        {(perf.unresolvableExcluded ?? 0) === 1 ? "" : "s"} marked Unresolvable are
-        excluded from the figures above.
-      </p>
 
       <div className="border-t border-line pt-4">
         <p className="text-ink-muted mb-3 text-sm font-medium">Evidence review</p>
-        <div className="grid grid-cols-3 gap-4">
-          <Stat label="Valid" value={perf.evidenceBreakdown?.valid ?? 0} accent="text-status-resolved" />
-          <Stat
-            label="Needed more"
-            value={perf.evidenceBreakdown?.needsMoreEvidence ?? 0}
-            accent="text-status-needs_more_evidence"
-          />
-          <Stat label="Rejected" value={perf.evidenceBreakdown?.rejected ?? 0} accent="text-status-rejected" />
-        </div>
+        <StatusTriadChart
+          segments={[
+            { label: "Valid", value: perf.evidenceBreakdown?.valid ?? 0, tone: "good" },
+            {
+              label: "Needed more",
+              value: perf.evidenceBreakdown?.needsMoreEvidence ?? 0,
+              tone: "neutral",
+            },
+            {
+              label: "Rejected",
+              value: perf.evidenceBreakdown?.rejected ?? 0,
+              tone: "bad",
+            },
+          ]}
+        />
         {acceptPct != null && (
           <p className="text-ink-muted mt-3 text-sm">
             Accept rate: <span className="font-medium text-ink">{acceptPct}%</span>
@@ -146,7 +159,11 @@ function PerformanceScorecard({ perf }: { perf: OfficerPerformance }) {
       <div className="border-t border-line pt-4">
         <Stat
           label="Avg. resolution time"
-          value={perf.avgResolutionHours != null ? `${Math.round(perf.avgResolutionHours)}h` : "—"}
+          value={
+            perf.avgResolutionHours != null
+              ? `${Math.round(perf.avgResolutionHours)}h`
+              : "—"
+          }
         />
       </div>
     </div>
@@ -164,7 +181,9 @@ function Stat({
 }) {
   return (
     <div>
-      <p className="text-ink-faint text-xs font-medium tracking-wide uppercase">{label}</p>
+      <p className="text-ink-faint text-xs font-medium tracking-wide uppercase">
+        {label}
+      </p>
       <p className={`mt-1 font-mono text-2xl font-semibold ${accent ?? "text-ink"}`}>
         {value}
       </p>
@@ -182,14 +201,15 @@ function AiReportsTab() {
     <div className="space-y-5">
       <div className="max-w-sm">
         <Label htmlFor="ai-zone">Zone</Label>
-        <Select id="ai-zone" value={zoneId} onChange={(e) => setZoneId(e.target.value)}>
-          <option value="">Select a zone…</option>
-          {zones?.map((z) => (
-            <option key={z.id} value={z.id}>
-              {z.name}
-            </option>
-          ))}
-        </Select>
+        <Combobox
+          id="ai-zone"
+          value={zoneId}
+          onChange={setZoneId}
+          options={[
+            { value: "", label: "Select a zone…" },
+            ...(zones?.map((z) => ({ value: z.id, label: z.name })) ?? []),
+          ]}
+        />
       </div>
 
       {!zoneId ? (
@@ -203,16 +223,30 @@ function AiReportsTab() {
         <Skeleton className="h-48 w-full" />
       ) : (
         <div className="space-y-4 rounded-lg border border-line bg-surface p-5">
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <Sparkles className="text-brand size-5" aria-hidden="true" />
               <h2 className="font-display text-base font-semibold text-ink">
                 AI health report
               </h2>
             </div>
-            <Button size="sm" loading={generate.isPending} onClick={() => generate.mutate()}>
-              {report ? "Regenerate" : "Generate report"}
-            </Button>
+            <div className="flex items-center gap-3">
+              {report?.generatedAt && (
+                <span
+                  className="text-ink-faint text-xs"
+                  title={absoluteDateTime(report.generatedAt)}
+                >
+                  Generated {relativeTime(report.generatedAt)}
+                </span>
+              )}
+              <Button
+                size="sm"
+                loading={generate.isPending}
+                onClick={() => generate.mutate()}
+              >
+                {report ? "Regenerate" : "Generate report"}
+              </Button>
+            </div>
           </div>
 
           {isError && !report ? (
@@ -248,7 +282,9 @@ function ReportSection({ title, text }: { title: string; text?: string | null })
   if (!text) return null;
   return (
     <div>
-      <p className="text-ink-faint text-xs font-medium tracking-wide uppercase">{title}</p>
+      <p className="text-ink-faint text-xs font-medium tracking-wide uppercase">
+        {title}
+      </p>
       <p className="text-ink-muted mt-1 leading-relaxed">{text}</p>
     </div>
   );

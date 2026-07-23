@@ -1,6 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, FileQuestion, ThumbsDown, ThumbsUp, UserCog } from "lucide-react";
+import {
+  ArrowLeft,
+  Copy,
+  FileQuestion,
+  Info,
+  ThumbsDown,
+  ThumbsUp,
+  Users,
+  UserCog,
+} from "lucide-react";
 import { StatusPill, SeverityPill, SlaPill } from "@/components/ui/pills";
 import { Button } from "@/components/ui/Button";
 import { FileDropzone } from "@/components/ui/FileDropzone";
@@ -9,6 +18,8 @@ import { Label } from "@/components/ui/Label";
 import { Modal } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Tooltip } from "@/components/ui/Tooltip";
+import { MiniMap } from "@/components/ui/MiniMap";
 import { useToast } from "@/components/ui/Toast";
 import { DynamicIcon } from "@/components/DynamicIcon";
 import { EvidenceGallery } from "@/components/complaint/EvidenceGallery";
@@ -18,6 +29,9 @@ import { useOfficerStats } from "@/hooks/useOfficerStats";
 import { useSubmitEvidence } from "@/hooks/useSubmitEvidence";
 import { useConfirmResolution } from "@/hooks/useConfirmResolution";
 import { useDisputeResolution } from "@/hooks/useDisputeResolution";
+import { useAuth } from "@/contexts/AuthContext";
+import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
+import { useLocalDraft } from "@/hooks/useLocalDraft";
 import { iconForCategory } from "@/lib/categoryIcons";
 import { relativeTime } from "@/lib/datetime";
 import { ApiRequestError } from "@/services/http";
@@ -25,8 +39,12 @@ import { ApiRequestError } from "@/services/http";
 export function ComplaintDetailPage() {
   const { complaintId } = useParams<{ complaintId: string }>();
   const { toast } = useToast();
+  const { user } = useAuth();
   const { data: complaint, isLoading, isError } = useComplaint(complaintId);
   const { data: officerStats } = useOfficerStats(complaint?.assignedOfficerId);
+  const { record: recordRecentlyViewed } = useRecentlyViewed(
+    `citizen:${user?.id ?? "anon"}`,
+  );
 
   const submitEvidence = useSubmitEvidence(complaintId ?? "");
   const confirmResolution = useConfirmResolution(complaintId ?? "");
@@ -34,9 +52,21 @@ export function ComplaintDetailPage() {
 
   const [resubmitPhoto, setResubmitPhoto] = useState<File | null>(null);
   const [disputeOpen, setDisputeOpen] = useState(false);
-  const [disputeReason, setDisputeReason] = useState("");
+  const [disputeReason, setDisputeReason, { clearDraft: clearDisputeDraft }] =
+    useLocalDraft(`dispute-reason:${complaintId ?? "unknown"}`, "");
   const [disputePhoto, setDisputePhoto] = useState<File | null>(null);
   const [disputeError, setDisputeError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!complaint) return;
+    recordRecentlyViewed({
+      id: complaint.id,
+      label: complaint.category.name,
+      sublabel: complaint.id,
+      href: `/citizen/complaints/${complaint.id}`,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [complaint?.id]);
 
   if (isLoading) {
     return (
@@ -121,6 +151,7 @@ export function ComplaintDetailPage() {
       });
       setDisputeOpen(false);
       setDisputeReason("");
+      clearDisputeDraft();
       setDisputePhoto(null);
     } catch (error) {
       setDisputeError(
@@ -128,6 +159,16 @@ export function ComplaintDetailPage() {
           ? error.message
           : "Something went wrong. Please try again.",
       );
+    }
+  }
+
+  async function handleCopyId() {
+    if (!complaint) return;
+    try {
+      await navigator.clipboard.writeText(complaint.id);
+      toast({ title: "Complaint ID copied", variant: "success" });
+    } catch {
+      toast({ title: "Couldn't copy complaint ID", variant: "error" });
     }
   }
 
@@ -154,32 +195,91 @@ export function ComplaintDetailPage() {
             <h1 className="font-display text-xl font-semibold text-ink">
               {complaint.category.name}
             </h1>
-            <p className="text-ink-faint font-mono text-xs">
+            <p className="text-ink-faint flex items-center gap-1.5 font-mono text-xs">
               {complaint.id} · filed {relativeTime(complaint.createdAt)}
+              <button
+                type="button"
+                onClick={handleCopyId}
+                aria-label="Copy complaint ID"
+                className="text-ink-faint hover:text-ink"
+              >
+                <Copy className="size-3.5" aria-hidden="true" />
+              </button>
             </p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={complaint.status} />
-          {complaint.severityLabel && <SeverityPill severity={complaint.severityLabel} />}
+          {complaint.severityLabel && (
+            <span className="inline-flex items-center gap-1">
+              <SeverityPill severity={complaint.severityLabel} />
+              {complaint.severityScore != null && (
+                <Tooltip
+                  side="bottom"
+                  content={
+                    <span className="block max-w-xs text-left">
+                      {complaint.clusterId
+                        ? `Score ${complaint.severityScore} = (nearby reports − 1) × 3 + ${complaint.upvoteCount ?? 0} upvote(s). This complaint is linked to nearby duplicate reports via its cluster.`
+                        : `Score ${complaint.severityScore} = ${complaint.upvoteCount ?? 0} upvote(s) — no nearby duplicates linked to this complaint.`}
+                    </span>
+                  }
+                >
+                  <button
+                    type="button"
+                    aria-label="How is the severity score calculated?"
+                    className="text-ink-faint hover:text-ink"
+                  >
+                    <Info className="size-3.5" aria-hidden="true" />
+                  </button>
+                </Tooltip>
+              )}
+            </span>
+          )}
           {complaint.slaLabel && <SlaPill sla={complaint.slaLabel} />}
         </div>
       </div>
 
+      {complaint.clusterId && (
+        <div className="text-ink-muted flex items-center gap-2 rounded-md border border-line bg-surface p-3 text-sm">
+          <Users className="text-brand size-4 shrink-0" aria-hidden="true" />
+          Reported by others nearby — this issue is linked to similar reports in its
+          cluster.
+        </div>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
         <div className="min-w-0 space-y-6">
           {complaint.assignedOfficerId && (
-            <div className="text-ink-muted flex items-center gap-2 rounded-md border border-line bg-surface p-3 text-sm">
+            <div className="text-ink-muted flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface p-3 text-sm">
               <UserCog className="size-4 shrink-0" aria-hidden="true" />
-              Assigned to Officer #{complaint.assignedOfficerId}
-              {officerStats && ` · ${officerStats.totalResolved} complaints resolved`}
+              <span>Assigned to Officer #{complaint.assignedOfficerId}</span>
+              {officerStats && (
+                <span className="bg-brand-subtle text-brand inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium">
+                  {officerStats.totalResolved} cases resolved so far
+                </span>
+              )}
             </div>
           )}
-
+          <h2 className="font-display mb-3 text-base font-semibold text-ink">
+            Description
+          </h2>
           {complaint.description && (
             <p className="text-ink-muted text-sm leading-relaxed">
               {complaint.description}
             </p>
+          )}
+
+          {complaint.latitude != null && complaint.longitude != null && (
+            <section>
+              <h2 className="font-display mb-3 text-base font-semibold text-ink">
+                Location
+              </h2>
+              <MiniMap
+                pins={[
+                  { id: complaint.id, lat: complaint.latitude, lng: complaint.longitude },
+                ]}
+              />
+            </section>
           )}
 
           {complaint.evidence && complaint.evidence.length > 0 && (
@@ -224,8 +324,8 @@ export function ComplaintDetailPage() {
                 Is this actually fixed?
               </h2>
               <p className="text-ink-muted mt-1 text-sm">
-                The officer marked this as resolved. Confirm it, or dispute it if the issue
-                is still there.
+                The officer marked this as resolved. Confirm it, or dispute it if the
+                issue is still there.
               </p>
               <div className="mt-3 flex flex-wrap gap-3">
                 <Button
@@ -249,7 +349,7 @@ export function ComplaintDetailPage() {
           <TimelineSidebar
             statusHistory={complaint.statusHistory}
             progressNotes={complaint.progressNotes}
-            notesTitle="Officer notes"
+            slaTargetHours={complaint.slaTargetHours}
           />
         </aside>
       </div>

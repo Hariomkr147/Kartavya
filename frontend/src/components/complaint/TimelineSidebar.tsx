@@ -1,60 +1,73 @@
+import { Clock } from "lucide-react";
 import { StatusTimeline } from "./StatusTimeline";
-import { relativeTime } from "@/lib/datetime";
+import { formatDuration } from "@/lib/duration";
+import { computeSlaProgress } from "@/lib/slaProgress";
+import { cn } from "@/lib/utils";
 import type { ProgressNote, Role, StatusHistoryEntry } from "@/types/api";
 
 export interface TimelineSidebarProps {
   statusHistory?: StatusHistoryEntry[];
   progressNotes?: ProgressNote[];
-  notesTitle?: string;
   viewerRole?: Role;
   viewerOfficerId?: string;
+  /** When present (and the complaint has reached UNDER_REVIEW), renders an approximate SLA progress bar above the timeline — visual only, the complaint's own `slaLabel` pill elsewhere on the page remains the authoritative on-time/delayed/overdue read. */
+  slaTargetHours?: number | null;
 }
 
 /**
  * The status-history + progress-notes pairing shared by every complaint
  * detail page (citizen/officer/admin) — pulled out so it can live in a
  * sticky sidebar next to the main content instead of trailing at the very
- * bottom of a long single column.
+ * bottom of a long single column. Notes are interleaved into the status
+ * timeline by StatusTimeline itself so readers can see roughly when each
+ * note was posted relative to the complaint's status changes.
  */
 export function TimelineSidebar({
   statusHistory,
   progressNotes,
-  notesTitle = "Progress notes",
   viewerRole,
   viewerOfficerId,
+  slaTargetHours,
 }: TimelineSidebarProps) {
-  return (
-    <div className="space-y-6">
-      {statusHistory && statusHistory.length > 0 && (
-        <section className="rounded-lg border border-line bg-surface p-4">
-          <h2 className="font-display mb-4 text-base font-semibold text-ink">
-            Status history
-          </h2>
-          <StatusTimeline
-            entries={statusHistory}
-            viewerRole={viewerRole}
-            viewerOfficerId={viewerOfficerId}
-          />
-        </section>
-      )}
+  if (!statusHistory || statusHistory.length === 0) return null;
 
-      {progressNotes && progressNotes.length > 0 && (
+  const slaProgress = computeSlaProgress(statusHistory, slaTargetHours);
+
+  return (
+    <div className="space-y-4">
+      {slaProgress && (
         <section className="rounded-lg border border-line bg-surface p-4">
-          <h2 className="font-display mb-3 text-base font-semibold text-ink">
-            {notesTitle}
-          </h2>
-          <div className="space-y-3">
-            {progressNotes.map((note) => (
-              <div key={note.id} className="bg-surface-hover rounded-md p-3">
-                <p className="text-sm text-ink">{note.text}</p>
-                <p className="text-ink-faint mt-1 text-xs">
-                  Officer #{note.officerId} · {relativeTime(note.createdAt)}
-                </p>
-              </div>
-            ))}
+          <div className="mb-2 flex items-center gap-2">
+            <Clock className="text-ink-muted size-4" aria-hidden="true" />
+            <h2 className="font-display text-sm font-semibold text-ink">SLA progress</h2>
           </div>
+          <div className="bg-surface-hover h-2 w-full overflow-hidden rounded-full">
+            <div
+              className={cn(
+                "h-full rounded-full transition-[width]",
+                slaProgress.isOverdue ? "bg-sla-overdue" : "bg-brand",
+              )}
+              style={{ width: `${Math.min(100, slaProgress.percentUsed)}%` }}
+            />
+          </div>
+          <p className="text-ink-faint mt-2 text-xs">
+            {slaProgress.isOverdue
+              ? `${formatDuration(Math.abs(slaProgress.msRemaining))} over the target`
+              : `${formatDuration(slaProgress.msRemaining)} remaining · ${Math.round(slaProgress.percentUsed)}% of target used`}
+          </p>
         </section>
       )}
+      <section className="rounded-lg border border-line bg-surface p-4">
+        <h2 className="font-display mb-4 text-base font-semibold text-ink">
+          Status history
+        </h2>
+        <StatusTimeline
+          entries={statusHistory}
+          progressNotes={progressNotes}
+          viewerRole={viewerRole}
+          viewerOfficerId={viewerOfficerId}
+        />
+      </section>
     </div>
   );
 }

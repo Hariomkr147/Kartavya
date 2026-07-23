@@ -19,6 +19,12 @@ interface ToastItem {
   variant: ToastVariant;
 }
 
+export interface ToastHistoryItem extends ToastItem {
+  createdAt: string;
+}
+
+const HISTORY_LIMIT = 30;
+
 interface ToastContextValue {
   toast: (input: {
     title: string;
@@ -26,6 +32,11 @@ interface ToastContextValue {
     variant?: ToastVariant;
     durationMs?: number;
   }) => void;
+  /** Session log of every toast fired, newest first — toasts themselves auto-dismiss, this doesn't. */
+  history: ToastHistoryItem[];
+  unreadCount: number;
+  markHistoryRead: () => void;
+  clearHistory: () => void;
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -46,6 +57,8 @@ const VARIANT_CLASSES: Record<ToastVariant, string> = {
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [history, setHistory] = useState<ToastHistoryItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const dismiss = useCallback((id: string) => {
     setToasts((current) => current.filter((t) => t.id !== id));
@@ -55,12 +68,28 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     ({ title, description, variant = "default", durationMs = 5000 }) => {
       const id = crypto.randomUUID();
       setToasts((current) => [...current, { id, title, description, variant }]);
+      setHistory((current) =>
+        [
+          { id, title, description, variant, createdAt: new Date().toISOString() },
+          ...current,
+        ].slice(0, HISTORY_LIMIT),
+      );
+      setUnreadCount((count) => count + 1);
       if (durationMs > 0) setTimeout(() => dismiss(id), durationMs);
     },
     [dismiss],
   );
 
-  const value = useMemo(() => ({ toast }), [toast]);
+  const markHistoryRead = useCallback(() => setUnreadCount(0), []);
+  const clearHistory = useCallback(() => {
+    setHistory([]);
+    setUnreadCount(0);
+  }, []);
+
+  const value = useMemo(
+    () => ({ toast, history, unreadCount, markHistoryRead, clearHistory }),
+    [toast, history, unreadCount, markHistoryRead, clearHistory],
+  );
 
   return (
     <ToastContext.Provider value={value}>

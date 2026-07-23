@@ -1,10 +1,14 @@
+import { useMemo } from "react";
+import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   CheckCircle2,
   CircleAlert,
   ClipboardList,
   FilePlus2,
+  MapPinned,
   Rss,
+  Tag,
   Trophy,
 } from "lucide-react";
 import { LinkButton } from "@/components/ui/LinkButton";
@@ -13,12 +17,34 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ComplaintListItem } from "@/components/complaint/ComplaintListItem";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { AnimatedNumber } from "@/components/dashboard/AnimatedNumber";
+import { RecentlyViewedList } from "@/components/dashboard/RecentlyViewedList";
+import {
+  HorizontalBarChart,
+  type BarDatum,
+} from "@/components/charts/HorizontalBarChart";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMyComplaints } from "@/hooks/useMyComplaints";
 import { usePointsSummary } from "@/hooks/usePointsSummary";
+import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
 import { staggerContainer, staggerItem } from "@/lib/motionVariants";
 import { formatFullDate, timeOfDayGreeting } from "@/lib/greeting";
-import type { ComplaintStatus } from "@/types/api";
+import type { Complaint, ComplaintStatus } from "@/types/api";
+
+function topBreakdown(
+  complaints: Complaint[],
+  keyOf: (c: Complaint) => string | undefined,
+): BarDatum[] {
+  const counts = new Map<string, number>();
+  for (const c of complaints) {
+    const key = keyOf(c);
+    if (!key) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([label, value]) => ({ label, value }));
+}
 
 // A generously-sized single fetch (matches the officer queue's FETCH_SIZE
 // pattern) so the stat tiles below reflect the citizen's *entire* history,
@@ -38,14 +64,29 @@ const RESOLVED_STATUSES = new Set<ComplaintStatus>(["RESOLVED", "CLOSED"]);
 
 export function CitizenDashboardPage() {
   const { user } = useAuth();
-  const { data, isLoading } = useMyComplaints({ pageSize: FETCH_SIZE, sort: "-createdAt" });
+  const { data, isLoading } = useMyComplaints({
+    pageSize: FETCH_SIZE,
+    sort: "-createdAt",
+  });
   const { data: points, isLoading: pointsLoading } = usePointsSummary();
+  const { items: recentlyViewed, clear: clearRecentlyViewed } = useRecentlyViewed(
+    `citizen:${user?.id ?? "anon"}`,
+  );
 
-  const complaints = data?.data ?? [];
+  const complaints = useMemo(() => data?.data ?? [], [data]);
   const actionNeeded = complaints.filter((c) => c.citizenActionNeeded);
   const recent = complaints.slice(0, 5);
   const activeCount = complaints.filter((c) => ACTIVE_STATUSES.has(c.status)).length;
   const resolvedCount = complaints.filter((c) => RESOLVED_STATUSES.has(c.status)).length;
+
+  const categoryBreakdown = useMemo(
+    () => topBreakdown(complaints, (c) => c.category.name),
+    [complaints],
+  );
+  const zoneBreakdown = useMemo(
+    () => topBreakdown(complaints, (c) => c.zoneName),
+    [complaints],
+  );
 
   const firstName = user?.displayName || user?.name?.split(" ")[0];
 
@@ -80,8 +121,29 @@ export function CitizenDashboardPage() {
           animate="show"
           className="grid gap-4 sm:grid-cols-4"
         >
-          <StatCard icon={ClipboardList} label="Active complaints" value={activeCount} />
-          <StatCard icon={CheckCircle2} label="Resolved" value={resolvedCount} accent="good" />
+          <Link
+            to="/citizen/complaints?bucket=active"
+            className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+            aria-label={`View ${activeCount} active complaints`}
+          >
+            <StatCard
+              icon={ClipboardList}
+              label="Active complaints"
+              value={activeCount}
+            />
+          </Link>
+          <Link
+            to="/citizen/complaints?bucket=resolved"
+            className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+            aria-label={`View ${resolvedCount} resolved complaints`}
+          >
+            <StatCard
+              icon={CheckCircle2}
+              label="Resolved"
+              value={resolvedCount}
+              accent="good"
+            />
+          </Link>
           <StatCard
             icon={CircleAlert}
             label="Needs your attention"
@@ -127,6 +189,33 @@ export function CitizenDashboardPage() {
           </div>
         </motion.section>
       )}
+
+      {!isLoading &&
+        complaints.length > 0 &&
+        (categoryBreakdown.length > 0 || zoneBreakdown.length > 0) && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {categoryBreakdown.length > 0 && (
+              <section className="rounded-lg border border-line bg-surface p-5">
+                <div className="mb-3 flex items-center gap-2">
+                  <Tag className="text-ink-muted size-4" aria-hidden="true" />
+                  <h2 className="font-display text-sm font-semibold text-ink">
+                    By category
+                  </h2>
+                </div>
+                <HorizontalBarChart data={categoryBreakdown} />
+              </section>
+            )}
+            {zoneBreakdown.length > 0 && (
+              <section className="rounded-lg border border-line bg-surface p-5">
+                <div className="mb-3 flex items-center gap-2">
+                  <MapPinned className="text-ink-muted size-4" aria-hidden="true" />
+                  <h2 className="font-display text-sm font-semibold text-ink">By zone</h2>
+                </div>
+                <HorizontalBarChart data={zoneBreakdown} />
+              </section>
+            )}
+          </div>
+        )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <section className="space-y-3 lg:col-span-2">
@@ -202,6 +291,10 @@ export function CitizenDashboardPage() {
               View badges &amp; leaderboard
             </LinkButton>
           </div>
+
+          {recentlyViewed.length > 0 && (
+            <RecentlyViewedList items={recentlyViewed} onClear={clearRecentlyViewed} />
+          )}
 
           <div className="rounded-lg border border-line bg-surface p-5">
             <div className="flex items-center gap-2">

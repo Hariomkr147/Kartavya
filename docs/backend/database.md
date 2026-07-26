@@ -272,7 +272,7 @@ The category list is fixed and cannot be added to or removed from the running ap
 | Column | Type | Required | Description |
 |---|---|---|---|
 | `id` | integer | ✅ | Primary key. Referenced as `categoryId` in the API and in complaints. |
-| `category_code` | varchar(40) | ✅ | Short code like `POTHOLE` or `OPEN_MANHOLE`. **Unique.** Safe to use in exports and logs. |
+| `category_code` | varchar(40) | ✅ | Short code like `POTHOLE` or `OPEN_MANHOLE`. **Unique**, and stable — fixed at seed time, so renaming `category_name` never changes it. Exposed by the API as `Category.code`, safe to use in exports and logs, and the key the client-side category matcher writes its keyword lexicon against. ⚠️ Never edit one in place. |
 | `category_name` | varchar(120) | ✅ | Display name shown in the UI, e.g. "Pothole" or "Open Manhole". **Unique.** |
 | `description` | text | ❌ | A sentence explaining what counts as this category, e.g. "A hole in the road surface that can damage vehicles." Shown on the complaint form. |
 | `sla_hours` | integer | ✅ | The target number of hours in which a complaint of this type should be resolved. **Minimum 1.** Admins can change this via `PATCH /admin/slas/{categoryId}`. **Only affects new complaints accepted after the change** — complaints already in progress keep their original target. |
@@ -364,7 +364,7 @@ Almost everything else in the database is a child of a complaint (evidence, hist
 | `cluster_id` | integer (FK) | ❌ | If this complaint is part of a nearby-duplicate cluster, this points to that cluster row. `NULL` means it is a standalone complaint. |
 | `assigned_officer_id` | integer (FK) | ❌ | The officer currently handling this complaint. `NULL` until an officer picks it up from the zone queue. When the complaint is batch-assigned, this is set. **Not a delete-rule effect:** if the officer is reassigned to a different zone (`PATCH /admin/users/{userId}` or `POST /admin/zones/{zoneId}/assign-officer`), application logic clears this field back to `NULL` on every one of their non-terminal complaints in the old zone — otherwise the complaint would stay assigned to someone who can no longer see it, since officer visibility is zone-scoped. |
 | `description` | text | ❌ | The citizen's free-text description. **Deliberately optional** — a citizen who picks a category manually and uploads a clear photo may not need to type anything. |
-| `category_ai_suggested` | boolean | ✅ | `true` if the citizen accepted the AI's category suggestion; `false` if they picked manually. Stored for analytics (to measure how useful the AI suggestion feature is). |
+| `category_suggested_by_matcher` | boolean | ✅ | `true` if the citizen accepted the category proposed by the client-side keyword matcher; `false` if they picked manually. Stored for analytics only (to measure how often the matcher is right), and never re-derived server-side. Category suggestion is **not** an AI feature — the client matches offline against a fixed lexicon keyed on `category_code`, so there is no endpoint and nothing to fail soft. |
 | `latitude` | float | ✅ | Where the issue is — latitude. Used for zone routing and cluster detection. |
 | `longitude` | float | ✅ | Where the issue is — longitude. |
 | `status` | `complaint_status` | ✅ | The complaint's current stage. **Defaults to `SUBMITTED`** the moment it is created. Changes are enforced by app logic and recorded in `status_history`. |

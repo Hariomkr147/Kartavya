@@ -43,6 +43,7 @@ export function toUser(row: UserRow): User {
 export function toCategory(row: CategoryRow): Category {
   return {
     id: toApiId(row.id),
+    code: row.categoryCode,
     name: row.categoryName,
     description: row.description ?? undefined,
     slaTargetHours: row.slaHours,

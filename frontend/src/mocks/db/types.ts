@@ -107,7 +107,7 @@ export interface ComplaintRow {
   clusterId: number | null;
   assignedOfficerId: number | null;
   description: string | null;
-  categoryAiSuggested: boolean;
+  categorySuggestedByMatcher: boolean;
   latitude: number;
   longitude: number;
   status: ComplaintStatus;

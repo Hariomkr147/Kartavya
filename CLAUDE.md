@@ -7,8 +7,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Kartavya is a gamified civic grievance platform (citizens report infrastructure problems, officers resolve them, admins run the system, points/badges reward participation). The repository is **contract-first and currently scaffold-only**:
 
 - `backend/api/openapi.yaml` and `backend/database/schema.dbml` are fully designed and are the single source of truth for the whole system.
-- `backend/app/*` (config, controllers, middlewares, models, routes, services, views) and `frontend/src/*` (assets, components, hooks, pages, routes, services, types) contain only `.gitkeep` placeholders — no application code has been implemented yet, and no `package.json` / `requirements.txt` / build tooling exists in the repo yet.
-- There are no build/lint/test commands to run yet because there is no application code. When implementing the backend or frontend for the first time, set up the toolchain (Flask + SQLAlchemy + SQLite for backend per the schema notes; React + Vite/TS implied by the `frontend/src` layout) consistent with `CONTRIBUTING.md` before writing app code, and update this file with the actual commands once they exist.
+- `backend/app/` is **empty** — no backend application code exists yet, and this repo's frontend work does not implement it (a separate team owns the backend). The design plan for it is `docs/backend/architecture.md`; the old `config/controllers/middlewares/routes/views` scaffold has been dropped in favour of the layering described there. When it does get implemented, set up the toolchain (Flask + SQLAlchemy + SQLite per the schema notes) and update this file with the real commands.
+- `frontend/` now has a real toolchain: React 19 + Vite + TypeScript + Tailwind CSS v4, no UI component library (all interactive components are bespoke, under `frontend/src/components/ui/`). Because the backend doesn't exist yet, the app runs against an MSW mock layer (`frontend/src/mocks/`) by default (`VITE_USE_MOCKS=true` in `.env.development`) — this is purely client-side TypeScript, not a backend implementation. Run everything from `frontend/`:
+  - `npm run dev` — start the Vite dev server.
+  - `npm run build` — typecheck (`tsc -b`) then production build.
+  - `npm run lint` / `npm run format` — ESLint / Prettier.
+  - `npm test` — Vitest + React Testing Library, single run (`npm run test:watch` for watch mode).
+  - `npm run gen:types` — regenerates `frontend/src/types/api.generated.ts` from `backend/api/openapi.yaml` via `openapi-typescript`; re-run any time the contract changes.
 
 **Before writing any implementation code, read `backend/api/openapi.yaml` and `backend/database/schema.dbml` in full.** If a field, endpoint, or behavior isn't in one of these two files, do not invent it — raise it instead of guessing.
 
@@ -36,7 +41,9 @@ Never add a stored column/field for something computable — this is a deliberat
 `status_history`, `points_ledger`, and `complaint_evidence` (each re-submission is a new row via `sequence`, old rows kept) are append-only audit trails. Insert new rows; do not update or delete historical ones.
 
 ### AI features fail soft
-Photo pre-screening (`complaint_evidence.ai_screen_status`), category suggestion (`/ai/suggest-category`), and zone health reports (`ai_zone_reports`) must degrade gracefully when the local AI model is unavailable — the app must keep working with fields flagged `UNAVAILABLE`/`aiAvailable: false` rather than erroring. Never block a core flow on AI availability.
+There are exactly two AI features: photo pre-screening (`complaint_evidence.ai_screen_status`) and zone health reports (`ai_zone_reports`). Both must degrade gracefully when the local AI model is unavailable — the app must keep working with fields flagged `UNAVAILABLE`/`aiAvailable: false` rather than erroring. Never block a core flow on AI availability.
+
+Category suggestion is deliberately **not** an AI feature and has no endpoint. Because the 12 categories are seeded once and never change, the client matches the description against a fixed keyword lexicon offline in `frontend/src/lib/categoryMatcher.ts`, keyed on `Category.code`. It abstains unless the top category clears both an absolute score floor and a margin over the runner-up — a wrong pre-selection is worse than none, since the citizen confirms the category either way. `complaints.category_suggested_by_matcher` records whether they accepted it, for analytics only; the server never re-derives it.
 
 ### Zones
 Zones are admin-managed areas defined only by a centre point (`center_lat`/`center_lng`); a location belongs to whichever zone's centre is nearest (nearest-centroid / Voronoi-style — no radius, no polygon GIS, and every coordinate maps to exactly one zone with no gaps or overlaps). Exactly one zone has `is_catch_all = true`, used when every real zone's centre is a poor match (e.g. far outside the city). Zone routing on a complaint is always citizen-confirmed at submission time (client auto-fills via `/zones/suggest` from photo EXIF GPS, or the citizen picks manually — `CreateComplaintRequest.zoneId` is required, never silently derived from location by the server) and can be admin-overridden, but is otherwise immutable — an admin editing a zone's centre does not retroactively move existing complaints.
@@ -52,15 +59,31 @@ Zones are admin-managed areas defined only by a centre point (`center_lat`/`cent
 backend/
   api/openapi.yaml        # canonical API contract — read first
   database/schema.dbml     # DBML schema, designed 1:1 against the API contract
-  app/                      # Flask app (scaffold only): config, controllers, middlewares, models, routes, services, views
-  tests/                    # scaffold only
+  app/                      # Flask app (not yet implemented) — planned packages:
+                            #   domain/   pure business rules (no Flask, no SQLAlchemy, no I/O)
+                            #   models/   SQLAlchemy ORM mirroring schema.dbml
+                            #   services/ write side, grouped by aggregate
+                            #   api/      read side + routes, grouped by audience (citizen/officer/admin)
+                            #   core/     auth, zone scoping, error envelope, validation
+                            #   infra/    photo storage, AI providers
+                            #   jobs/     AI screening, zone reports, auto-close sweeper
+  tests/                    # planned: domain/ services/ api/ contract/
 frontend/
-  src/                      # React SPA (scaffold only): assets, components, hooks, pages, routes, services, types
+  src/                      # React SPA (implemented): assets, components, hooks, pages, routes, services, types
 shared/contracts/          # reserved for cross-cutting contracts; currently empty
 docs/
   start_here.md             # repo overview / current status
+  backend/architecture.md   # backend design: layering, domain rules, concurrency, build order
   backend/database.md       # detailed schema reference (backend/api.md is currently empty)
+  backend/complaints/CLUSTERED_COMPLAINT_LIFECYCLE.MD  # cluster cascade / dispute / reward rules
 ```
+
+**Before writing backend code, read `docs/backend/architecture.md`.** It is the design plan for
+`backend/app/` and supersedes the older `config/controllers/middlewares/routes/views` layout that
+`CONTRIBUTING.md` used to describe. Key invariants it establishes: `app/domain/` must stay pure
+(enforced in CI via import-linter), every complaint status write goes through one lifecycle service,
+status transitions are guarded with conditional `UPDATE ... WHERE status = <expected>`, and reporter
+identity is emitted only by `app/api/admin/`.
 
 Frontend folder conventions (per `CONTRIBUTING.md`, apply once code exists):
 - `components/` — presentational only, must not call the API directly.

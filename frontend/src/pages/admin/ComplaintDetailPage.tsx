@@ -266,11 +266,14 @@ export function AdminComplaintDetailPage() {
                 </span>
               )}
               {complaint.clusterId && (
-                <span className="flex items-center gap-1.5">
+                <Link
+                  to={`/admin/clusters/${complaint.clusterId}`}
+                  className="hover:text-ink flex items-center gap-1.5 hover:underline"
+                >
                   <Layers className="size-4 shrink-0" aria-hidden="true" />
                   Part of cluster{" "}
                   <span className="font-mono text-ink">{complaint.clusterId}</span>
-                </span>
+                </Link>
               )}
             </div>
           )}

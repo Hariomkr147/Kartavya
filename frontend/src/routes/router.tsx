@@ -23,10 +23,14 @@ import { OfficerClusterDetailPage } from "@/pages/officer/ClusterDetailPage";
 import { AdminDashboardPage } from "@/pages/admin/DashboardPage";
 import { AdminComplaintsPage } from "@/pages/admin/ComplaintsPage";
 import { AdminComplaintDetailPage } from "@/pages/admin/ComplaintDetailPage";
+import { AdminClustersPage } from "@/pages/admin/ClustersPage";
+import { AdminClusterDetailPage } from "@/pages/admin/ClusterDetailPage";
 import { AdminDisputesPage } from "@/pages/admin/DisputesPage";
 import { AdminUsersPage } from "@/pages/admin/UsersPage";
 import { AdminZonesPage } from "@/pages/admin/ZonesPage";
 import { AdminOfficersPage } from "@/pages/admin/OfficersPage";
+import { AdminLeaderboardPage } from "@/pages/admin/LeaderboardPage";
+import { AdminSettingsPage } from "@/pages/admin/SettingsPage";
 
 export const router = createBrowserRouter([
   {
@@ -116,10 +120,17 @@ export const router = createBrowserRouter([
             path: "complaints/:complaintId",
             element: <AdminComplaintDetailPage />,
           },
+          { path: "clusters", element: <AdminClustersPage /> },
+          {
+            path: "clusters/:clusterId",
+            element: <AdminClusterDetailPage />,
+          },
           { path: "disputes", element: <AdminDisputesPage /> },
           { path: "users", element: <AdminUsersPage /> },
           { path: "zones", element: <AdminZonesPage /> },
           { path: "officers", element: <AdminOfficersPage /> },
+          { path: "leaderboard", element: <AdminLeaderboardPage /> },
+          { path: "settings", element: <AdminSettingsPage /> },
           { path: "account", element: <AccountPage /> },
         ],
       },

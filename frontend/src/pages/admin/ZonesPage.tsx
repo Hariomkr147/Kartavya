@@ -1,5 +1,14 @@
-import { useMemo, useState } from "react";
-import { Plus, Search, Settings as SettingsIcon, ShieldAlert } from "lucide-react";
+import { Fragment, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import {
+  ChevronDown,
+  ChevronRight,
+  MoreHorizontal,
+  Plus,
+  Search,
+  ShieldAlert,
+  SlidersHorizontal,
+} from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -10,6 +19,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { MapPicker, type LatLng } from "@/components/ui/MapPicker";
 import { useToast } from "@/components/ui/Toast";
+import { Dropdown, DropdownTrigger, DropdownMenu, DropdownItem } from "@/components/ui/Dropdown";
 import {
   Table,
   TableHead,
@@ -18,16 +28,17 @@ import {
   TableHeaderCell,
   TableCell,
 } from "@/components/ui/DataTable";
+import { ZoneSummaryPanel } from "@/components/admin/ZoneSummaryPanel";
+import { ZoneAiReportPanel } from "@/components/admin/ZoneAiReportPanel";
 import { useZones } from "@/hooks/useZones";
 import { useCategories } from "@/hooks/useCategories";
 import { useAdminUsers } from "@/hooks/useAdminUsers";
+import { useAdminAnalytics } from "@/hooks/useAdminAnalytics";
 import { useCreateZone } from "@/hooks/useCreateZone";
 import { useUpdateZone } from "@/hooks/useUpdateZone";
 import { useDeleteZone } from "@/hooks/useDeleteZone";
 import { useAssignOfficerToZone } from "@/hooks/useAssignOfficerToZone";
 import { useUpdateSla } from "@/hooks/useUpdateSla";
-import { useSettings } from "@/hooks/useSettings";
-import { useUpdateSettings } from "@/hooks/useUpdateSettings";
 import { ApiRequestError } from "@/services/http";
 import type { Zone } from "@/types/api";
 
@@ -36,29 +47,34 @@ export function AdminZonesPage() {
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6">
-      <div>
-        <h1 className="font-display text-display-sm font-semibold text-ink">
-          Zones &amp; SLAs
-        </h1>
-        <p className="text-ink-muted mt-1 text-sm">
-          Manage zones, category SLA targets, and system-wide settings.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="font-display text-display-sm font-semibold text-ink">
+            Zones &amp; SLAs
+          </h1>
+          <p className="text-ink-muted mt-1 text-sm">
+            Manage zones, category SLA targets, and per-zone AI health reports.
+          </p>
+        </div>
+        <Link
+          to="/admin/settings"
+          className="text-ink-muted hover:text-ink inline-flex items-center gap-1.5 text-sm font-medium hover:underline"
+        >
+          <SlidersHorizontal className="size-4" aria-hidden="true" />
+          System settings
+        </Link>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="zones">Zones</TabsTrigger>
           <TabsTrigger value="slas">SLAs</TabsTrigger>
-          <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
         <TabsContent value="zones" className="mt-6">
           <ZonesTab />
         </TabsContent>
         <TabsContent value="slas" className="mt-6">
           <SlasTab />
-        </TabsContent>
-        <TabsContent value="settings" className="mt-6">
-          <SettingsTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -68,13 +84,23 @@ export function AdminZonesPage() {
 function ZonesTab() {
   const { toast } = useToast();
   const { data: zones, isLoading } = useZones();
+  const { data: analytics } = useAdminAnalytics();
   const [createOpen, setCreateOpen] = useState(false);
   const [editingZone, setEditingZone] = useState<Zone | null>(null);
   const [assigningZone, setAssigningZone] = useState<Zone | null>(null);
   const [deletingZone, setDeletingZone] = useState<Zone | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [expandedZoneId, setExpandedZoneId] = useState<string | null>(null);
   const deleteZone = useDeleteZone();
+
+  const metricsByZone = useMemo(() => {
+    const map = new Map<string, { pending: number; overdue: number }>();
+    for (const z of analytics?.zones ?? []) {
+      if (z.zoneId) map.set(z.zoneId, { pending: z.pending ?? 0, overdue: z.overdue ?? 0 });
+    }
+    return map;
+  }, [analytics]);
 
   const visibleZones = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -127,70 +153,125 @@ function ZonesTab() {
         <Table>
           <TableHead>
             <TableRow>
+              <TableHeaderCell className="w-8" />
               <TableHeaderCell>Code</TableHeaderCell>
               <TableHeaderCell>Name</TableHeaderCell>
               <TableHeaderCell>Status</TableHeaderCell>
+              <TableHeaderCell>Pending</TableHeaderCell>
+              <TableHeaderCell>Overdue</TableHeaderCell>
               <TableHeaderCell className="text-right">Actions</TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {visibleZones.map((zone) => (
-              <TableRow key={zone.id}>
-                <TableCell className="text-ink-muted font-mono text-xs">
-                  {zone.code}
-                </TableCell>
-                <TableCell className="font-medium text-ink">
-                  {zone.name}
-                  {zone.isCatchAll && (
-                    <span className="bg-surface-hover text-ink-muted ml-2 rounded-full px-2 py-0.5 text-xs">
-                      Catch-all
-                    </span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <span
-                    className={
-                      zone.isActive
-                        ? "bg-status-resolved-subtle text-status-resolved rounded-full px-2.5 py-1 text-xs font-medium"
-                        : "bg-status-closed-subtle text-status-closed rounded-full px-2.5 py-1 text-xs font-medium"
-                    }
-                  >
-                    {zone.isActive ? "Active" : "Deactivated"}
-                  </span>
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setAssigningZone(zone)}
-                    >
-                      Assign officer
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setEditingZone(zone)}
-                    >
-                      Edit
-                    </Button>
-                    {!zone.isCatchAll && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-status-rejected"
-                        onClick={() => {
-                          setDeletingZone(zone);
-                          setDeleteError(null);
-                        }}
+            {visibleZones.map((zone) => {
+              const metrics = metricsByZone.get(zone.id);
+              const expanded = expandedZoneId === zone.id;
+              return (
+                <Fragment key={zone.id}>
+                  <TableRow>
+                    <TableCell>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedZoneId(expanded ? null : zone.id)}
+                        aria-expanded={expanded}
+                        aria-label={expanded ? "Collapse zone detail" : "Expand zone detail"}
+                        className="text-ink-muted hover:text-ink flex size-6 items-center justify-center rounded"
                       >
-                        Delete
-                      </Button>
-                    )}
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
+                        {expanded ? (
+                          <ChevronDown className="size-4" aria-hidden="true" />
+                        ) : (
+                          <ChevronRight className="size-4" aria-hidden="true" />
+                        )}
+                      </button>
+                    </TableCell>
+                    <TableCell className="text-ink-muted font-mono text-xs">
+                      {zone.code}
+                    </TableCell>
+                    <TableCell className="font-medium text-ink">
+                      {zone.name}
+                      {zone.isCatchAll && (
+                        <span className="bg-surface-hover text-ink-muted ml-2 rounded-full px-2 py-0.5 text-xs">
+                          Catch-all
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className={
+                          zone.isActive
+                            ? "bg-status-resolved-subtle text-status-resolved rounded-full px-2.5 py-1 text-xs font-medium"
+                            : "bg-status-closed-subtle text-status-closed rounded-full px-2.5 py-1 text-xs font-medium"
+                        }
+                      >
+                        {zone.isActive ? "Active" : "Deactivated"}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <Link
+                        to={`/admin/complaints?zone=${zone.id}`}
+                        className="hover:underline"
+                      >
+                        {metrics?.pending ?? "—"}
+                      </Link>
+                    </TableCell>
+                    <TableCell>
+                      <Link
+                        to={`/admin/complaints?zone=${zone.id}&sla=OVERDUE`}
+                        className={
+                          metrics?.overdue
+                            ? "text-sla-overdue font-semibold hover:underline"
+                            : "hover:underline"
+                        }
+                      >
+                        {metrics?.overdue ?? "—"}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setAssigningZone(zone)}
+                        >
+                          Assign officer
+                        </Button>
+                        <Dropdown align="end">
+                          <DropdownTrigger>
+                            <Button size="sm" variant="ghost" aria-label="More actions">
+                              <MoreHorizontal className="size-4" aria-hidden="true" />
+                            </Button>
+                          </DropdownTrigger>
+                          <DropdownMenu>
+                            <DropdownItem onSelect={() => setEditingZone(zone)}>
+                              Edit
+                            </DropdownItem>
+                            {!zone.isCatchAll && (
+                              <DropdownItem
+                                destructive
+                                onSelect={() => {
+                                  setDeletingZone(zone);
+                                  setDeleteError(null);
+                                }}
+                              >
+                                Delete
+                              </DropdownItem>
+                            )}
+                          </DropdownMenu>
+                        </Dropdown>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                  {expanded && (
+                    <TableRow>
+                      <TableCell colSpan={7} className="bg-canvas space-y-3 p-4">
+                        <ZoneSummaryPanel zoneId={zone.id} />
+                        <ZoneAiReportPanel zoneId={zone.id} />
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </Fragment>
+              );
+            })}
           </TableBody>
         </Table>
       )}
@@ -579,64 +660,5 @@ function SlaRow({
         </Button>
       </TableCell>
     </TableRow>
-  );
-}
-
-function SettingsTab() {
-  const { toast } = useToast();
-  const { data: settings, isLoading } = useSettings();
-  const updateSettings = useUpdateSettings();
-  const [value, setValue] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  if (isLoading) return <Skeleton className="h-32 w-full" />;
-
-  const current = settings?.autoCloseTimeoutHours ?? 0;
-  const displayValue = value || String(current);
-
-  async function handleSave() {
-    setError(null);
-    const parsed = Number(displayValue);
-    if (!Number.isInteger(parsed) || parsed < 1) {
-      setError("Must be a whole number ≥ 1.");
-      return;
-    }
-    try {
-      await updateSettings.mutateAsync({ autoCloseTimeoutHours: parsed });
-      toast({ title: "Settings updated", variant: "success" });
-    } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : "Couldn't update.");
-    }
-  }
-
-  return (
-    <div className="max-w-sm space-y-4 rounded-lg border border-line bg-surface p-5">
-      <div className="flex items-center gap-2">
-        <SettingsIcon className="text-brand size-5" aria-hidden="true" />
-        <h2 className="font-display text-base font-semibold text-ink">
-          Auto-close timeout
-        </h2>
-      </div>
-      <p className="text-ink-muted text-sm">
-        How long a Resolved complaint waits for citizen confirmation before auto-closing.
-        An auto-close credits no points.
-      </p>
-      <div>
-        <Label htmlFor="auto-close-hours" required>
-          Hours
-        </Label>
-        <Input
-          id="auto-close-hours"
-          type="number"
-          min={1}
-          value={displayValue}
-          error={error ?? undefined}
-          onChange={(e) => setValue(e.target.value)}
-        />
-      </div>
-      <Button loading={updateSettings.isPending} onClick={handleSave}>
-        Save
-      </Button>
-    </div>
   );
 }

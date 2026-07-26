@@ -1,6 +1,14 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { ClipboardList, Download, Search } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
+import {
+  ClipboardList,
+  Copy,
+  Download,
+  ImageOff,
+  MoreHorizontal,
+  Search,
+  X,
+} from "lucide-react";
 import { DatePicker } from "@/components/ui/DatePicker";
 import { Combobox } from "@/components/ui/Combobox";
 import { Input } from "@/components/ui/Input";
@@ -9,8 +17,10 @@ import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
+import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { StatusPill, SeverityPill, SlaPill } from "@/components/ui/pills";
+import { Dropdown, DropdownTrigger, DropdownMenu, DropdownItem } from "@/components/ui/Dropdown";
 import {
   Table,
   TableHead,
@@ -24,6 +34,7 @@ import { DynamicIcon } from "@/components/DynamicIcon";
 import { useAdminComplaints } from "@/hooks/useAdminComplaints";
 import { useCategories } from "@/hooks/useCategories";
 import { useZones } from "@/hooks/useZones";
+import { useOverrideComplaint } from "@/hooks/useOverrideComplaint";
 import { useSearchParamState, csvCodec } from "@/hooks/useSearchParamState";
 import { exportRowsToCsv } from "@/lib/csvExport";
 import { iconForCategory } from "@/lib/categoryIcons";
@@ -103,6 +114,17 @@ export function AdminComplaintsPage() {
   const [search, setSearch] = useSearchParamState("q", "");
   const [page, setPage] = useState(1);
   const [exporting, setExporting] = useState(false);
+  // Bypasses the per-field `useSearchParamState` setters below for the
+  // "clear all" case: each of those setters closes over its own stale
+  // snapshot of the URL from this render, so calling several of them back
+  // to back (one per filter) makes each call clobber the previous one's
+  // change instead of composing — only the last field actually clears.
+  // One functional `setSearchParams` update removes every filter key in a
+  // single atomic navigation instead.
+  const [, setRawSearchParams] = useSearchParams();
+  const [reassigningComplaint, setReassigningComplaint] = useState<Complaint | null>(
+    null,
+  );
 
   const statuses = useMemo(() => new Set(statusList as ComplaintStatus[]), [statusList]);
 
@@ -187,6 +209,101 @@ export function AdminComplaintsPage() {
     ]);
   }
 
+  async function handleCopyLink() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      toast({ title: "Link copied", description: "This filtered view is now on your clipboard.", variant: "success" });
+    } catch {
+      toast({ title: "Couldn't copy link", variant: "error" });
+    }
+  }
+
+  const activeFilterChips = useMemo(() => {
+    const chips: { key: string; label: string; onRemove: () => void }[] = [];
+    if (zoneId) {
+      chips.push({
+        key: "zone",
+        label: `Zone: ${zones?.find((z) => z.id === zoneId)?.name ?? zoneId}`,
+        onRemove: () => {
+          setZoneId("");
+          resetPage();
+        },
+      });
+    }
+    if (categoryId) {
+      chips.push({
+        key: "category",
+        label: `Category: ${categories?.find((c) => c.id === categoryId)?.name ?? categoryId}`,
+        onRemove: () => {
+          setCategoryId("");
+          resetPage();
+        },
+      });
+    }
+    if (slaLabel) {
+      chips.push({
+        key: "sla",
+        label: `SLA: ${slaLabel.replace("_", " ").toLowerCase()}`,
+        onRemove: () => {
+          setSlaLabel("");
+          resetPage();
+        },
+      });
+    }
+    if (dateFrom) {
+      chips.push({
+        key: "from",
+        label: `From: ${dateFrom.toLocaleDateString()}`,
+        onRemove: () => {
+          setDateFrom(undefined);
+          resetPage();
+        },
+      });
+    }
+    if (dateTo) {
+      chips.push({
+        key: "to",
+        label: `To: ${dateTo.toLocaleDateString()}`,
+        onRemove: () => {
+          setDateTo(undefined);
+          resetPage();
+        },
+      });
+    }
+    if (search.trim()) {
+      chips.push({
+        key: "q",
+        label: `Search: "${search.trim()}"`,
+        onRemove: () => {
+          setSearch("");
+          resetPage();
+        },
+      });
+    }
+    for (const status of statuses) {
+      chips.push({
+        key: `status-${status}`,
+        label: humanizeStatus(status),
+        onRemove: () => toggleStatus(status),
+      });
+    }
+    return chips;
+  }, [zoneId, categoryId, slaLabel, dateFrom, dateTo, search, statuses, zones, categories]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleClearAllFilters() {
+    setRawSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        for (const key of ["zone", "category", "status", "sla", "from", "to", "q"]) {
+          next.delete(key);
+        }
+        return next;
+      },
+      { replace: true },
+    );
+    resetPage();
+  }
+
   return (
     <div className="w-full space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -199,16 +316,51 @@ export function AdminComplaintsPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={handleExportVisiblePage}>
-            <Download className="size-4" aria-hidden="true" />
-            Export page (CSV)
+          <Button variant="outline" size="sm" onClick={handleCopyLink}>
+            <Copy className="size-4" aria-hidden="true" />
+            Copy link to this view
           </Button>
-          <Button variant="outline" size="sm" loading={exporting} onClick={handleExport}>
-            <Download className="size-4" aria-hidden="true" />
-            Export full filtered set (CSV)
-          </Button>
+          <Dropdown align="end">
+            <DropdownTrigger>
+              <Button variant="outline" size="sm" loading={exporting}>
+                <Download className="size-4" aria-hidden="true" />
+                Export (CSV)
+              </Button>
+            </DropdownTrigger>
+            <DropdownMenu>
+              <DropdownItem onSelect={handleExportVisiblePage}>
+                Export visible rows (respects search)
+              </DropdownItem>
+              <DropdownItem onSelect={handleExport}>
+                Export full filtered set (ignores search)
+              </DropdownItem>
+            </DropdownMenu>
+          </Dropdown>
         </div>
       </div>
+
+      {activeFilterChips.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          {activeFilterChips.map((chip) => (
+            <button
+              key={chip.key}
+              type="button"
+              onClick={chip.onRemove}
+              className="bg-surface-hover text-ink-muted hover:text-ink inline-flex items-center gap-1 rounded-full py-1 pr-1.5 pl-2.5 text-xs font-medium"
+            >
+              {chip.label}
+              <X className="size-3.5 shrink-0" aria-hidden="true" />
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={handleClearAllFilters}
+            className="text-brand text-xs font-medium hover:underline"
+          >
+            Clear all
+          </button>
+        </div>
+      )}
 
       <div className="space-y-4 rounded-lg border border-line bg-surface p-4">
         <div className="flex flex-wrap gap-4">
@@ -322,12 +474,17 @@ export function AdminComplaintsPage() {
         </div>
 
         <div>
-          <Label>Status</Label>
-          <div className="flex flex-wrap gap-1.5">
+          <Label id="status-filter-label">Status</Label>
+          <div
+            role="group"
+            aria-labelledby="status-filter-label"
+            className="flex flex-wrap gap-1.5"
+          >
             {ALL_STATUSES.map((status) => (
               <button
                 key={status}
                 type="button"
+                aria-pressed={statuses.has(status)}
                 onClick={() => toggleStatus(status)}
                 className={
                   statuses.has(status)
@@ -357,24 +514,45 @@ export function AdminComplaintsPage() {
         />
       ) : (
         <>
+          {data && (
+            <p className="text-ink-muted text-sm">
+              <span className="font-medium text-ink">{data.pagination.totalItems}</span>{" "}
+              matching complaint{data.pagination.totalItems === 1 ? "" : "s"}.
+            </p>
+          )}
           <Table>
             <TableHead>
               <TableRow>
+                <TableHeaderCell className="w-14">Photo</TableHeaderCell>
                 <TableHeaderCell>Category</TableHeaderCell>
                 <TableHeaderCell>Zone</TableHeaderCell>
                 <TableHeaderCell>Status</TableHeaderCell>
                 <TableHeaderCell>Severity</TableHeaderCell>
                 <TableHeaderCell>SLA</TableHeaderCell>
+                <TableHeaderCell>Upvotes</TableHeaderCell>
                 <TableHeaderCell>Officer</TableHeaderCell>
                 <TableHeaderCell>Filed</TableHeaderCell>
+                <TableHeaderCell className="text-right">Actions</TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {rows.length === 0 ? (
-                <DataTableEmpty colSpan={7}>—</DataTableEmpty>
+                <DataTableEmpty colSpan={10}>—</DataTableEmpty>
               ) : (
                 rows.map((c) => (
                   <TableRow key={c.id}>
+                    <TableCell>
+                      <Link
+                        to={`/admin/complaints/${c.id}`}
+                        className="bg-surface-hover flex size-10 items-center justify-center overflow-hidden rounded-md"
+                      >
+                        {c.photoUrl ? (
+                          <img src={c.photoUrl} alt="" className="size-full object-cover" />
+                        ) : (
+                          <ImageOff className="text-ink-faint size-4" aria-hidden="true" />
+                        )}
+                      </Link>
+                    </TableCell>
                     <TableCell>
                       <Link
                         to={`/admin/complaints/${c.id}`}
@@ -398,12 +576,29 @@ export function AdminComplaintsPage() {
                     </TableCell>
                     <TableCell>{c.slaLabel && <SlaPill sla={c.slaLabel} />}</TableCell>
                     <TableCell className="text-ink-muted text-sm">
+                      {c.upvoteCount ?? 0}
+                    </TableCell>
+                    <TableCell className="text-ink-muted text-sm">
                       {c.assignedOfficerId == null
                         ? "Unassigned"
                         : `Officer #${c.assignedOfficerId}`}
                     </TableCell>
                     <TableCell className="text-ink-muted text-sm">
                       {relativeTime(c.createdAt)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Dropdown align="end">
+                        <DropdownTrigger>
+                          <Button size="sm" variant="ghost" aria-label="More actions">
+                            <MoreHorizontal className="size-4" aria-hidden="true" />
+                          </Button>
+                        </DropdownTrigger>
+                        <DropdownMenu>
+                          <DropdownItem onSelect={() => setReassigningComplaint(c)}>
+                            Reassign zone…
+                          </DropdownItem>
+                        </DropdownMenu>
+                      </Dropdown>
                     </TableCell>
                   </TableRow>
                 ))
@@ -420,6 +615,99 @@ export function AdminComplaintsPage() {
           )}
         </>
       )}
+
+      {reassigningComplaint && (
+        <ReassignZoneModal
+          complaint={reassigningComplaint}
+          onClose={() => setReassigningComplaint(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function ReassignZoneModal({
+  complaint,
+  onClose,
+}: {
+  complaint: Complaint;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const { data: zones } = useZones();
+  const override = useOverrideComplaint(complaint.id);
+  const [zoneId, setZoneId] = useState(complaint.zoneId ?? "");
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSave() {
+    setError(null);
+    if (!zoneId || zoneId === complaint.zoneId) {
+      setError("Choose a different zone.");
+      return;
+    }
+    try {
+      await override.mutateAsync({ zoneId, reason: reason.trim() || undefined });
+      toast({ title: "Zone reassigned", variant: "success" });
+      onClose();
+    } catch (err) {
+      setError(
+        err instanceof ApiRequestError
+          ? err.message
+          : "Something went wrong. Please try again.",
+      );
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Reassign ${complaint.id}`}
+      description="Recorded in the status history with you as the actor."
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button loading={override.isPending} onClick={handleSave}>
+            Reassign
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {error && (
+          <p
+            role="alert"
+            className="bg-status-rejected-subtle text-status-rejected rounded-md px-3 py-2 text-sm"
+          >
+            {error}
+          </p>
+        )}
+        <div>
+          <Label htmlFor="reassign-zone" required>
+            New zone
+          </Label>
+          <Combobox
+            id="reassign-zone"
+            value={zoneId}
+            onChange={setZoneId}
+            options={
+              zones?.map((z) => ({ value: z.id, label: z.name })) ?? []
+            }
+          />
+        </div>
+        <div>
+          <Label htmlFor="reassign-reason">Reason (recommended)</Label>
+          <Input
+            id="reassign-reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Why is this being reassigned?"
+          />
+        </div>
+      </div>
+    </Modal>
   );
 }

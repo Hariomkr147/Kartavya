@@ -416,7 +416,7 @@ export function OfficerComplaintDetailPage() {
               Part of a cluster of {cluster.reportCount} report
               {cluster.reportCount === 1 ? "" : "s"} ({cluster.uniqueReporterCount} unique
               reporter{cluster.uniqueReporterCount === 1 ? "" : "s"}) — resolving this may
-              resolve others automatically.
+              resolve others automatically. Click here to view details.
             </Link>
           )}
 

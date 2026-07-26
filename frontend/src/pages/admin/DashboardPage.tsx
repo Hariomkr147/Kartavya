@@ -1,13 +1,17 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   AlertTriangle,
   Building2,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Clock,
   Download,
   MapPinned,
   Radio,
+  RefreshCw,
 } from "lucide-react";
 import {
   Bar,
@@ -21,8 +25,6 @@ import {
 } from "recharts";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Button } from "@/components/ui/Button";
-import { Label } from "@/components/ui/Label";
-import { Combobox } from "@/components/ui/Combobox";
 import {
   Table,
   TableHead,
@@ -33,7 +35,11 @@ import {
   TableCell,
 } from "@/components/ui/DataTable";
 import { StatCard } from "@/components/dashboard/StatCard";
+import { TrendLineChart } from "@/components/charts/TrendLineChart";
+import { ZoneSummaryPanel } from "@/components/admin/ZoneSummaryPanel";
 import { useAdminAnalytics } from "@/hooks/useAdminAnalytics";
+import { useComplaintVolumeTrend } from "@/hooks/useComplaintVolumeTrend";
+import { useZones } from "@/hooks/useZones";
 import { useSortableRows } from "@/hooks/useSortableRows";
 import { exportRowsToCsv } from "@/lib/csvExport";
 import { formatFullDate } from "@/lib/greeting";
@@ -60,19 +66,34 @@ function citizenLabel(citizen: { displayName?: string; citizenId: string }): str
   return citizen.displayName ?? `Citizen #${citizen.citizenId}`;
 }
 
+/** Weighted by each zone's own resolved-this-month count, not a plain mean
+ * of per-zone averages — otherwise a zone that resolved one complaint in
+ * 200h would count as much as one that resolved eighty in 10h. */
+function weightedAvgResolutionHours(zones: ZoneMetrics[]): number | null {
+  let weightedSum = 0;
+  let totalResolved = 0;
+  for (const z of zones) {
+    if (z.avgResolutionHours == null || !z.resolvedThisMonth) continue;
+    weightedSum += z.avgResolutionHours * z.resolvedThisMonth;
+    totalResolved += z.resolvedThisMonth;
+  }
+  return totalResolved > 0 ? weightedSum / totalResolved : null;
+}
+
 export function AdminDashboardPage() {
-  const { data: analytics, isLoading } = useAdminAnalytics();
+  const { data: analytics, isLoading, isFetching, refetch } = useAdminAnalytics();
+  const { data: zonesList } = useZones();
+  const { data: trend, isLoading: trendLoading } = useComplaintVolumeTrend(14);
   const zones = useMemo(() => analytics?.zones ?? [], [analytics]);
+  const [expandedZoneId, setExpandedZoneId] = useState<string | null>(null);
 
   const totalPending = zones.reduce((s, z) => s + (z.pending ?? 0), 0);
   const totalOverdue = zones.reduce((s, z) => s + (z.overdue ?? 0), 0);
   const totalResolved = zones.reduce((s, z) => s + (z.resolvedThisMonth ?? 0), 0);
-  const resolutionSamples = zones.filter((z) => z.avgResolutionHours != null);
-  const avgResolution =
-    resolutionSamples.length > 0
-      ? resolutionSamples.reduce((s, z) => s + z.avgResolutionHours!, 0) /
-        resolutionSamples.length
-      : null;
+  const avgResolution = weightedAvgResolutionHours(zones);
+
+  const catchAllZone = zonesList?.find((z) => z.isCatchAll);
+  const catchAllMetrics = zones.find((z) => z.zoneId === catchAllZone?.id);
 
   const chartData = zones.map((z) => ({
     name: zoneLabel(z),
@@ -101,11 +122,6 @@ export function AdminDashboardPage() {
   const generatedTime = analytics?.generatedAt
     ? new Date(analytics.generatedAt).toLocaleTimeString("en-GB")
     : null;
-
-  const [compareA, setCompareA] = useState("");
-  const [compareB, setCompareB] = useState("");
-  const zoneA = zones.find((z) => z.zoneId === compareA);
-  const zoneB = zones.find((z) => z.zoneId === compareB);
 
   function handleExportTable() {
     exportRowsToCsv("admin-dashboard-zones-on-screen.csv", sortedZones, [
@@ -136,18 +152,32 @@ export function AdminDashboardPage() {
             Admin Dashboard
           </h1>
           <p className="text-ink-muted mt-1 text-sm">
-            Live cross-zone overview — every number reflects the current database state.
+            Live cross-zone overview.
           </p>
         </div>
-        {generatedTime && (
-          <span className="text-ink-muted bg-surface-hover mt-1 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium">
-            <Radio
-              className="text-status-resolved size-3.5 shrink-0"
+        <div className="mt-1 flex items-center gap-2">
+          {generatedTime && (
+            <span className="text-ink-muted bg-surface-hover inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium">
+              <Radio
+                className="text-status-resolved size-3.5 shrink-0"
+                aria-hidden="true"
+              />
+              Live as of {generatedTime}
+            </span>
+          )}
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label="Refresh now"
+            onClick={() => refetch()}
+            className="size-8"
+          >
+            <RefreshCw
+              className={cn("size-4", isFetching && "animate-spin")}
               aria-hidden="true"
             />
-            Live as of {generatedTime}
-          </span>
-        )}
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -183,6 +213,48 @@ export function AdminDashboardPage() {
             value={avgResolution != null ? `${Math.round(avgResolution)}h` : "—"}
           />
         </motion.div>
+      )}
+
+      {catchAllZone && (catchAllMetrics?.pending ?? 0) > 0 && (
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, delay: 0.06 }}
+          className="border-sla-overdue/30 bg-sla-overdue-subtle flex flex-wrap items-center justify-between gap-4 rounded-lg border p-4"
+        >
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="text-sla-overdue size-5 shrink-0" aria-hidden="true" />
+            <p className="text-sm text-ink">
+              <span className="font-semibold">{catchAllMetrics?.pending}</span> complaint
+              {catchAllMetrics?.pending === 1 ? "" : "s"} sitting in{" "}
+              <span className="font-medium">{catchAllZone.name}</span> (the catch-all
+              zone) — a real zone was likely a poor match and needs manual assignment.
+            </p>
+          </div>
+          <Link
+            to={`/admin/complaints?zone=${catchAllZone.id}`}
+            className="text-brand shrink-0 text-sm font-medium hover:underline"
+          >
+            Review &amp; reassign →
+          </Link>
+        </motion.section>
+      )}
+
+      {!trendLoading && trend && trend.length > 0 && (
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, delay: 0.08 }}
+          className="rounded-lg border border-line bg-surface p-5"
+        >
+          <h2 className="font-display mb-1 text-base font-semibold text-ink">
+            Complaint Tracker
+          </h2>
+          <p className="text-ink-faint mb-4 text-xs">
+            Here's an overview of what has happened over the past 14 days.
+          </p>
+          <TrendLineChart data={trend} height={180} />
+        </motion.section>
       )}
 
       {!isLoading && zones.length > 0 && (
@@ -233,89 +305,6 @@ export function AdminDashboardPage() {
         </motion.section>
       )}
 
-      {!isLoading && zones.length >= 2 && (
-        <motion.section
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35, delay: 0.14 }}
-          className="rounded-lg border border-line bg-surface p-5"
-        >
-          <h2 className="font-display mb-4 text-base font-semibold text-ink">
-            Compare two zones
-          </h2>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="compare-zone-a">Zone A</Label>
-              <Combobox
-                id="compare-zone-a"
-                value={compareA}
-                onChange={setCompareA}
-                placeholder="Select a zone…"
-                options={zones.map((z) => ({
-                  value: z.zoneId ?? "",
-                  label: zoneLabel(z),
-                }))}
-              />
-            </div>
-            <div>
-              <Label htmlFor="compare-zone-b">Zone B</Label>
-              <Combobox
-                id="compare-zone-b"
-                value={compareB}
-                onChange={setCompareB}
-                placeholder="Select a zone…"
-                options={zones.map((z) => ({
-                  value: z.zoneId ?? "",
-                  label: zoneLabel(z),
-                }))}
-              />
-            </div>
-          </div>
-          {zoneA && zoneB && (
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              {[zoneA, zoneB].map((zone, i) => (
-                <div key={zone.zoneId ?? i} className="rounded-md border border-line p-4">
-                  <p className="font-display text-sm font-semibold text-ink">
-                    {zoneLabel(zone)}
-                  </p>
-                  <dl className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                    <div>
-                      <dt className="text-ink-faint text-xs">Pending</dt>
-                      <dd className="font-mono text-ink">{zone.pending ?? 0}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-ink-faint text-xs">Overdue</dt>
-                      <dd
-                        className={cn(
-                          "font-mono",
-                          (zone.overdue ?? 0) > 0 ? "text-sla-overdue" : "text-ink",
-                        )}
-                      >
-                        {zone.overdue ?? 0}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-ink-faint text-xs">Resolved (mo.)</dt>
-                      <dd className="text-status-resolved font-mono">
-                        {zone.resolvedThisMonth ?? 0}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-ink-faint text-xs">Avg. resolution</dt>
-                      <dd className="text-ink font-mono">
-                        {zone.avgResolutionHours != null
-                          ? `${Math.round(zone.avgResolutionHours)}h`
-                          : "—"}
-                      </dd>
-                    </div>
-                  </dl>
-                </div>
-              ))}
-            </div>
-          )}
-        </motion.section>
-      )}
-
       {isLoading ? (
         <Skeleton className="h-64 w-full" />
       ) : zones.length === 0 ? (
@@ -338,11 +327,13 @@ export function AdminDashboardPage() {
           </div>
           <p className="text-ink-faint -mt-1 text-xs">
             Exports exactly what&apos;s rendered below. For the full filtered complaint
-            export, use the Complaints page instead.
+            export, use the Complaints page instead. Expand a row for total/active/
+            resolved complaint and cluster counts.
           </p>
           <Table>
             <TableHead>
               <TableRow>
+                <TableHeaderCell className="w-8" />
                 <SortableHeaderCell
                   active={sort.key === "zoneName"}
                   direction={sort.direction}
@@ -383,81 +374,144 @@ export function AdminDashboardPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {sortedZones.map((zone) => (
-                <TableRow key={zone.zoneId}>
-                  <TableCell className="font-medium text-ink">
-                    {zoneLabel(zone)}
-                  </TableCell>
-                  <TableCell>{zone.pending ?? 0}</TableCell>
-                  <TableCell>
-                    <span
-                      className={cn(
-                        "flex items-center gap-1.5",
-                        zone.isHighestOverdue && "text-sla-overdue font-semibold",
-                      )}
-                    >
-                      {zone.isHighestOverdue && (
-                        <AlertTriangle className="size-3.5 shrink-0" aria-hidden="true" />
-                      )}
-                      {zone.overdue ?? 0}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <span className="text-status-resolved flex items-center gap-1.5">
-                      <CheckCircle2 className="size-3.5 shrink-0" aria-hidden="true" />
-                      {zone.resolvedThisMonth ?? 0}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-ink-muted">
-                    {zone.avgResolutionHours != null
-                      ? `${Math.round(zone.avgResolutionHours)}h`
-                      : "—"}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      {SEVERITY_ORDER.map((severity) => {
-                        const count = zone.severityHeat?.[severity] ?? 0;
-                        const opacity =
-                          count === 0 ? 0.08 : 0.25 + (count / maxSeverity) * 0.75;
-                        return (
-                          <span
-                            key={severity}
-                            title={`${severity}: ${count}`}
-                            style={{
-                              backgroundColor: `color-mix(in oklch, var(${SEVERITY_VAR[severity]}) ${Math.round(opacity * 100)}%, transparent)`,
-                            }}
-                            className="flex size-7 items-center justify-center rounded text-[10px] font-semibold text-ink"
+              {sortedZones.map((zone) => {
+                const expanded = zone.zoneId != null && expandedZoneId === zone.zoneId;
+                return (
+                  <Fragment key={zone.zoneId}>
+                    <TableRow>
+                      <TableCell>
+                        {zone.zoneId && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedZoneId(expanded ? null : (zone.zoneId ?? null))
+                            }
+                            aria-expanded={expanded}
+                            aria-label={expanded ? "Collapse zone detail" : "Expand zone detail"}
+                            className="text-ink-muted hover:text-ink flex size-6 items-center justify-center rounded"
                           >
-                            {count > 0 ? count : ""}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-ink-muted">
-                    {zone.topCitizens && zone.topCitizens.length > 0 ? (
-                      <ol className="space-y-0.5">
-                        {zone.topCitizens.slice(0, 3).map((citizen, i) => (
-                          <li
-                            key={citizen.citizenId}
-                            className="flex items-center gap-1.5"
+                            {expanded ? (
+                              <ChevronDown className="size-4" aria-hidden="true" />
+                            ) : (
+                              <ChevronRight className="size-4" aria-hidden="true" />
+                            )}
+                          </button>
+                        )}
+                      </TableCell>
+                      <TableCell className="font-medium text-ink">
+                        {zone.zoneId ? (
+                          <Link
+                            to={`/admin/complaints?zone=${zone.zoneId}`}
+                            className="hover:underline"
                           >
-                            <span className="text-ink-faint w-3.5 shrink-0 text-right text-xs">
-                              {i + 1}.
-                            </span>
-                            <span className="truncate">{citizenLabel(citizen)}</span>
-                            <span className="text-ink-faint shrink-0 text-xs">
-                              {citizen.points} CSP
-                            </span>
-                          </li>
-                        ))}
-                      </ol>
-                    ) : (
-                      "—"
+                            {zoneLabel(zone)}
+                          </Link>
+                        ) : (
+                          zoneLabel(zone)
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {zone.zoneId ? (
+                          <Link
+                            to={`/admin/complaints?zone=${zone.zoneId}`}
+                            className="hover:underline"
+                          >
+                            {zone.pending ?? 0}
+                          </Link>
+                        ) : (
+                          (zone.pending ?? 0)
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {zone.zoneId ? (
+                          <Link
+                            to={`/admin/complaints?zone=${zone.zoneId}&sla=OVERDUE`}
+                            className={cn(
+                              "flex items-center gap-1.5 hover:underline",
+                              zone.isHighestOverdue && "text-sla-overdue font-semibold",
+                            )}
+                          >
+                            {zone.isHighestOverdue && (
+                              <AlertTriangle className="size-3.5 shrink-0" aria-hidden="true" />
+                            )}
+                            {zone.overdue ?? 0}
+                          </Link>
+                        ) : (
+                          (zone.overdue ?? 0)
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {zone.zoneId ? (
+                          <Link
+                            to={`/admin/complaints?zone=${zone.zoneId}&status=RESOLVED,CLOSED`}
+                            className="text-status-resolved flex items-center gap-1.5 hover:underline"
+                          >
+                            <CheckCircle2 className="size-3.5 shrink-0" aria-hidden="true" />
+                            {zone.resolvedThisMonth ?? 0}
+                          </Link>
+                        ) : (
+                          (zone.resolvedThisMonth ?? 0)
+                        )}
+                      </TableCell>
+                      <TableCell className="text-ink-muted">
+                        {zone.avgResolutionHours != null
+                          ? `${Math.round(zone.avgResolutionHours)}h`
+                          : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          {SEVERITY_ORDER.map((severity) => {
+                            const count = zone.severityHeat?.[severity] ?? 0;
+                            const opacity =
+                              count === 0 ? 0.08 : 0.25 + (count / maxSeverity) * 0.75;
+                            return (
+                              <span
+                                key={severity}
+                                title={`${severity}: ${count}`}
+                                style={{
+                                  backgroundColor: `color-mix(in oklch, var(${SEVERITY_VAR[severity]}) ${Math.round(opacity * 100)}%, transparent)`,
+                                }}
+                                className="flex size-7 items-center justify-center rounded text-[10px] font-semibold text-ink"
+                              >
+                                {count > 0 ? count : ""}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-ink-muted">
+                        {zone.topCitizens && zone.topCitizens.length > 0 ? (
+                          <ol className="space-y-0.5">
+                            {zone.topCitizens.slice(0, 3).map((citizen, i) => (
+                              <li
+                                key={citizen.citizenId}
+                                className="flex items-center gap-1.5"
+                              >
+                                <span className="text-ink-faint w-3.5 shrink-0 text-right text-xs">
+                                  {i + 1}.
+                                </span>
+                                <span className="truncate">{citizenLabel(citizen)}</span>
+                                <span className="text-ink-faint shrink-0 text-xs">
+                                  {citizen.points} CSP
+                                </span>
+                              </li>
+                            ))}
+                          </ol>
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                    </TableRow>
+                    {expanded && zone.zoneId && (
+                      <TableRow>
+                        <TableCell colSpan={8} className="bg-canvas p-4">
+                          <ZoneSummaryPanel zoneId={zone.zoneId} />
+                        </TableCell>
+                      </TableRow>
                     )}
-                  </TableCell>
-                </TableRow>
-              ))}
+                  </Fragment>
+                );
+              })}
             </TableBody>
           </Table>
         </motion.section>

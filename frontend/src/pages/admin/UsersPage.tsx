@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Search, ShieldAlert, Users as UsersIcon } from "lucide-react";
+import { MoreHorizontal, Plus, Search, ShieldAlert, Users as UsersIcon } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
@@ -10,6 +10,7 @@ import { Combobox } from "@/components/ui/Combobox";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Modal } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { Dropdown, DropdownTrigger, DropdownMenu, DropdownItem } from "@/components/ui/Dropdown";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
 import { useToast } from "@/components/ui/Toast";
@@ -327,17 +328,24 @@ export function AdminUsersPage() {
                           Edit
                         </Button>
                         {u.role !== "ADMIN" && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="text-status-rejected"
-                            onClick={() => {
-                              setDeletingUser(u);
-                              setDeleteError(null);
-                            }}
-                          >
-                            Delete
-                          </Button>
+                          <Dropdown align="end">
+                            <DropdownTrigger>
+                              <Button size="sm" variant="ghost" aria-label="More actions">
+                                <MoreHorizontal className="size-4" aria-hidden="true" />
+                              </Button>
+                            </DropdownTrigger>
+                            <DropdownMenu>
+                              <DropdownItem
+                                destructive
+                                onSelect={() => {
+                                  setDeletingUser(u);
+                                  setDeleteError(null);
+                                }}
+                              >
+                                Delete
+                              </DropdownItem>
+                            </DropdownMenu>
+                          </Dropdown>
                         )}
                       </div>
                     </TableCell>

@@ -27,7 +27,7 @@ export const complaintsHandlers = [
     const latitude = typeof latitudeRaw === "string" ? Number(latitudeRaw) : NaN;
     const longitude = typeof longitudeRaw === "string" ? Number(longitudeRaw) : NaN;
     const description = form.get("description");
-    const categorySuggestedByAi = form.get("categorySuggestedByAi") === "true";
+    const categorySuggestedByMatcher = form.get("categorySuggestedByMatcher") === "true";
     const photos = form.getAll("photos").filter((p): p is File => p instanceof File);
 
     if (categoryId == null || !db.categories.some((c) => c.id === categoryId)) {
@@ -65,7 +65,7 @@ export const complaintsHandlers = [
       assignedOfficerId: null,
       description:
         typeof description === "string" && description.trim() ? description.trim() : null,
-      categoryAiSuggested: categorySuggestedByAi,
+      categorySuggestedByMatcher: categorySuggestedByMatcher,
       latitude,
       longitude,
       status: "SUBMITTED" as ComplaintStatus,

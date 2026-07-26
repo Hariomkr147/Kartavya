@@ -35,7 +35,7 @@ import { useCreateComplaint } from "@/hooks/useCreateComplaint";
 import { useLocalDraft } from "@/hooks/useLocalDraft";
 import { useDirtyFormGuard } from "@/hooks/useDirtyFormGuard";
 import { iconForCategory } from "@/lib/categoryIcons";
-import { matchCategory } from "@/lib/categoryMatcher";
+import { rankCategories } from "@/lib/categoryMatcher";
 import { readExifGps, type ExifGps } from "@/lib/exifGps";
 import { screeningPhase } from "@/lib/aiScreening";
 import { getComplaintById } from "@/services/complaints";
@@ -91,7 +91,11 @@ export function FileComplaintPage() {
   }
 
   // Step 2 — category
-  const [regexSuggestedId, setRegexSuggestedId] = useState<string | null>(null);
+  const [matcherSuggestedId, setMatcherSuggestedId] = useState<string | null>(null);
+  const [matchedKeywords, setMatchedKeywords] = useState<string[]>([]);
+  // Runner-up from the same ranking pass — only ever set alongside a confident
+  // primary suggestion, never as a suggestion in its own right.
+  const [secondGuessId, setSecondGuessId] = useState<string | null>(null);
 
   // Step 3 — evidence + location
   const [photos, setPhotos] = useState<File[]>([]);
@@ -185,14 +189,22 @@ export function FileComplaintPage() {
 
   function continueFromDescription() {
     // Only re-run the matcher while the current category is itself still the
-    // regex's own suggestion (or unset) — once the citizen manually overrides
+    // matcher's own suggestion (or unset) — once the citizen manually overrides
     // it on the next step, editing the description again must never clobber
     // that deliberate choice. This is also why a "no longer matches"
     // re-suggestion clears back to null instead of leaving the stale id.
-    if (categories && categoryId === regexSuggestedId) {
-      const match = matchCategory(description, categories);
-      setCategoryId(match?.category.id ?? null);
-      setRegexSuggestedId(match?.category.id ?? null);
+    //
+    // matchCategory returns null unless the evidence is unambiguous, so a null
+    // here means "we're not confident", not "we found nothing" — either way the
+    // citizen picks for themselves, which is the safe outcome.
+    if (categories && categoryId === matcherSuggestedId) {
+      const ranked = rankCategories(description, categories);
+      const best = ranked[0]?.confident ? ranked[0] : undefined;
+      setCategoryId(best?.category.id ?? null);
+      setMatcherSuggestedId(best?.category.id ?? null);
+      setMatchedKeywords(best?.matchedKeywords ?? []);
+      // Only worth surfacing once there's a confident primary to be "second" to.
+      setSecondGuessId(best && ranked[1] ? ranked[1].category.id : null);
     }
     setStep(1);
   }
@@ -217,8 +229,8 @@ export function FileComplaintPage() {
         latitude: location.lat,
         longitude: location.lng,
         zoneId,
-        categorySuggestedByAi:
-          categoryId === regexSuggestedId && regexSuggestedId !== null,
+        categorySuggestedByMatcher:
+          categoryId === matcherSuggestedId && matcherSuggestedId !== null,
       });
       setSubmitted(complaint);
       clearDraft();
@@ -238,7 +250,9 @@ export function FileComplaintPage() {
     setStep(0);
     setDescription("");
     setCategoryId(null);
-    setRegexSuggestedId(null);
+    setMatcherSuggestedId(null);
+    setMatchedKeywords([]);
+    setSecondGuessId(null);
     setPhotos([]);
     setLocation(null);
     setZoneId("");
@@ -341,13 +355,38 @@ export function FileComplaintPage() {
         <section className="space-y-4 rounded-lg border border-line bg-surface p-6">
           <div>
             <Label required>Category</Label>
-            {regexSuggestedId && (
-              <p className="text-ink-muted mt-1 mb-3 flex items-center gap-1.5 text-sm">
-                <Wand2 className="text-brand size-4 shrink-0" aria-hidden="true" />
-                We tried guessing... change it below if it's wrong.
-              </p>
+            {matcherSuggestedId && (
+              <div className="mt-1 mb-3">
+                <p className="text-ink-muted flex items-center gap-1.5 text-sm">
+                  <Wand2 className="text-brand size-4 shrink-0" aria-hidden="true" />
+                  {matchedKeywords.length > 0 ? (
+                    <span>
+                      Suggested because you wrote{" "}
+                      <span className="text-ink font-medium">
+                        &ldquo;{matchedKeywords[0]}&rdquo;
+                      </span>{" "}
+                      — change it below if we got it wrong.
+                    </span>
+                  ) : (
+                    <span>We tried guessing... change it below if it&rsquo;s wrong.</span>
+                  )}
+                </p>
+                {secondGuessId && (
+                  <p className="text-ink-faint mt-0.5 pl-[22px] text-xs">
+                    Could also be{" "}
+                    <button
+                      type="button"
+                      onClick={() => pickCategory(secondGuessId)}
+                      className="underline underline-offset-2 hover:text-ink-muted"
+                    >
+                      {categories?.find((c) => c.id === secondGuessId)?.name}
+                    </button>
+                    .
+                  </p>
+                )}
+              </div>
             )}
-            {!regexSuggestedId && (
+            {!matcherSuggestedId && (
               <p className="text-ink-muted mt-1 mb-3 text-sm">
                 We couldn't guess a category from your description — pick the closest
                 match.
@@ -366,7 +405,7 @@ export function FileComplaintPage() {
                     key={category.id}
                     category={category}
                     selected={categoryId === category.id}
-                    suggested={regexSuggestedId === category.id}
+                    suggested={matcherSuggestedId === category.id}
                     onSelect={() => pickCategory(category.id)}
                   />
                 ))}

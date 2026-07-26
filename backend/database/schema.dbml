@@ -224,7 +224,6 @@ Table complaints {
   assigned_officer_id  int               [note: 'Current handling officer (API assignedOfficerId). Null until an officer picks it up via POST /officer/complaints/{id}/claim — the only door for SUBMITTED -> EVIDENCE_UNDER_REVIEW, which sets this in the same step. Also cleared back to null (app logic, not an FK delete rule) on every one of this officer\'s non-terminal complaints when they are reassigned to a different zone — otherwise the complaint would stay "assigned" to someone who can no longer see it, since officer visibility is zone-scoped.']
 
   description          text              [note: 'Optional — a citizen may pick a category manually without typing. Matches the API (description not required).']
-  category_ai_suggested boolean          [not null, default: false, note: 'Whether the chosen category came from the AI suggestion (analytics only).']
   latitude             float             [not null]
   longitude            float             [not null]
 

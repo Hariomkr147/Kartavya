@@ -53,7 +53,6 @@ This page describes the current state of the codebase and the intended structure
   - Officer flows (queue, evidence review, status changes, batch status, progress notes, analytics)
   - Admin flows (user management, SLA config, zone officer assignment, analytics, AI zone reports, CSV export, settings)
   - Gamification (`/gamification/points`, `/gamification/badges`, `/leaderboard`)
-  - AI category suggestion (`/ai/suggest-category`)
   - Request and response bodies under `components/schemas`
 - **Database schema**: `backend/database/schema.dbml` is a DBML schema designed one-to-one against the API contract, targeting Flask + SQLAlchemy + SQLite. It covers:
   - Accounts and reference data (`users`, `zones`, `complaint_categories`)

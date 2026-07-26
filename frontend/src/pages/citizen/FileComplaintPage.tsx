@@ -217,8 +217,6 @@ export function FileComplaintPage() {
         latitude: location.lat,
         longitude: location.lng,
         zoneId,
-        categorySuggestedByAi:
-          categoryId === regexSuggestedId && regexSuggestedId !== null,
       });
       setSubmitted(complaint);
       clearDraft();

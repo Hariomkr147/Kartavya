@@ -82,6 +82,4 @@ export type SystemAnalytics = Schemas["SystemAnalytics"];
 export type OfficerPerformance = Schemas["OfficerPerformance"];
 export type PublicOfficerStats = Schemas["PublicOfficerStats"];
 
-export type CategorySuggestionRequest = Schemas["CategorySuggestionRequest"];
-export type CategorySuggestionResponse = Schemas["CategorySuggestionResponse"];
 export type AiZoneReport = Schemas["AiZoneReport"];

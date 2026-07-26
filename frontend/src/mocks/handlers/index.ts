@@ -8,9 +8,8 @@ import { officerHandlers } from "./officer";
 import { officerPublicHandlers } from "./officerPublic";
 import { adminHandlers } from "./admin";
 import { gamificationHandlers } from "./gamification";
-import { aiHandlers } from "./ai";
 
-/** Every mock handler, mirroring 100% of backend/api/openapi.yaml's 51 operations. */
+/** Every mock handler — one per operation in backend/api/openapi.yaml, with no gaps. */
 export const handlers = [
   ...authHandlers,
   ...accountHandlers,
@@ -22,5 +21,4 @@ export const handlers = [
   ...officerPublicHandlers,
   ...adminHandlers,
   ...gamificationHandlers,
-  ...aiHandlers,
 ];

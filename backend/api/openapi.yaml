@@ -86,8 +86,6 @@ tags:
     description: Operations available to both officers and administrators.
   - name: Gamification
     description: Citizen points, badges, and leaderboards.
-  - name: AI
-    description: AI helper endpoints that assist users but never make the final decision.
   - name: Officers (Public)
     description: The small, citizen-safe view of an officer's public statistics.
 
@@ -2216,48 +2214,6 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
-  # ---------------------------------------------------------------------------
-  # AI
-  # ---------------------------------------------------------------------------
-
-  /ai/suggest-category:
-    post:
-      tags: [AI]
-      operationId: suggestCategory
-      summary: Suggest a category from a description
-      description: >
-        Used by the complaint form **while the citizen is typing**, before any
-        complaint exists. Send the description text (in any language) and get
-        back the AI's best-guess category as a non-blocking hint. The citizen is
-        free to accept it or pick a different category — the suggestion is never
-        binding.
-
-
-        This degrades gracefully: if the local AI model is unavailable, the
-        response returns `aiAvailable: false` with no suggestion, and the form
-        keeps working normally.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CategorySuggestionRequest"
-      responses:
-        "200":
-          description: A suggestion (or a clean "unavailable" response).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CategorySuggestionResponse"
-        "400":
-          description: Empty description.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
 # =============================================================================
 # COMPONENTS
 # =============================================================================
@@ -2889,10 +2845,6 @@ components:
             accepted or rerouted, since the client's cached zone list may be
             stale.
           example: zone_012
-        categorySuggestedByAi:
-          type: boolean
-          description: Whether the chosen category came from the AI suggestion (for analytics).
-          default: false
 
     Complaint:
       type: object
@@ -3677,59 +3629,6 @@ components:
       required: [officerId, totalResolved]
 
     # ---- AI ----
-
-    CategorySuggestionRequest:
-      type: object
-      required: [description]
-      properties:
-        description:
-          type: string
-          description: The citizen's free-text description, in any language.
-          example: There is a deep hole in the middle of the road near the market.
-
-    CategorySuggestionResponse:
-      type: object
-      properties:
-        aiAvailable:
-          type: boolean
-          description: False if the AI model was unavailable (the form should just carry on).
-        suggestedCategoryId:
-          type: string
-          nullable: true
-        suggestedCategoryName:
-          type: string
-          nullable: true
-        confidence:
-          type: number
-          format: float
-          nullable: true
-          minimum: 0
-          maximum: 1
-        reasoning:
-          type: string
-          nullable: true
-          description: >
-            A short plain-language note on why this category was suggested. Helps
-            the UI explain the hint and reinforces that the citizen, not the AI,
-            makes the final choice.
-          example: The description mentions a hole in the road surface near the market.
-        alternativeCategories:
-          type: array
-          description: Other plausible categories, ranked, so the citizen can pick easily if the top guess is wrong.
-          items:
-            type: object
-            properties:
-              categoryId:
-                type: string
-              categoryName:
-                type: string
-              confidence:
-                type: number
-                format: float
-                minimum: 0
-                maximum: 1
-            required: [categoryId, categoryName]
-      required: [aiAvailable]
 
     AiZoneReport:
       type: object

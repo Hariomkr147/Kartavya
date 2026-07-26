@@ -1040,28 +1040,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ai/suggest-category": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Suggest a category from a description
-         * @description Used by the complaint form **while the citizen is typing**, before any complaint exists. Send the description text (in any language) and get back the AI's best-guess category as a non-blocking hint. The citizen is free to accept it or pick a different category — the suggestion is never binding.
-         *
-         *     This degrades gracefully: if the local AI model is unavailable, the response returns `aiAvailable: false` with no suggestion, and the form keeps working normally.
-         */
-        post: operations["suggestCategory"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1362,11 +1340,6 @@ export interface components {
              * @example zone_012
              */
             zoneId: string;
-            /**
-             * @description Whether the chosen category came from the AI suggestion (for analytics).
-             * @default false
-             */
-            categorySuggestedByAi: boolean;
         };
         /** @description A compact complaint, used in lists and queues. */
         Complaint: {
@@ -1736,33 +1709,6 @@ export interface components {
             officerId: string;
             totalResolved: number;
         };
-        CategorySuggestionRequest: {
-            /**
-             * @description The citizen's free-text description, in any language.
-             * @example There is a deep hole in the middle of the road near the market.
-             */
-            description: string;
-        };
-        CategorySuggestionResponse: {
-            /** @description False if the AI model was unavailable (the form should just carry on). */
-            aiAvailable: boolean;
-            suggestedCategoryId?: string | null;
-            suggestedCategoryName?: string | null;
-            /** Format: float */
-            confidence?: number | null;
-            /**
-             * @description A short plain-language note on why this category was suggested. Helps the UI explain the hint and reinforces that the citizen, not the AI, makes the final choice.
-             * @example The description mentions a hole in the road surface near the market.
-             */
-            reasoning?: string | null;
-            /** @description Other plausible categories, ranked, so the citizen can pick easily if the top guess is wrong. */
-            alternativeCategories?: {
-                categoryId: string;
-                categoryName: string;
-                /** Format: float */
-                confidence?: number;
-            }[];
-        };
         AiZoneReport: {
             reportId: string;
             zoneId: string;
@@ -1995,7 +1941,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
-            /** @description An OFFICER attempted to change their own zoneId. */
+            /** @description A non-citizen (OFFICER or ADMIN) attempted to change their own zoneId. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3565,40 +3511,6 @@ export interface operations {
                 };
             };
             /** @description Missing or invalid scope. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-        };
-    };
-    suggestCategory: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CategorySuggestionRequest"];
-            };
-        };
-        responses: {
-            /** @description A suggestion (or a clean "unavailable" response). */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CategorySuggestionResponse"];
-                };
-            };
-            /** @description Empty description. */
             400: {
                 headers: {
                     [name: string]: unknown;

@@ -86,6 +86,13 @@ export function addClusterProgressNote(
   });
 }
 
-export function getOfficerAnalytics(): Promise<ZoneAnalytics> {
-  return apiFetch<ZoneAnalytics>("/officer/analytics");
+export interface GetOfficerAnalyticsParams extends QueryParams {
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export function getOfficerAnalytics(
+  params: GetOfficerAnalyticsParams = {},
+): Promise<ZoneAnalytics> {
+  return apiFetch<ZoneAnalytics>("/officer/analytics", { query: params });
 }

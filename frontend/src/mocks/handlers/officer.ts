@@ -10,7 +10,7 @@ import {
 } from "../lib/http";
 import { sortComplaints } from "../lib/sort";
 import { severityLabel } from "../lib/severity";
-import { slaLabel } from "../lib/sla";
+import { avgResolutionHours, slaLabel } from "../lib/sla";
 import { cascadeClusterResolution } from "../lib/cluster";
 import { awardPoints } from "../lib/points";
 import {
@@ -472,16 +472,7 @@ export const officerHandlers = [
         new Date(c.resolvedAt).getMonth() === now.getMonth() &&
         new Date(c.resolvedAt).getFullYear() === now.getFullYear(),
     );
-    const avgResolutionHoursThisMonth =
-      resolvedThisMonth.length > 0
-        ? resolvedThisMonth.reduce(
-            (sum, c) =>
-              sum +
-              (new Date(c.resolvedAt!).getTime() - new Date(c.createdAt).getTime()) /
-                3600000,
-            0,
-          ) / resolvedThisMonth.length
-        : null;
+    const avgResolutionHoursThisMonth = avgResolutionHours(resolvedThisMonth);
 
     const categoryBreakdown = db.categories
       .map((category) => ({

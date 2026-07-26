@@ -10,7 +10,7 @@ import {
 import { requireRole, paginate, parsePagination, Errors } from "../lib/http";
 import { sortComplaints } from "../lib/sort";
 import { severityLabel } from "../lib/severity";
-import { slaLabel } from "../lib/sla";
+import { avgResolutionHours, slaLabel } from "../lib/sla";
 import { lifetimePoints } from "../lib/points";
 import { TERMINAL_STATUSES, AT_OR_PAST_UNDER_REVIEW } from "../lib/fsm";
 import { fromApiId, toApiId } from "../lib/ids";
@@ -522,37 +522,39 @@ export const adminHandlers = [
             c.slaPausedAt,
           ) === "OVERDUE",
       ).length;
+      // Anchored on resolvedAt, not closedAt: the count and the average beside
+      // it must describe one population (ZoneMetrics.avgResolutionHours), and
+      // the officer dashboard reports the same figure for the same zone.
       const resolvedThisMonth = rows.filter(
         (c) =>
-          c.closedAt &&
-          new Date(c.closedAt).getMonth() === now.getMonth() &&
-          new Date(c.closedAt).getFullYear() === now.getFullYear(),
+          c.resolvedAt &&
+          new Date(c.resolvedAt).getMonth() === now.getMonth() &&
+          new Date(c.resolvedAt).getFullYear() === now.getFullYear(),
       );
-      const closed = rows.filter((c) => c.closedAt);
-      const avgResolutionHours =
-        closed.length > 0
-          ? closed.reduce(
-              (s, c) =>
-                s +
-                (new Date(c.closedAt!).getTime() - new Date(c.createdAt).getTime()) /
-                  3600000,
-              0,
-            ) / closed.length
-          : null;
+      const avgResolutionHoursForZone = avgResolutionHours(resolvedThisMonth);
 
       const severityHeat = { LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0 };
       for (const c of rows.filter((c) => !TERMINAL_STATUSES.has(c.status))) {
         severityHeat[severityLabel(c.severityScore)]++;
       }
 
+      // Same population and ordering as GET /leaderboard — active citizens
+      // only, points desc then account age then id — otherwise this table
+      // could crown a deactivated citizen the leaderboard doesn't even list.
       const topCitizens = db.users
-        .filter((u) => u.role === "CITIZEN" && u.zoneId === zone.id)
+        .filter((u) => u.role === "CITIZEN" && u.isActive && u.zoneId === zone.id)
         .map((u) => ({
           citizenId: u.id,
           displayName: u.displayName ?? `Citizen #${u.id}`,
           points: lifetimePoints(u.id),
+          createdAt: u.createdAt,
         }))
-        .sort((a, b) => b.points - a.points || a.citizenId - b.citizenId)
+        .sort(
+          (a, b) =>
+            b.points - a.points ||
+            Date.parse(a.createdAt) - Date.parse(b.createdAt) ||
+            a.citizenId - b.citizenId,
+        )
         .slice(0, 3)
         .map((entry, index) => ({
           rank: index + 1,
@@ -569,7 +571,7 @@ export const adminHandlers = [
         pending: rows.filter((c) => !TERMINAL_STATUSES.has(c.status)).length,
         overdue,
         resolvedThisMonth: resolvedThisMonth.length,
-        avgResolutionHours,
+        avgResolutionHours: avgResolutionHoursForZone,
         isHighestOverdue: false,
         topCitizens,
         severityHeat,
@@ -650,17 +652,25 @@ export const adminHandlers = [
     const rejected = reviewedEvidence.filter((e) => e.verdict === "REJECTED").length;
     const acceptRejectRatio = valid + rejected > 0 ? valid / (valid + rejected) : null;
 
-    const resolved = handled.filter((c) => c.resolvedAt);
-    const avgResolutionHours =
-      resolved.length > 0
-        ? resolved.reduce(
-            (s, c) =>
-              s +
-              (new Date(c.resolvedAt!).getTime() - new Date(c.createdAt).getTime()) /
-                3600000,
-            0,
-          ) / resolved.length
-        : null;
+    // Attribution follows the `→ RESOLVED` transition, not assignedOfficerId,
+    // so reassigning a complaint cannot retroactively move finished work
+    // between scorecards. The *latest* such transition wins, so a complaint
+    // that was disputed and re-resolved by someone else counts for whoever
+    // actually re-fixed it — matching its latest resolvedAt. Cascade sweeps
+    // carry a SYSTEM actor with no user attached and so land in nobody's
+    // sample: one visit fixing one pothole is one resolution, however many
+    // duplicates were filed about it.
+    const resolvedByOfficer = db.complaints.filter((c) => {
+      if (!c.resolvedAt || !inRange(c.resolvedAt)) return false;
+      const latestResolution = db.statusHistory
+        .filter((h) => h.complaintId === c.id && h.toStatus === "RESOLVED")
+        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+      return (
+        latestResolution?.actorRole === "OFFICER" &&
+        latestResolution.changedByUserId === officer.id
+      );
+    });
+    const avgResolutionHoursForOfficer = avgResolutionHours(resolvedByOfficer);
 
     return HttpResponse.json({
       officerId: toApiId(officer.id),
@@ -673,7 +683,7 @@ export const adminHandlers = [
       unresolvableExcluded: unresolvableExcluded.length,
       evidenceBreakdown: { valid, needsMoreEvidence, rejected },
       acceptRejectRatio,
-      avgResolutionHours,
+      avgResolutionHours: avgResolutionHoursForOfficer,
     });
   }),
 

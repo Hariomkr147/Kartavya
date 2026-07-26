@@ -2,7 +2,7 @@ openapi: 3.0.3
 
 info:
   title: Kartavya API
-  version: 2.0.0
+  version: 3.0.0
   description: >
     # Kartavya — A Gamified Civic Upkeep Platform
 
@@ -26,10 +26,15 @@ info:
       and the rules for moving between them are described on the
       `ComplaintStatus` schema and on the status-changing endpoints.
 
-    - AI features (photo pre-screening, category suggestion, zone health report)
-      are designed to fail softly. If the local AI model is down, the app still
-      works — the relevant fields just come back empty or flagged as
-      unavailable.
+    - AI features (photo pre-screening, zone health report) are designed to fail
+      softly. If the local AI model is down, the app still works — the relevant
+      fields just come back empty or flagged as unavailable.
+
+    - Category selection is deliberately **not** an AI feature. The 12
+      categories are seeded once and never change, so the client matches a
+      description against a fixed keyword lexicon offline; there is no
+      suggestion endpoint and nothing to fail. `Category.code` is the stable key
+      that lexicon is written against.
 
 
     ## Roles at a glance
@@ -52,8 +57,28 @@ info:
 
 
     All endpoints require a JWT in the `Authorization: Bearer <token>` header,
-    **except** the few marked as public (registration, login, and the reference
-    lists needed to fill the registration form).
+    **except** the few marked as public (registration, login, the reference
+    lists needed to fill the registration form, and the signed photo route
+    described below).
+
+
+    Tokens are short-lived and **there is no refresh endpoint**. `AuthResponse`
+    reports `expiresAt`; once that moment passes the server answers `401` and
+    the client sends the user back to the login screen. This is deliberate —
+    a refresh flow is state the project does not need, and re-login is cheap
+    for a single-device civic app.
+
+
+    ## Photos
+
+
+    Photos are never inlined and never served from a browsable directory. Any
+    response field named `photoUrl` is a **pre-signed, expiring link** to
+    `GET /evidence/{evidenceId}/photo`, minted by the server at the moment it
+    serialises the response, for a caller it has already authorised to see the
+    parent complaint. Clients treat it as an opaque string and drop it into an
+    `<img src>`; they never construct it, and they must not persist it beyond
+    the life of the response that carried it.
 
   contact:
     name: Kartavya Project Manager (Shreyan)
@@ -70,6 +95,8 @@ servers:
 tags:
   - name: Authentication
     description: Account creation and login. These are the only endpoints a user can reach without a token.
+  - name: Account
+    description: Self-service profile actions available to any authenticated role (citizen, officer, or admin) about their own account.
   - name: Reference
     description: Fixed lookup data (the 12 categories and the list of zones). Public so the registration form can use them.
   - name: Complaints
@@ -84,8 +111,6 @@ tags:
     description: Operations available to both officers and administrators.
   - name: Gamification
     description: Citizen points, badges, and leaderboards.
-  - name: AI
-    description: AI helper endpoints that assist users but never make the final decision.
   - name: Officers (Public)
     description: The small, citizen-safe view of an officer's public statistics.
 
@@ -161,6 +186,114 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           description: Wrong email/password, or the account is deactivated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ---------------------------------------------------------------------------
+  # ACCOUNT (self-service, any authenticated role)
+  # ---------------------------------------------------------------------------
+
+  /users/me:
+    get:
+      tags: [Account]
+      operationId: getMyProfile
+      summary: Get my own profile
+      description: >
+        Returns the calling user's own profile — citizen, officer, or admin.
+        Includes `displayName`, which otherwise has no API exposure at all
+        (not even to an admin editing someone else via
+        `PATCH /admin/users/{userId}`). Also gives the frontend a way to
+        refresh "who am I" after a page reload or a profile edit, rather
+        than relying on decoded JWT claims for anything beyond routing
+        (id/role).
+      responses:
+        "200":
+          description: Your profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    patch:
+      tags: [Account]
+      operationId: updateMyProfile
+      summary: Edit my own profile
+      description: >
+        Self-service edit of `displayName`, `name`, and `email`. All fields
+        optional — send only what changes.
+
+
+        `zoneId` is accepted **only for a CITIZEN** caller, changing their
+        home zone (informational — it only affects the feed's default zone
+        and future complaints' zone-picker prefill, never past complaints,
+        which snapshot their own `zoneId` at submission time). An
+        **OFFICER** sending `zoneId` gets `403`: an officer's zone is a work
+        assignment, not a preference, and must go through
+        `PATCH /admin/users/{userId}` or
+        `POST /admin/zones/{zoneId}/assign-officer` — both of which clear
+        `assignedOfficerId` on that officer's now-inaccessible complaints in
+        the old zone. A self-service path here would silently skip that
+        cleanup, leaving complaints assigned to an officer who can no longer
+        see them.
+
+
+        Password changes are **not** handled here — see
+        `POST /users/me/change-password`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProfileRequest"
+      responses:
+        "200":
+          description: Profile updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: A non-citizen (OFFICER or ADMIN) attempted to change their own zoneId.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The new email is already taken by another account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /users/me/change-password:
+    post:
+      tags: [Account]
+      operationId: changeMyPassword
+      summary: Change my own password
+      description: >
+        Requires the current password. Deliberately kept separate from
+        `PATCH /users/me` so a password change always re-confirms identity,
+        rather than riding along with an unrelated profile field update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "204":
+          description: Password changed.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          description: No valid token, or currentPassword is wrong.
           content:
             application/json:
               schema:
@@ -366,6 +499,20 @@ paths:
           identity is stripped out.
 
         - **Admin** — any complaint, with full detail including the reporter.
+
+
+        **Zone scoping is evaluated against the officer's zone right now,**
+        re-read from their account on every request — never from a zone claim
+        baked into the JWT, and never from `assignedOfficerId`. An officer
+        moved to another zone loses access to their old zone's complaints
+        immediately, including ones they personally worked, and gets `403`
+        (the shared "wrong role or wrong zone" answer) rather than `404`. This
+        is the same rule that clears `assignedOfficerId` on those complaints
+        when an admin reassigns an officer: a complaint is never left assigned
+        to someone who can no longer open it. The consequence to design
+        around is that an officer's own history is not permanently readable to
+        them — `status_history` keeps the audit trail, and an admin can always
+        see it.
       parameters:
         - $ref: "#/components/parameters/ComplaintId"
       responses:
@@ -605,6 +752,92 @@ paths:
                 $ref: "#/components/schemas/Error"
 
   # ---------------------------------------------------------------------------
+  # EVIDENCE PHOTOS (every role, via signed links only)
+  # ---------------------------------------------------------------------------
+
+  /evidence/{evidenceId}/photo:
+    get:
+      tags: [Shared]
+      operationId: getEvidencePhoto
+      summary: Fetch an evidence photo through its signed link
+      description: >
+        Serves the image bytes of one `complaint_evidence` row. This is the
+        only way a photo leaves the server: the files live outside the web
+        root under UUID filenames, and no directory is browsable.
+
+
+        **Clients never build this URL.** Every response carrying a `photoUrl`
+        (`Complaint`, `ComplaintDetail`, `FeedItem`, `Evidence`) already holds
+        a complete signed link, and the client's whole job is to put that
+        string into an `<img src>`.
+
+
+        **Why a signature instead of a bearer token.** An `<img>` tag cannot
+        send an `Authorization` header, so a bearer-protected photo route
+        would force every image in the app through a manual fetch-and-blob
+        detour. Instead, when the server serialises `photoUrl` for a caller it
+        has *already* authorised to see the parent complaint, it appends `exp`
+        and `sig`. The signature is the authorisation: unguessable, expiring,
+        and issued only to someone who had legitimate access a moment ago.
+        The link discloses nothing beyond the image itself — never the
+        reporter's identity — which is what keeps it compatible with the
+        anonymised feed.
+
+
+        **Expiry.** Links are valid for `PHOTO_URL_TTL_SECONDS` (default
+        24 h) and are re-minted on every read of the parent resource, so
+        normal navigation never shows a broken image. A page left open past
+        the TTL gets `403` on the image and should refetch the parent
+        resource to obtain fresh links.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/EvidenceId"
+        - name: exp
+          in: query
+          required: true
+          description: Unix timestamp (seconds) after which the link stops working.
+          schema:
+            type: integer
+            format: int64
+        - name: sig
+          in: query
+          required: true
+          description: >
+            URL-safe base64 HMAC-SHA256 of `{evidenceId}|{exp}` under the
+            server's photo-signing secret. Verified in constant time.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The image bytes.
+          headers:
+            Cache-Control:
+              description: >
+                `private, max-age=<remaining TTL>` — cacheable by the browser
+                for exactly as long as the signature stays valid, never by a
+                shared proxy.
+              schema:
+                type: string
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "403":
+          description: >
+            The signature is missing, malformed, wrong, or expired. A photo
+            that does not exist returns `403` too, not `404` — the response
+            must not confirm which evidence IDs are real.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ---------------------------------------------------------------------------
   # PUBLIC FEED (citizen)
   # ---------------------------------------------------------------------------
 
@@ -616,9 +849,13 @@ paths:
       description: >
         The "Instagram Explore"-style feed for citizens. Shows complaints in the
         citizen's own zone with photo, category, severity label, upvote count,
-        and status — but **never** who filed them. By default it shows active
-        complaints; closed and rejected ones are hidden unless explicitly
-        requested, in which case they are clearly marked.
+        location, and status — but **never** who filed them. The location is
+        the same latitude/longitude captured at filing time, exposed here so
+        the client can show a nearby-landmark hint (e.g. via reverse
+        geocoding) — precise enough to find the issue in person, which is the
+        point of the feed, but never tied to a reporter identity. By default
+        it shows active complaints; closed and rejected ones are hidden
+        unless explicitly requested, in which case they are clearly marked.
 
 
         Citizens can upvote straight from this feed (subject to the
@@ -1822,6 +2059,25 @@ paths:
         `autoCloseTimeoutHours` — how long a `RESOLVED` complaint waits for the
         citizen to respond before it auto-closes. An auto-close credits no
         points; only an explicit citizen confirm does.
+
+
+        **The setting is a live rule, not a deadline stamped on each
+        complaint.** A background sweeper periodically closes every complaint
+        where `resolved_at + autoCloseTimeoutHours <= now`, re-reading the
+        setting each pass. Lowering the value therefore closes complaints that
+        are already waiting — possibly on the very next sweep, immediately and
+        in bulk — and raising it hands more time back to complaints already in
+        flight. Nothing is scheduled in advance and nothing is retroactively
+        un-closed, so a complaint the sweeper has already closed stays closed
+        whatever the setting becomes afterwards. Admin UIs should warn before
+        applying a decrease.
+
+
+        The sweep cadence itself is deployment configuration
+        (`AUTO_CLOSE_SWEEP_MINUTES`, default 15), not part of this contract:
+        it bounds only how long after the deadline a complaint lingers, never
+        whether it closes. Clients must not assume a complaint closes at the
+        exact instant the timeout elapses.
       requestBody:
         required: true
         content:
@@ -2068,6 +2324,33 @@ paths:
         reset. The response also includes the caller's own rank, so the
         dashboard can show "you are #7" even if they are not in the visible top
         slice. The top 3 are flagged for highlighting.
+
+
+        **Who is on the board.** Active citizens only: `role = CITIZEN` and
+        `is_active = true`. Officers and admins never appear — they earn no
+        points. A deactivated citizen is dropped from the rankings entirely
+        and everyone below them moves up; the account keeps its
+        `points_ledger` history, so reactivating restores its place. Citizens
+        with a zero (or negative) total for the period **do** appear, at the
+        bottom — a new citizen seeing themselves ranked last is the nudge the
+        feature exists for. Under `scope=zone` the board covers the caller's
+        own `zoneId` only.
+
+
+        **Ordering and ties.** Sort by `points` descending, then by account
+        age (older account first), then by `citizenId` ascending as a final
+        tiebreak so the order is total and stable across pages — the same
+        request twice must never interleave rows differently. Ranks are
+        **sequential, never shared**: tied citizens get consecutive numbers in
+        that order, so `rank` is always `1..N` with no gaps or repeats and
+        `isTopThree` is exactly `rank <= 3`. Pagination applies after ranking,
+        so a citizen's `rank` does not depend on which page it is read from.
+
+
+        **`currentUser`.** The caller's own row, computed against the full
+        ranking rather than the returned page, so it is correct no matter
+        which page was requested. `null` only when the caller has no row on
+        this board at all — i.e. they are not a ranked citizen.
       parameters:
         - name: scope
           in: query
@@ -2095,48 +2378,6 @@ paths:
                 $ref: "#/components/schemas/LeaderboardResponse"
         "400":
           description: Missing or invalid scope.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-  # ---------------------------------------------------------------------------
-  # AI
-  # ---------------------------------------------------------------------------
-
-  /ai/suggest-category:
-    post:
-      tags: [AI]
-      operationId: suggestCategory
-      summary: Suggest a category from a description
-      description: >
-        Used by the complaint form **while the citizen is typing**, before any
-        complaint exists. Send the description text (in any language) and get
-        back the AI's best-guess category as a non-blocking hint. The citizen is
-        free to accept it or pick a different category — the suggestion is never
-        binding.
-
-
-        This degrades gracefully: if the local AI model is unavailable, the
-        response returns `aiAvailable: false` with no suggestion, and the form
-        keeps working normally.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CategorySuggestionRequest"
-      responses:
-        "200":
-          description: A suggestion (or a clean "unavailable" response).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CategorySuggestionResponse"
-        "400":
-          description: Empty description.
           content:
             application/json:
               schema:
@@ -2215,6 +2456,12 @@ components:
         type: string
     ClusterId:
       name: clusterId
+      in: path
+      required: true
+      schema:
+        type: string
+    EvidenceId:
+      name: evidenceId
       in: path
       required: true
       schema:
@@ -2507,9 +2754,22 @@ components:
         tokenType:
           type: string
           example: Bearer
+        expiresAt:
+          type: string
+          format: date-time
+          description: >
+            When this token stops being accepted (issue time +
+            `JWT_TTL_HOURS`, default 24 h). Mirrors the JWT's own `exp` claim
+            so a client can pre-empt expiry without decoding the token.
+            **There is no refresh endpoint** — after this moment every
+            request returns `401` and the client must send the user back to
+            login. Clients must still handle `401` at any time, since a token
+            can also be invalidated early (for example when an admin
+            deactivates the account).
+          example: "2026-07-27T09:15:00Z"
         user:
           $ref: "#/components/schemas/User"
-      required: [token, tokenType, user]
+      required: [token, tokenType, expiresAt, user]
 
     # ---- User ----
 
@@ -2528,6 +2788,14 @@ components:
         email:
           type: string
           format: email
+        displayName:
+          type: string
+          nullable: true
+          description: >
+            Public handle shown on leaderboards and other citizen-facing
+            surfaces (no private profile is ever exposed). If null, the app
+            shows a masked placeholder like "Citizen #1042". Self-editable
+            via `PATCH /users/me`.
         zoneId:
           type: string
           nullable: true
@@ -2585,6 +2853,39 @@ components:
         officerId:
           type: string
 
+    UpdateProfileRequest:
+      type: object
+      description: Self-service profile edit. All fields optional — send only what changes.
+      properties:
+        displayName:
+          type: string
+          nullable: true
+          description: Set to null to revert to the auto-generated masked placeholder.
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        zoneId:
+          type: string
+          description: >
+            Change your home zone. CITIZEN only — an OFFICER sending this
+            gets 403, since their zone is a work assignment managed by an
+            admin (see PATCH /admin/users/{userId} and
+            POST /admin/zones/{zoneId}/assign-officer).
+
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+          format: password
+        newPassword:
+          type: string
+          format: password
+          minLength: 8
+
     # ---- Reference ----
 
     Category:
@@ -2593,6 +2894,14 @@ components:
         id:
           type: string
           example: cat_pothole
+        code:
+          type: string
+          description: >
+            Stable identifier, fixed when the category is seeded (a rename never
+            changes it). The 12 categories are seeded once and the list is not
+            editable from the app, so clients may safely key behaviour off this
+            value — `name` is a display label and must not be used as a key.
+          example: POTHOLE
         name:
           type: string
           example: Pothole
@@ -2603,7 +2912,7 @@ components:
           type: integer
           description: Current target resolution time in hours.
           example: 72
-      required: [id, name, slaTargetHours]
+      required: [id, code, name, slaTargetHours]
 
     Zone:
       type: object
@@ -2693,7 +3002,10 @@ components:
       properties:
         categoryId:
           type: string
-          description: One of the 12 categories (may be AI-suggested or manually chosen).
+          description: >
+            One of the 12 categories, always the citizen's confirmed choice —
+            whether they accepted the client-side keyword match or picked it
+            themselves (see `categorySuggestedByMatcher`).
           example: cat_pothole
         description:
           type: string
@@ -2734,9 +3046,18 @@ components:
             accepted or rerouted, since the client's cached zone list may be
             stale.
           example: zone_012
-        categorySuggestedByAi:
+        categorySuggestedByMatcher:
           type: boolean
-          description: Whether the chosen category came from the AI suggestion (for analytics).
+          description: >
+            Whether the citizen accepted the category the client's offline
+            keyword matcher proposed, rather than picking one themselves (for
+            analytics only — it never affects routing or the lifecycle).
+
+
+            There is no AI category suggestion: matching is done entirely on the
+            client from a fixed keyword lexicon, because the category list is
+            closed and seeded once. The server records this flag as reported and
+            does not re-derive it.
           default: false
 
     Complaint:
@@ -2760,6 +3081,10 @@ components:
         photoUrl:
           type: string
           format: uri
+          description: >
+            A signed, expiring link to the complaint's first evidence photo —
+            see `GET /evidence/{evidenceId}/photo`. Root-relative. Opaque to
+            the client: use it as-is, do not parse or store it.
         zoneId:
           type: string
         zoneName:
@@ -2862,6 +3187,22 @@ components:
         photoUrl:
           type: string
           format: uri
+          description: >
+            A signed, expiring link to the first evidence photo — see
+            `GET /evidence/{evidenceId}/photo`. Carries no reporter identity,
+            which is what makes it safe in the anonymised feed.
+        latitude:
+          type: number
+          format: double
+          description: >
+            Same coordinate captured at filing time. Lets the client derive a
+            nearby-landmark hint (e.g. via reverse geocoding) — never used to
+            identify who reported the issue.
+          example: 12.9716
+        longitude:
+          type: number
+          format: double
+          example: 77.5946
         createdAt:
           type: string
           format: date-time
@@ -2899,6 +3240,11 @@ components:
         photoUrl:
           type: string
           format: uri
+          description: >
+            A signed, expiring link to this row's image — see
+            `GET /evidence/{evidenceId}/photo`. Re-minted on every read, so
+            two reads of the same evidence return two different strings for
+            the same picture; never use it as an identity or a cache key.
         sequence:
           type: integer
           description: 1 for the original photo, 2+ for re-submissions.
@@ -3379,6 +3725,41 @@ components:
 
     # ---- Analytics ----
 
+    AvgResolutionHours:
+      type: number
+      format: float
+      nullable: true
+      description: >
+        **The one definition of "resolution time", used by every dashboard.**
+
+
+        For a single complaint it is
+        `resolved_at − sla_started_at − sla_paused_seconds`, expressed in
+        hours: the time the complaint actually spent as the officer's
+        responsibility. It starts when the evidence was accepted and the SLA
+        clock began — not when the citizen filed — and it excludes any spell
+        in `NEEDS_MORE_EVIDENCE`, exactly like `slaLabel`. Those two numbers
+        must never be able to disagree: a zone cannot show every complaint
+        `ON_TIME` and an average past its SLA target.
+
+
+        It deliberately stops at `resolved_at`, not `closed_at`. The wait
+        between "officer fixed it" and "citizen confirmed it" belongs to the
+        citizen (or to the auto-close timeout) and is not the officer's or the
+        zone's performance to answer for.
+
+
+        The field is the mean over a sample of complaints. Only complaints
+        with a non-null `resolved_at` are in the sample, which naturally
+        excludes `UNRESOLVABLE` ones and any complaint rejected at evidence
+        review (its clock never started). A complaint that was disputed and
+        re-resolved counts once, using its **latest** `resolved_at` and its
+        total accumulated `sla_paused_seconds`, so the re-fix is paid for.
+
+
+        `null` — never `0` — when the sample is empty. Each field below states
+        which complaints are in its sample.
+
     CategoryBreakdownItem:
       type: object
       properties:
@@ -3401,9 +3782,11 @@ components:
         overdueCount:
           type: integer
         avgResolutionHoursThisMonth:
-          type: number
-          format: float
-          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/AvgResolutionHours"
+          description: >
+            Sample: complaints in this zone whose `resolved_at` falls in the
+            current calendar month (server timezone).
         categoryBreakdown:
           type: array
           items:
@@ -3424,9 +3807,15 @@ components:
         resolvedThisMonth:
           type: integer
         avgResolutionHours:
-          type: number
-          format: float
-          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/AvgResolutionHours"
+          description: >
+            Sample: complaints in this zone whose `resolved_at` falls in the
+            current calendar month — the same set counted by
+            `resolvedThisMonth` beside it, so the two columns of the admin
+            zone table always describe one population. Identical in meaning to
+            `ZoneAnalytics.avgResolutionHoursThisMonth`; the officer and admin
+            dashboards must show the same figure for the same zone.
         isHighestOverdue:
           type: boolean
           description: True for the zone(s) with the most overdue complaints (for highlighting).
@@ -3494,9 +3883,20 @@ components:
           format: float
           nullable: true
         avgResolutionHours:
-          type: number
-          format: float
-          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/AvgResolutionHours"
+          description: >
+            Sample: complaints **this officer** resolved — that is, where they
+            were the acting officer on the `→ RESOLVED` transition in
+            `status_history` — with `resolved_at` inside the requested window
+            (`period`, or `dateFrom`/`dateTo`). Attribution follows the
+            transition, not `assignedOfficerId`, so reassigning a complaint
+            cannot retroactively move finished work between scorecards.
+            Cluster members swept to `RESOLVED` by the cascade carry a
+            `SYSTEM` actor with no user attached, and are therefore **not**
+            in any officer's sample — which is the intended reading, since
+            one visit fixing one pothole should count as one resolution
+            however many duplicates were filed about it.
       required: [officerId, totalHandled]
 
     PublicOfficerStats:
@@ -3510,59 +3910,6 @@ components:
       required: [officerId, totalResolved]
 
     # ---- AI ----
-
-    CategorySuggestionRequest:
-      type: object
-      required: [description]
-      properties:
-        description:
-          type: string
-          description: The citizen's free-text description, in any language.
-          example: There is a deep hole in the middle of the road near the market.
-
-    CategorySuggestionResponse:
-      type: object
-      properties:
-        aiAvailable:
-          type: boolean
-          description: False if the AI model was unavailable (the form should just carry on).
-        suggestedCategoryId:
-          type: string
-          nullable: true
-        suggestedCategoryName:
-          type: string
-          nullable: true
-        confidence:
-          type: number
-          format: float
-          nullable: true
-          minimum: 0
-          maximum: 1
-        reasoning:
-          type: string
-          nullable: true
-          description: >
-            A short plain-language note on why this category was suggested. Helps
-            the UI explain the hint and reinforces that the citizen, not the AI,
-            makes the final choice.
-          example: The description mentions a hole in the road surface near the market.
-        alternativeCategories:
-          type: array
-          description: Other plausible categories, ranked, so the citizen can pick easily if the top guess is wrong.
-          items:
-            type: object
-            properties:
-              categoryId:
-                type: string
-              categoryName:
-                type: string
-              confidence:
-                type: number
-                format: float
-                minimum: 0
-                maximum: 1
-            required: [categoryId, categoryName]
-      required: [aiAvailable]
 
     AiZoneReport:
       type: object

@@ -9,6 +9,7 @@ import {
   Gavel,
   UserCog,
   Boxes,
+  Settings,
 } from "lucide-react";
 import type { NavItem } from "@/components/layout/AppShell";
 
@@ -29,8 +30,11 @@ export const officerNavItems: NavItem[] = [
 export const adminNavItems: NavItem[] = [
   { label: "Dashboard", to: "/admin", icon: LayoutDashboard, end: true },
   { label: "Complaints", to: "/admin/complaints", icon: ClipboardList },
+  { label: "Clusters", to: "/admin/clusters", icon: Boxes },
   { label: "Disputes", to: "/admin/disputes", icon: Gavel },
   { label: "Users", to: "/admin/users", icon: Users },
   { label: "Zones & SLAs", to: "/admin/zones", icon: MapPinned },
   { label: "Officers", to: "/admin/officers", icon: UserCog },
+  { label: "Leaderboard", to: "/admin/leaderboard", icon: Trophy },
+  { label: "Settings", to: "/admin/settings", icon: Settings },
 ];

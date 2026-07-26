@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ClipboardList, CircleAlert, FilePlus2, Search, X } from "lucide-react";
 import { Combobox } from "@/components/ui/Combobox";
 import { Input } from "@/components/ui/Input";
@@ -95,6 +96,12 @@ export function MyComplaintsPage() {
   const [search, setSearch] = useSearchParamState("q", "");
   const [bucket, setBucket] = useSearchParamState<Bucket>("bucket", "");
   const [page, setPage] = useState(1);
+  // Bypasses the per-field setters above for the "clear everything" case:
+  // each of those closes over its own snapshot of the URL from this render,
+  // so calling several back to back makes each one clobber the previous
+  // one's change instead of composing — only the last field would clear.
+  // One functional update drops every filter key in a single navigation.
+  const [, setRawSearchParams] = useSearchParams();
 
   const { data: categories } = useCategories();
   const { data: zones } = useZones();
@@ -158,12 +165,16 @@ export function MyComplaintsPage() {
   }
 
   function clearFilters() {
-    setStatus("");
-    setCategoryId("");
-    setZoneId("");
-    setActionNeededOnly(false);
-    setBucket("");
-    setSearch("");
+    setRawSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        for (const key of ["status", "category", "zone", "action", "bucket", "q"]) {
+          next.delete(key);
+        }
+        return next;
+      },
+      { replace: true },
+    );
     setPage(1);
   }
 

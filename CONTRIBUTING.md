@@ -414,16 +414,17 @@ Kartavya/
 ├── backend/
 │   ├── api/openapi.yaml        ← canonical API contract (read this first)
 │   ├── database/schema.dbml    ← SQLite schema, mirrors the contract
-│   └── app/                    ← Flask application (implement here)
-│       ├── config/
-│       ├── controllers/
-│       ├── middlewares/
-│       ├── models/
-│       ├── routes/
-│       ├── services/
-│       └── views/
+│   ├── app/                    ← Flask application (implement here)
+│   │   ├── domain/             ← pure business rules: no Flask, no SQLAlchemy, no I/O
+│   │   ├── models/             ← SQLAlchemy ORM, mirroring schema.dbml
+│   │   ├── services/           ← write side: business operations, grouped by aggregate
+│   │   ├── api/                ← read side + HTTP routes, grouped by audience
+│   │   ├── core/               ← cross-cutting: auth, scoping, errors, validation
+│   │   ├── infra/              ← outside world: photo storage, AI providers
+│   │   └── jobs/               ← background work: AI screening, zone reports, auto-close
+│   └── tests/                  ← domain/ services/ api/ contract/
 ├── frontend/
-│   └── src/                    ← React application (implement here)
+│   └── src/                    ← React application
 │       ├── components/
 │       ├── hooks/
 │       ├── pages/
@@ -434,12 +435,18 @@ Kartavya/
 └── docs/
     ├── start_here.md            ← repository overview and current status
     ├── backend/
+    │   ├── architecture.md      ← backend design: layering, rules, concurrency (read before coding)
     │   ├── api.md               ← API reference notes
-    │   └── database.md          ← database reference notes
+    │   ├── database.md          ← database reference notes
+    │   └── complaints/          ← clustered complaint lifecycle reference
     └── frontend/                ← frontend documentation placeholder
 ```
 
 Full folder descriptions are in [docs/start_here.md](docs/start_here.md).
+
+**Backend contributors:** the layout above is explained in full — including the dependency rule between
+those packages and why the earlier `controllers/` + `views/` + `middlewares/` layout was dropped — in
+[docs/backend/architecture.md](docs/backend/architecture.md). Read it before your first backend PR.
 
 ---
 
@@ -589,7 +596,7 @@ docs(contributing): add setup and PR process guide
   - `services/` — the raw API client layer. Keep fetch/axios calls here, out of components and hooks.
   - `types/` — TypeScript interfaces that mirror the `components/schemas` in `openapi.yaml`. Keep them in sync manually until a code generator is set up.
 - **Roles:** the UI must enforce the three-role model. Citizens must not see officer or admin views, and vice versa.
-- **AI feature degradation:** all AI-backed features (`aiAvailable`, `ai_screen_status`, category suggestion) can return an "unavailable" signal. The UI must handle this gracefully — never show a broken state.
+- **AI feature degradation:** the AI-backed features (`aiAvailable`, `ai_screen_status`, zone health reports) can return an "unavailable" signal. The UI must handle this gracefully — never show a broken state. Category suggestion is not among them: it runs offline on the client (`frontend/src/lib/categoryMatcher.ts`) and abstains rather than guessing when the evidence is weak.
 - **No raw complaint reporter details** should ever be rendered in officer or public views. The API already strips them; the frontend should not re-introduce them via local state.
 
 ---

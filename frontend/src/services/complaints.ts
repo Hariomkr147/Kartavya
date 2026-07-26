@@ -32,6 +32,7 @@ export interface CreateComplaintInput {
   latitude: number;
   longitude: number;
   zoneId: string;
+  categorySuggestedByMatcher: boolean;
 }
 
 export function createComplaint(input: CreateComplaintInput): Promise<ComplaintDetail> {
@@ -42,6 +43,7 @@ export function createComplaint(input: CreateComplaintInput): Promise<ComplaintD
   form.set("latitude", String(input.latitude));
   form.set("longitude", String(input.longitude));
   form.set("zoneId", input.zoneId);
+  form.set("categorySuggestedByMatcher", String(input.categorySuggestedByMatcher));
   return apiFetch<ComplaintDetail>("/complaints", { method: "POST", formData: form });
 }
 

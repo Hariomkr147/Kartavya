@@ -1,8 +1,11 @@
 import { db, persist } from "../db/store";
 
 /**
- * Both AI features degrade gracefully (CLAUDE.md: "AI features fail soft").
- * The trigger text containing "offline" forces the unavailable path for
+ * The two remaining AI features — photo pre-screening and zone health reports —
+ * degrade gracefully (CLAUDE.md: "AI features fail soft"). Category suggestion
+ * is deliberately not among them: it is done offline on the client by
+ * `lib/categoryMatcher`, against a fixed lexicon, with no endpoint to fail.
+ * A description containing "offline" forces the unavailable path for
  * deliberate testing; otherwise there's a small random chance of it, so the
  * fail-soft UI actually gets exercised during normal demo use too.
  */

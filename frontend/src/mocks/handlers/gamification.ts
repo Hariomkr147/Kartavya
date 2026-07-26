@@ -73,8 +73,16 @@ export const gamificationHandlers = [
     const period = url.searchParams.get("period") === "all_time" ? "all_time" : "monthly";
     const now = new Date();
 
+    // Active citizens only. A deactivated citizen drops out entirely and
+    // everyone below moves up, but their points_ledger rows are untouched, so
+    // reactivating restores their standing. Zero-point citizens *do* appear,
+    // at the bottom — a new citizen seeing themselves ranked last is the nudge
+    // the feature exists for.
     const pool = db.users.filter(
-      (u) => u.role === "CITIZEN" && (scope === "city" || u.zoneId === auth.user.zoneId),
+      (u) =>
+        u.role === "CITIZEN" &&
+        u.isActive &&
+        (scope === "city" || u.zoneId === auth.user.zoneId),
     );
 
     const pointsFor = (citizenId: number) =>
@@ -84,13 +92,24 @@ export const gamificationHandlers = [
             .filter((p) => p.citizenId === citizenId && isThisMonth(p.createdAt, now))
             .reduce((s, p) => s + p.pointsChange, 0);
 
+    // Points desc, then account age (older first), then citizenId — a total
+    // order, so the same request twice can never interleave rows differently
+    // and a citizen's rank does not depend on which page it is read from.
+    // Ranks are sequential and never shared, which is what makes isTopThree
+    // exactly `rank <= 3`.
     const ranked = pool
       .map((u) => ({
         citizenId: u.id,
         displayName: u.displayName ?? `Citizen #${u.id}`,
         points: pointsFor(u.id),
+        createdAt: u.createdAt,
       }))
-      .sort((a, b) => b.points - a.points || a.citizenId - b.citizenId)
+      .sort(
+        (a, b) =>
+          b.points - a.points ||
+          Date.parse(a.createdAt) - Date.parse(b.createdAt) ||
+          a.citizenId - b.citizenId,
+      )
       .map((entry, index) => ({
         rank: index + 1,
         citizenId: toApiId(entry.citizenId),

@@ -50,8 +50,9 @@ export const authHandlers = [
     db.users.push(user);
     persist();
 
+    const { token, expiresAt } = issueToken(user);
     return HttpResponse.json(
-      { token: issueToken(user), tokenType: "Bearer", user: toUser(user) },
+      { token, tokenType: "Bearer", expiresAt, user: toUser(user) },
       { status: 201 },
     );
   }),
@@ -84,9 +85,11 @@ export const authHandlers = [
     // activity between sessions — cheap enough to re-check on every login.
     if (user.role === "CITIZEN") checkAndAwardBadges(user.id);
 
+    const { token, expiresAt } = issueToken(user);
     return HttpResponse.json({
-      token: issueToken(user),
+      token,
       tokenType: "Bearer",
+      expiresAt,
       user: toUser(user),
     });
   }),

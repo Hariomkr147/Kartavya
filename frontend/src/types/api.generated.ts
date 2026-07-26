@@ -228,6 +228,8 @@ export interface paths {
          *       identity is stripped out.
          *
          *     - **Admin** — any complaint, with full detail including the reporter.
+         *
+         *     **Zone scoping is evaluated against the officer's zone right now,** re-read from their account on every request — never from a zone claim baked into the JWT, and never from `assignedOfficerId`. An officer moved to another zone loses access to their old zone's complaints immediately, including ones they personally worked, and gets `403` (the shared "wrong role or wrong zone" answer) rather than `404`. This is the same rule that clears `assignedOfficerId` on those complaints when an admin reassigns an officer: a complaint is never left assigned to someone who can no longer open it. The consequence to design around is that an officer's own history is not permanently readable to them — `status_history` keeps the audit trail, and an admin can always see it.
          */
         get: operations["getComplaintById"];
         put?: never;
@@ -326,6 +328,32 @@ export interface paths {
          *     **Repeat calls:** valid only while the complaint is in the `RESOLVED` stage. Once it has moved to `REOPENED`, a second dispute returns `409`, protecting against accidental double-submits.
          */
         post: operations["disputeResolution"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/evidence/{evidenceId}/photo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch an evidence photo through its signed link
+         * @description Serves the image bytes of one `complaint_evidence` row. This is the only way a photo leaves the server: the files live outside the web root under UUID filenames, and no directory is browsable.
+         *
+         *     **Clients never build this URL.** Every response carrying a `photoUrl` (`Complaint`, `ComplaintDetail`, `FeedItem`, `Evidence`) already holds a complete signed link, and the client's whole job is to put that string into an `<img src>`.
+         *
+         *     **Why a signature instead of a bearer token.** An `<img>` tag cannot send an `Authorization` header, so a bearer-protected photo route would force every image in the app through a manual fetch-and-blob detour. Instead, when the server serialises `photoUrl` for a caller it has *already* authorised to see the parent complaint, it appends `exp` and `sig`. The signature is the authorisation: unguessable, expiring, and issued only to someone who had legitimate access a moment ago. The link discloses nothing beyond the image itself — never the reporter's identity — which is what keeps it compatible with the anonymised feed.
+         *
+         *     **Expiry.** Links are valid for `PHOTO_URL_TTL_SECONDS` (default 24 h) and are re-minted on every read of the parent resource, so normal navigation never shows a broken image. A page left open past the TTL gets `403` on the image and should refetch the parent resource to obtain fresh links.
+         */
+        get: operations["getEvidencePhoto"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -890,6 +918,10 @@ export interface paths {
         /**
          * Update system settings
          * @description Updates system-wide settings. The main one here is `autoCloseTimeoutHours` — how long a `RESOLVED` complaint waits for the citizen to respond before it auto-closes. An auto-close credits no points; only an explicit citizen confirm does.
+         *
+         *     **The setting is a live rule, not a deadline stamped on each complaint.** A background sweeper periodically closes every complaint where `resolved_at + autoCloseTimeoutHours <= now`, re-reading the setting each pass. Lowering the value therefore closes complaints that are already waiting — possibly on the very next sweep, immediately and in bulk — and raising it hands more time back to complaints already in flight. Nothing is scheduled in advance and nothing is retroactively un-closed, so a complaint the sweeper has already closed stays closed whatever the setting becomes afterwards. Admin UIs should warn before applying a decrease.
+         *
+         *     The sweep cadence itself is deployment configuration (`AUTO_CLOSE_SWEEP_MINUTES`, default 15), not part of this contract: it bounds only how long after the deadline a complaint lingers, never whether it closes. Clients must not assume a complaint closes at the exact instant the timeout elapses.
          */
         patch: operations["updateSettings"];
         trace?: never;
@@ -1030,6 +1062,12 @@ export interface paths {
         /**
          * Get the leaderboard
          * @description Returns ranked citizens for either the **zone** or the **city** scope. Monthly rankings reset at the start of each month; lifetime totals never reset. The response also includes the caller's own rank, so the dashboard can show "you are #7" even if they are not in the visible top slice. The top 3 are flagged for highlighting.
+         *
+         *     **Who is on the board.** Active citizens only: `role = CITIZEN` and `is_active = true`. Officers and admins never appear — they earn no points. A deactivated citizen is dropped from the rankings entirely and everyone below them moves up; the account keeps its `points_ledger` history, so reactivating restores its place. Citizens with a zero (or negative) total for the period **do** appear, at the bottom — a new citizen seeing themselves ranked last is the nudge the feature exists for. Under `scope=zone` the board covers the caller's own `zoneId` only.
+         *
+         *     **Ordering and ties.** Sort by `points` descending, then by account age (older account first), then by `citizenId` ascending as a final tiebreak so the order is total and stable across pages — the same request twice must never interleave rows differently. Ranks are **sequential, never shared**: tied citizens get consecutive numbers in that order, so `rank` is always `1..N` with no gaps or repeats and `isTopThree` is exactly `rank <= 3`. Pagination applies after ranking, so a citizen's `rank` does not depend on which page it is read from.
+         *
+         *     **`currentUser`.** The caller's own row, computed against the full ranking rather than the returned page, so it is correct no matter which page was requested. `null` only when the caller has no row on this board at all — i.e. they are not a ranked citizen.
          */
         get: operations["getLeaderboard"];
         put?: never;
@@ -1175,6 +1213,12 @@ export interface components {
             token: string;
             /** @example Bearer */
             tokenType: string;
+            /**
+             * Format: date-time
+             * @description When this token stops being accepted (issue time + `JWT_TTL_HOURS`, default 24 h). Mirrors the JWT's own `exp` claim so a client can pre-empt expiry without decoding the token. **There is no refresh endpoint** — after this moment every request returns `401` and the client must send the user back to login. Clients must still handle `401` at any time, since a token can also be invalidated early (for example when an admin deactivates the account).
+             * @example 2026-07-27T09:15:00Z
+             */
+            expiresAt: string;
             user: components["schemas"]["User"];
         };
         /** @description An account. Password is never returned. */
@@ -1244,6 +1288,11 @@ export interface components {
         Category: {
             /** @example cat_pothole */
             id: string;
+            /**
+             * @description Stable identifier, fixed when the category is seeded (a rename never changes it). The 12 categories are seeded once and the list is not editable from the app, so clients may safely key behaviour off this value — `name` is a display label and must not be used as a key.
+             * @example POTHOLE
+             */
+            code: string;
             /** @example Pothole */
             name: string;
             /** @example A hole in the road surface that can damage vehicles or injure people. */
@@ -1317,7 +1366,7 @@ export interface components {
         };
         CreateComplaintRequest: {
             /**
-             * @description One of the 12 categories (may be AI-suggested or manually chosen).
+             * @description One of the 12 categories, always the citizen's confirmed choice — whether they accepted the client-side keyword match or picked it themselves (see `categorySuggestedByMatcher`).
              * @example cat_pothole
              */
             categoryId: string;
@@ -1340,6 +1389,13 @@ export interface components {
              * @example zone_012
              */
             zoneId: string;
+            /**
+             * @description Whether the citizen accepted the category the client's offline keyword matcher proposed, rather than picking one themselves (for analytics only — it never affects routing or the lifecycle).
+             *
+             *     There is no AI category suggestion: matching is done entirely on the client from a fixed keyword lexicon, because the category list is closed and seeded once. The server records this flag as reported and does not re-derive it.
+             * @default false
+             */
+            categorySuggestedByMatcher: boolean;
         };
         /** @description A compact complaint, used in lists and queues. */
         Complaint: {
@@ -1351,7 +1407,10 @@ export interface components {
             slaLabel?: components["schemas"]["SlaLabel"];
             /** @example 14 */
             upvoteCount?: number;
-            /** Format: uri */
+            /**
+             * Format: uri
+             * @description A signed, expiring link to the complaint's first evidence photo — see `GET /evidence/{evidenceId}/photo`. Root-relative. Opaque to the client: use it as-is, do not parse or store it.
+             */
             photoUrl?: string;
             zoneId?: string;
             zoneName?: string;
@@ -1401,7 +1460,10 @@ export interface components {
             upvoteCount: number;
             /** @description Whether the calling citizen has already upvoted this one. */
             hasUpvoted: boolean;
-            /** Format: uri */
+            /**
+             * Format: uri
+             * @description A signed, expiring link to the first evidence photo — see `GET /evidence/{evidenceId}/photo`. Carries no reporter identity, which is what makes it safe in the anonymised feed.
+             */
             photoUrl?: string;
             /**
              * Format: double
@@ -1427,7 +1489,10 @@ export interface components {
         };
         Evidence: {
             id: string;
-            /** Format: uri */
+            /**
+             * Format: uri
+             * @description A signed, expiring link to this row's image — see `GET /evidence/{evidenceId}/photo`. Re-minted on every read, so two reads of the same evidence return two different strings for the same picture; never use it as an identity or a cache key.
+             */
             photoUrl: string;
             /**
              * @description 1 for the original photo, 2+ for re-submissions.
@@ -1645,6 +1710,19 @@ export interface components {
             data: components["schemas"]["LeaderboardEntry"][];
             pagination: components["schemas"]["PaginationMeta"];
         };
+        /**
+         * Format: float
+         * @description **The one definition of "resolution time", used by every dashboard.**
+         *
+         *     For a single complaint it is `resolved_at − sla_started_at − sla_paused_seconds`, expressed in hours: the time the complaint actually spent as the officer's responsibility. It starts when the evidence was accepted and the SLA clock began — not when the citizen filed — and it excludes any spell in `NEEDS_MORE_EVIDENCE`, exactly like `slaLabel`. Those two numbers must never be able to disagree: a zone cannot show every complaint `ON_TIME` and an average past its SLA target.
+         *
+         *     It deliberately stops at `resolved_at`, not `closed_at`. The wait between "officer fixed it" and "citizen confirmed it" belongs to the citizen (or to the auto-close timeout) and is not the officer's or the zone's performance to answer for.
+         *
+         *     The field is the mean over a sample of complaints. Only complaints with a non-null `resolved_at` are in the sample, which naturally excludes `UNRESOLVABLE` ones and any complaint rejected at evidence review (its clock never started). A complaint that was disputed and re-resolved counts once, using its **latest** `resolved_at` and its total accumulated `sla_paused_seconds`, so the re-fix is paid for.
+         *
+         *     `null` — never `0` — when the sample is empty. Each field below states which complaints are in its sample.
+         */
+        AvgResolutionHours: number | null;
         CategoryBreakdownItem: {
             categoryId?: string;
             categoryName?: string;
@@ -1655,8 +1733,8 @@ export interface components {
             zoneName?: string;
             activeComplaints: number;
             overdueCount: number;
-            /** Format: float */
-            avgResolutionHoursThisMonth?: number | null;
+            /** @description Sample: complaints in this zone whose `resolved_at` falls in the current calendar month (server timezone). */
+            avgResolutionHoursThisMonth?: components["schemas"]["AvgResolutionHours"];
             categoryBreakdown?: components["schemas"]["CategoryBreakdownItem"][];
         };
         ZoneMetrics: {
@@ -1665,8 +1743,8 @@ export interface components {
             pending?: number;
             overdue?: number;
             resolvedThisMonth?: number;
-            /** Format: float */
-            avgResolutionHours?: number | null;
+            /** @description Sample: complaints in this zone whose `resolved_at` falls in the current calendar month — the same set counted by `resolvedThisMonth` beside it, so the two columns of the admin zone table always describe one population. Identical in meaning to `ZoneAnalytics.avgResolutionHoursThisMonth`; the officer and admin dashboards must show the same figure for the same zone. */
+            avgResolutionHours?: components["schemas"]["AvgResolutionHours"];
             /** @description True for the zone(s) with the most overdue complaints (for highlighting). */
             isHighestOverdue?: boolean;
             /** @description Top 3 citizens by CSP in this zone. */
@@ -1701,8 +1779,8 @@ export interface components {
             };
             /** Format: float */
             acceptRejectRatio?: number | null;
-            /** Format: float */
-            avgResolutionHours?: number | null;
+            /** @description Sample: complaints **this officer** resolved — that is, where they were the acting officer on the `→ RESOLVED` transition in `status_history` — with `resolved_at` inside the requested window (`period`, or `dateFrom`/`dateTo`). Attribution follows the transition, not `assignedOfficerId`, so reassigning a complaint cannot retroactively move finished work between scorecards. Cluster members swept to `RESOLVED` by the cascade carry a `SYSTEM` actor with no user attached, and are therefore **not** in any officer's sample — which is the intended reading, since one visit fixing one pothole should count as one resolution however many duplicates were filed about it. */
+            avgResolutionHours?: components["schemas"]["AvgResolutionHours"];
         };
         /** @description The only officer info a citizen may see. */
         PublicOfficerStats: {
@@ -1817,6 +1895,7 @@ export interface components {
         DateTo: string;
         ComplaintId: string;
         ClusterId: string;
+        EvidenceId: string;
         UserId: string;
         ZoneId: string;
         CategoryId: string;
@@ -2320,6 +2399,45 @@ export interface operations {
             404: components["responses"]["NotFound"];
             /** @description The complaint is not in the RESOLVED stage, so it cannot be disputed. */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getEvidencePhoto: {
+        parameters: {
+            query: {
+                /** @description Unix timestamp (seconds) after which the link stops working. */
+                exp: number;
+                /** @description URL-safe base64 HMAC-SHA256 of `{evidenceId}|{exp}` under the server's photo-signing secret. Verified in constant time. */
+                sig: string;
+            };
+            header?: never;
+            path: {
+                evidenceId: components["parameters"]["EvidenceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The image bytes. */
+            200: {
+                headers: {
+                    /** @description `private, max-age=<remaining TTL>` — cacheable by the browser for exactly as long as the signature stays valid, never by a shared proxy. */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": string;
+                    "image/png": string;
+                };
+            };
+            /** @description The signature is missing, malformed, wrong, or expired. A photo that does not exist returns `403` too, not `404` — the response must not confirm which evidence IDs are real. */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

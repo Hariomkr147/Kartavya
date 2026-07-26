@@ -144,12 +144,18 @@ export function CitizenDashboardPage() {
               accent="good"
             />
           </Link>
-          <StatCard
-            icon={CircleAlert}
-            label="Needs your attention"
-            value={actionNeeded.length}
-            accent={actionNeeded.length > 0 ? "warning" : "brand"}
-          />
+          <Link
+            to="/citizen/complaints?action=1"
+            className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+            aria-label={`View ${actionNeeded.length} complaints needing your attention`}
+          >
+            <StatCard
+              icon={CircleAlert}
+              label="Needs your attention"
+              value={actionNeeded.length}
+              accent={actionNeeded.length > 0 ? "warning" : "brand"}
+            />
+          </Link>
           <StatCard
             icon={Trophy}
             label="Civic Service Points"

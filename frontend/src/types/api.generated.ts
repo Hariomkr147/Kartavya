@@ -2020,7 +2020,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
-            /** @description An OFFICER attempted to change their own zoneId. */
+            /** @description A non-citizen (OFFICER or ADMIN) attempted to change their own zoneId. */
             403: {
                 headers: {
                     [name: string]: unknown;

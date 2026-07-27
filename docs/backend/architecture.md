@@ -1,6 +1,8 @@
 # Kartavya — Backend Architecture
 
-> **Status:** proposed design, not yet implemented.
+> **Status:** design agreed; `backend/` is now scaffolded against it. `app/domain/`,
+> `app/models/`, `app/core/`, the app factory and the seed are written; `app/services/`
+> and `app/api/` are stubs. See `backend/README.md` for what exists and how to run it.
 > **Audience:** the backend team. Assumes you know Python and Flask, and assumes you know *nothing* about Kartavya.
 > **Authority:** `backend/api/openapi.yaml` and `backend/database/schema.dbml` outrank this document. If they disagree with anything here, they win and this file is wrong — please fix it.
 

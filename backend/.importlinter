@@ -1,0 +1,53 @@
+; Enforces the dependency rule from docs/backend/architecture.md §3.3.
+; Run with:  lint-imports --config .importlinter
+;
+; Without this in CI, app/domain/ acquires a db.session by week four and the
+; fastest tests in the project stop being possible. That is a failing build.
+
+[importlinter]
+root_package = app
+
+[importlinter:contract:layers]
+name = Layered architecture
+type = layers
+layers =
+    app.api
+    app.services
+    app.models
+    app.domain
+
+[importlinter:contract:pure-domain]
+name = Domain is pure
+type = forbidden
+source_modules =
+    app.domain
+forbidden_modules =
+    flask
+    sqlalchemy
+    app.models
+    app.services
+    app.api
+    app.core
+    app.infra
+
+[importlinter:contract:serializers-do-not-query]
+name = Serializers never touch the ORM session
+type = forbidden
+source_modules =
+    app.api.shared.serializers
+    app.api.citizen.serializers
+    app.api.officer.serializers
+    app.api.admin.serializers
+forbidden_modules =
+    app.extensions
+    app.services
+
+[importlinter:contract:reporter-identity-is-admin-only]
+name = Only the admin package may serialize reporter identity
+type = forbidden
+source_modules =
+    app.api.citizen.serializers
+    app.api.officer.serializers
+    app.api.shared.serializers
+forbidden_modules =
+    app.api.admin.serializers

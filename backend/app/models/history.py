@@ -1,0 +1,94 @@
+"""status_history, complaint_notes, complaint_upvotes — mirrors schema.dbml."""
+
+from __future__ import annotations
+
+from sqlalchemy import ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.domain.enums import ComplaintStatus, StatusActor
+from app.models.base import TimestampMixin, db, enum_column
+
+
+class StatusHistory(TimestampMixin, db.Model):
+    """APPEND-ONLY audit trail. Every stage change is exactly one row, forever.
+
+    There is deliberately no update or delete path for this table anywhere in
+    the codebase, so a careless `UPDATE` has nothing to copy from. Rows are
+    written only by `app/services/complaints/lifecycle.py`, in the same
+    transaction as the status change — which is what makes a status change
+    without a matching history entry structurally impossible.
+    """
+
+    __tablename__ = "status_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    complaint_id: Mapped[int] = mapped_column(
+        ForeignKey("complaints.id", ondelete="CASCADE"), nullable=False
+    )
+
+    #: Null for the very first entry.
+    from_status: Mapped[ComplaintStatus | None] = mapped_column(enum_column(ComplaintStatus))
+    to_status: Mapped[ComplaintStatus] = mapped_column(
+        enum_column(ComplaintStatus), nullable=False
+    )
+
+    #: Four values, including SYSTEM — a separate enum from the 3-value account
+    #: Role, because SYSTEM is never a valid account role.
+    actor_role: Mapped[StatusActor] = mapped_column(enum_column(StatusActor), nullable=False)
+
+    #: Null when actor_role is SYSTEM (auto-close, cluster cascade). RESTRICT on
+    #: delete: anyone who has ever moved a complaint cannot be hard-deleted.
+    changed_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT")
+    )
+
+    #: Reject / unresolvable / dispute / dispute-review / override reasons.
+    reason: Mapped[str | None] = mapped_column(Text)
+    #: Free-text remark, e.g. the officer's closing note. Distinct from reason.
+    remark: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (Index("ix_status_history_complaint_created", "complaint_id", "created_at"),)
+
+
+class ComplaintNote(TimestampMixin, db.Model):
+    """Officer-authored progress notes. Permanent — never edited or deleted.
+
+    Shown to the citizen with the officer's ID, never their name.
+    """
+
+    __tablename__ = "complaint_notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    complaint_id: Mapped[int] = mapped_column(
+        ForeignKey("complaints.id", ondelete="CASCADE"), nullable=False
+    )
+    officer_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    note_text: Mapped[str] = mapped_column(String(500), nullable=False)
+
+    __table_args__ = (Index("ix_complaint_notes_complaint_created", "complaint_id", "created_at"),)
+
+
+class ComplaintUpvote(TimestampMixin, db.Model):
+    """Feeds both severity (+1 to the score) and the reporter's CSP (+5).
+
+    `upvoteCount` is COUNT(*) here — never a stored column.
+    """
+
+    __tablename__ = "complaint_upvotes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    complaint_id: Mapped[int] = mapped_column(
+        ForeignKey("complaints.id", ondelete="CASCADE"), nullable=False
+    )
+    #: The app also enforces citizen_id != complaint.citizen_id — no self-upvotes.
+    citizen_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "complaint_id", "citizen_id", name="uq_complaint_upvotes_complaint_citizen"
+        ),
+    )

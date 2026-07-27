@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Kartavya is a gamified civic grievance platform (citizens report infrastructure problems, officers resolve them, admins run the system, points/badges reward participation). The repository is **contract-first and currently scaffold-only**:
 
 - `backend/api/openapi.yaml` and `backend/database/schema.dbml` are fully designed and are the single source of truth for the whole system.
-- `backend/app/` is **empty** — no backend application code exists yet, and this repo's frontend work does not implement it (a separate team owns the backend). The design plan for it is `docs/backend/architecture.md`; the old `config/controllers/middlewares/routes/views` scaffold has been dropped in favour of the layering described there. When it does get implemented, set up the toolchain (Flask + SQLAlchemy + SQLite per the schema notes) and update this file with the real commands.
+- `backend/app/` is **scaffolded, not implemented** (a separate team owns the backend). The layering follows `docs/backend/architecture.md`; the old `config/controllers/middlewares/routes/views` scaffold has been dropped. What exists: `app/domain/` (all pure rules — state machine, SLA, severity, points, badges, geo — ported from the frontend mock and covered by passing tests), `app/models/` (all 14 tables), `app/core/` (auth, scoping, errors, validation, photo-URL signing), the app factory, config, and `app/seed.py`. What does not: every `app/services/` function and every `app/api/` route body — the 45 contract paths are registered and answer `501 NOT_IMPLEMENTED`. Read `backend/README.md` for commands and the build order. Run everything from `backend/`: `pip install -e ".[dev]"`, `flask --app app run`, `pytest`, `lint-imports --config .importlinter`, `ruff check .`.
 - `frontend/` now has a real toolchain: React 19 + Vite + TypeScript + Tailwind CSS v4, no UI component library (all interactive components are bespoke, under `frontend/src/components/ui/`). Because the backend doesn't exist yet, the app runs against an MSW mock layer (`frontend/src/mocks/`) by default (`VITE_USE_MOCKS=true` in `.env.development`) — this is purely client-side TypeScript, not a backend implementation. Run everything from `frontend/`:
   - `npm run dev` — start the Vite dev server.
   - `npm run build` — typecheck (`tsc -b`) then production build.
@@ -59,7 +59,7 @@ Zones are admin-managed areas defined only by a centre point (`center_lat`/`cent
 backend/
   api/openapi.yaml        # canonical API contract — read first
   database/schema.dbml     # DBML schema, designed 1:1 against the API contract
-  app/                      # Flask app (not yet implemented) — planned packages:
+  app/                      # Flask app (scaffolded; services + routes are stubs):
                             #   domain/   pure business rules (no Flask, no SQLAlchemy, no I/O)
                             #   models/   SQLAlchemy ORM mirroring schema.dbml
                             #   services/ write side, grouped by aggregate
@@ -67,7 +67,7 @@ backend/
                             #   core/     auth, zone scoping, error envelope, validation
                             #   infra/    photo storage, AI providers
                             #   jobs/     AI screening, zone reports, auto-close sweeper
-  tests/                    # planned: domain/ services/ api/ contract/
+  tests/                    # domain/ (written, passing) services/ api/ contract/
 frontend/
   src/                      # React SPA (implemented): assets, components, hooks, pages, routes, services, types
 shared/contracts/          # reserved for cross-cutting contracts; currently empty

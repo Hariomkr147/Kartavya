@@ -1,0 +1,58 @@
+[project]
+name = "kartavya-backend"
+version = "0.1.0"
+description = "Kartavya — civic grievance platform API (Flask + SQLAlchemy + SQLite)"
+requires-python = ">=3.11"
+
+# Runtime dependencies. Deliberately small: no password-hashing library
+# (Werkzeug ships with Flask and provides scrypt), no serialization framework
+# (serializers are plain functions — see app/api/), no Celery (APScheduler is
+# enough for three in-process jobs, per docs/backend/architecture.md Part 10).
+dependencies = [
+    "Flask>=3.0",
+    "Flask-SQLAlchemy>=3.1",
+    "SQLAlchemy>=2.0",
+    "alembic>=1.13",
+    "pydantic[email]>=2.6",
+    "PyJWT>=2.8",
+    "APScheduler>=3.10",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.5",
+    "import-linter>=2.0",
+]
+# Contract tests (tests/contract/) validate live responses against
+# backend/api/openapi.yaml. Kept separate because it is a heavy install.
+contract = [
+    "schemathesis>=3.25",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+markers = [
+    "domain: pure-rule tests, no database, must stay in the millisecond range",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.coverage.run]
+source = ["app"]

@@ -9,6 +9,7 @@ import {
   Copy,
   FileQuestion,
   Gauge,
+  Info,
   ShieldAlert,
   UserCog,
   XCircle,
@@ -20,6 +21,7 @@ import { Label } from "@/components/ui/Label";
 import { Modal } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { useToast } from "@/components/ui/Toast";
 import { DynamicIcon } from "@/components/DynamicIcon";
 import { EvidenceGallery } from "@/components/complaint/EvidenceGallery";
@@ -382,6 +384,24 @@ export function OfficerComplaintDetailPage() {
           <span className="inline-flex items-center gap-1.5">
             <Gauge className="text-ink-faint size-4" aria-hidden="true" />
             Severity score {complaint.severityScore}
+            <Tooltip
+              side="bottom"
+              content={
+                <span className="block max-w-xs text-left">
+                  {cluster
+                    ? `Score ${complaint.severityScore} = (${cluster.uniqueReporterCount} unique reporter${cluster.uniqueReporterCount === 1 ? "" : "s"} − 1) × 3 + ${complaint.upvoteCount ?? 0} upvote(s) across the cluster. Repeat reports from the same citizen don't inflate it.`
+                    : `Score ${complaint.severityScore} = ${complaint.upvoteCount ?? 0} upvote(s) — no nearby duplicates are linked to this complaint.`}
+                </span>
+              }
+            >
+              <button
+                type="button"
+                aria-label="How is the severity score calculated?"
+                className="text-ink-faint hover:text-ink"
+              >
+                <Info className="size-3.5" aria-hidden="true" />
+              </button>
+            </Tooltip>
           </span>
         )}
         {complaint.updatedAt && (

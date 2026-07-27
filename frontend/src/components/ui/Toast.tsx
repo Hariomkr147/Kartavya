@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -21,9 +22,22 @@ interface ToastItem {
 
 export interface ToastHistoryItem extends ToastItem {
   createdAt: string;
+  /** In-app route the entry links to, when it refers to a specific record. */
+  href?: string;
 }
 
 const HISTORY_LIMIT = 30;
+
+export interface NotificationInput {
+  /** Dedupe key — re-notifying with the same key is a no-op, so a component may push on every render. */
+  key: string;
+  title: string;
+  description?: string;
+  variant?: ToastVariant;
+  href?: string;
+  /** Defaults to now; pass the event's own timestamp so "2 hours ago" is honest. */
+  createdAt?: string;
+}
 
 interface ToastContextValue {
   toast: (input: {
@@ -32,6 +46,12 @@ interface ToastContextValue {
     variant?: ToastVariant;
     durationMs?: number;
   }) => void;
+  /**
+   * Files an entry into the notification list *without* popping a transient
+   * toast — for things that happened while the user was away (see
+   * `useComplaintUpdates`) rather than in response to something they just did.
+   */
+  notify: (input: NotificationInput) => void;
   /** Session log of every toast fired, newest first — toasts themselves auto-dismiss, this doesn't. */
   history: ToastHistoryItem[];
   unreadCount: number;
@@ -80,6 +100,35 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     [dismiss],
   );
 
+  // Dedupe outside of the state updater: React re-invokes updaters (twice in
+  // StrictMode), so deciding "already filed?" inside one would double-count
+  // the unread badge. A ref survives clearing the list too, which is what we
+  // want — a notification the user dismissed must not reappear when the
+  // component that pushed it re-renders.
+  const notifiedKeys = useRef<Set<string>>(new Set());
+
+  const notify = useCallback<ToastContextValue["notify"]>(
+    ({ key, title, description, variant = "default", href, createdAt }) => {
+      if (notifiedKeys.current.has(key)) return;
+      notifiedKeys.current.add(key);
+      setHistory((current) =>
+        [
+          {
+            id: key,
+            title,
+            description,
+            variant,
+            href,
+            createdAt: createdAt ?? new Date().toISOString(),
+          },
+          ...current,
+        ].slice(0, HISTORY_LIMIT),
+      );
+      setUnreadCount((count) => count + 1);
+    },
+    [],
+  );
+
   const markHistoryRead = useCallback(() => setUnreadCount(0), []);
   const clearHistory = useCallback(() => {
     setHistory([]);
@@ -87,8 +136,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ toast, history, unreadCount, markHistoryRead, clearHistory }),
-    [toast, history, unreadCount, markHistoryRead, clearHistory],
+    () => ({ toast, notify, history, unreadCount, markHistoryRead, clearHistory }),
+    [toast, notify, history, unreadCount, markHistoryRead, clearHistory],
   );
 
   return (

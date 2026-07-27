@@ -1,6 +1,14 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Trophy, Award, ListChecks, TrendingUp, PieChart } from "lucide-react";
+import {
+  Trophy,
+  Award,
+  ListChecks,
+  TrendingUp,
+  PieChart,
+  RefreshCw,
+  Scale,
+} from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/Tabs";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -13,6 +21,12 @@ import {
   type BarDatum,
 } from "@/components/charts/HorizontalBarChart";
 import { iconForBadge } from "@/lib/badgeIcons";
+import {
+  CSP_REASON_LABELS,
+  CSP_RULES,
+  formatCsp,
+  observedAmounts,
+} from "@/lib/cspRules";
 import { relativeTime, absoluteDateTime } from "@/lib/datetime";
 import { usePointsSummary } from "@/hooks/usePointsSummary";
 import { useBadges } from "@/hooks/useBadges";
@@ -29,29 +43,37 @@ const LEDGER_PAGE_SIZE = 8;
 const LEDGER_FETCH_SIZE = 100;
 const LEADERBOARD_PAGE_SIZE = 10;
 
-const REASON_LABELS: Record<PointsLedgerEntry["reason"], string> = {
-  COMPLAINT_CLOSED: "Complaint closed",
-  CLUSTER_MEMBER_CLOSED: "Cluster member closed",
-  FIRST_COMPLAINT: "First complaint bonus",
-  ON_TIME_BONUS: "On-time bonus",
-  UPVOTE_RECEIVED: "Upvote received",
-  REJECTED_PENALTY: "Complaint rejected",
-};
+const REASON_LABELS = CSP_REASON_LABELS;
 
 const shortDateFormatter = new Intl.DateTimeFormat("en", {
   month: "short",
   day: "numeric",
 });
 
+/**
+ * One point per *day*, not per ledger row. Several awards commonly land on
+ * the same day (a close, its on-time bonus, an upvote), and plotting each
+ * one separately stamped the same date across the axis three times over
+ * while telling the reader nothing extra — the running total at the end of
+ * each day is the honest shape of "CSP over time".
+ */
 function cumulativeSeries(ledger: PointsLedgerEntry[]) {
   const chronological = [...ledger].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
   );
+  // Insertion order is chronological, and re-setting an existing key keeps
+  // its original position — so each day ends up holding its closing total.
+  const byDay = new Map<string, { x: string; y: number }>();
   let running = 0;
-  return chronological.map((entry) => {
+  for (const entry of chronological) {
     running += entry.amount;
-    return { x: shortDateFormatter.format(new Date(entry.createdAt)), y: running };
-  });
+    const date = new Date(entry.createdAt);
+    byDay.set(date.toISOString().slice(0, 10), {
+      x: shortDateFormatter.format(date),
+      y: running,
+    });
+  }
+  return [...byDay.values()];
 }
 
 function reasonBreakdown(ledger: PointsLedgerEntry[]): BarDatum[] {
@@ -89,6 +111,9 @@ export function GamificationPage() {
   );
   const trendData = useMemo(() => cumulativeSeries(ledger), [ledger]);
   const breakdownData = useMemo(() => reasonBreakdown(ledger), [ledger]);
+  // Where the citizen's own ledger already shows what a reason paid them,
+  // that real number wins over the published table below.
+  const earned = useMemo(() => observedAmounts(ledger), [ledger]);
   const currentUserVisible = leaderboard?.data.some((e) => e.isCurrentUser) ?? false;
 
   return (
@@ -136,12 +161,12 @@ export function GamificationPage() {
               start earning them.
             </p>
           ) : (
-            <div className="mt-4 flex flex-wrap gap-4">
+            <div className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(5rem,1fr))] gap-4">
               {badges.map((badge) => (
                 <Tooltip key={badge.code} content={badge.description ?? badge.name}>
                   <button
                     type="button"
-                    className="flex w-20 flex-col items-center gap-1.5 text-center"
+                    className="flex w-full flex-col items-center gap-1.5 text-center"
                   >
                     <span className="bg-brand/10 text-brand flex size-14 items-center justify-center rounded-full">
                       <DynamicIcon
@@ -163,6 +188,48 @@ export function GamificationPage() {
           )}
         </section>
       </div>
+
+      <section className="rounded-lg border border-line bg-surface p-5">
+        <div className="flex items-center gap-2">
+          <Scale className="text-ink-muted size-5" aria-hidden="true" />
+          <h2 className="font-display text-base font-semibold text-ink">
+            How Civic Service Points work
+          </h2>
+        </div>
+        <p className="text-ink-muted mt-1 text-sm">
+          Points are credited by the city when a report reaches an outcome — never for
+          filing alone. Amounts you've already been paid are shown from your own ledger.
+        </p>
+        <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+          {CSP_RULES.map((rule) => {
+            const amount = earned[rule.reason] ?? rule.documentedAmount;
+            const isPenalty = amount < 0;
+            return (
+              <li
+                key={rule.reason}
+                className="flex items-start gap-3 rounded-md border border-line p-3"
+              >
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full px-2 py-0.5 font-mono text-xs font-semibold",
+                    isPenalty
+                      ? "bg-status-rejected-subtle text-status-rejected"
+                      : "bg-csp/15 text-csp",
+                  )}
+                >
+                  {formatCsp(amount)}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-ink">{rule.label}</p>
+                  <p className="text-ink-muted mt-0.5 text-xs leading-snug">
+                    {rule.description}
+                  </p>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
 
       {!pointsLoading && ledger.length > 0 && (
         <div className="grid items-start gap-6 lg:grid-cols-2">
@@ -254,7 +321,18 @@ export function GamificationPage() {
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-display text-lg font-semibold text-ink">Leaderboard</h2>
+          <div>
+            <h2 className="font-display text-lg font-semibold text-ink">Leaderboard</h2>
+            {leaderboard?.generatedAt && (
+              <p
+                className="text-ink-faint mt-0.5 flex items-center gap-1.5 text-xs"
+                title={absoluteDateTime(leaderboard.generatedAt)}
+              >
+                <RefreshCw className="size-3" aria-hidden="true" />
+                Ranked as of {relativeTime(leaderboard.generatedAt)}
+              </p>
+            )}
+          </div>
           <div className="flex flex-wrap gap-2">
             <Tabs
               value={scope}

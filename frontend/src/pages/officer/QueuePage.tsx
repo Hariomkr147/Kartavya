@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { ClipboardList, Search, X } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
+import { ArrowUp, ClipboardList, ImageOff, Search, X } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Combobox } from "@/components/ui/Combobox";
 import { Label } from "@/components/ui/Label";
@@ -83,7 +83,13 @@ const STATUS_RANK: Record<ComplaintStatus, number> = {
   UNRESOLVABLE: 10,
 };
 
-type QueueSortKey = "category" | "status" | "severity" | "sla" | "createdAt";
+type QueueSortKey =
+  | "category"
+  | "status"
+  | "severity"
+  | "sla"
+  | "upvotes"
+  | "createdAt";
 
 // Mirrors the field names the mock's `sort` query param recognizes
 // (createdAt/updatedAt/severity/sla/upvotes, see mocks/lib/sort.ts) even
@@ -94,6 +100,7 @@ const QUEUE_COMPARATORS: ComparatorsByKey<Complaint, QueueSortKey> = {
   status: (row) => STATUS_RANK[row.status],
   severity: (row) => (row.severityLabel ? SEVERITY_RANK[row.severityLabel] : -1),
   sla: (row) => (row.slaLabel ? SLA_RANK[row.slaLabel] : -1),
+  upvotes: (row) => row.upvoteCount ?? 0,
   createdAt: (row) => new Date(row.createdAt).getTime(),
 };
 
@@ -126,6 +133,11 @@ export function OfficerQueuePage() {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [batchOpen, setBatchOpen] = useState(false);
+  // Which row's claim is in flight. `claim.isPending` is shared by every row,
+  // so keying the spinner off it alone would spin all the Claim buttons at
+  // once when only one complaint is actually being claimed.
+  const [claimingId, setClaimingId] = useState<string | null>(null);
+  const [, setRawSearchParams] = useSearchParams();
 
   const { data: categories } = useCategories();
   const claim = useClaimComplaint();
@@ -177,6 +189,25 @@ export function OfficerQueuePage() {
     setSelected(new Set());
   }
 
+  // Deliberately leaves `tab` alone — that's the primary view mode, with its
+  // own visible control, not one of the narrowing filters. Cleared in one
+  // functional update rather than three setter calls: each per-field setter
+  // closes over its own snapshot of the URL, so sequential calls would
+  // overwrite each other and only the last field would actually clear.
+  const hasFilters = categoryId !== "" || severity !== "" || search.trim() !== "";
+
+  function clearFilters() {
+    setRawSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        for (const key of ["category", "severity", "q"]) next.delete(key);
+        return next;
+      },
+      { replace: true },
+    );
+    resetForFilterChange();
+  }
+
   function toggleSelectAll() {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -196,6 +227,7 @@ export function OfficerQueuePage() {
   }
 
   async function handleClaim(complaintId: string) {
+    setClaimingId(complaintId);
     try {
       await claim.mutateAsync(complaintId);
       toast({
@@ -209,6 +241,8 @@ export function OfficerQueuePage() {
         description: error instanceof ApiRequestError ? error.message : undefined,
         variant: "error",
       });
+    } finally {
+      setClaimingId(null);
     }
   }
 
@@ -283,6 +317,14 @@ export function OfficerQueuePage() {
             ]}
           />
         </div>
+        {hasFilters && (
+          <div className="flex items-end">
+            <Button variant="ghost" size="sm" onClick={clearFilters}>
+              <X className="size-3.5" aria-hidden="true" />
+              Clear filters
+            </Button>
+          </div>
+        )}
       </div>
 
       {selected.size > 0 && (
@@ -325,6 +367,7 @@ export function OfficerQueuePage() {
                     onChange={toggleSelectAll}
                   />
                 </TableHeaderCell>
+                <TableHeaderCell className="w-14">Photo</TableHeaderCell>
                 <SortableHeaderCell {...sortableProps("category")}>
                   Category
                 </SortableHeaderCell>
@@ -335,6 +378,9 @@ export function OfficerQueuePage() {
                   Severity
                 </SortableHeaderCell>
                 <SortableHeaderCell {...sortableProps("sla")}>SLA</SortableHeaderCell>
+                <SortableHeaderCell {...sortableProps("upvotes")}>
+                  Upvotes
+                </SortableHeaderCell>
                 <TableHeaderCell>Assigned</TableHeaderCell>
                 <SortableHeaderCell {...sortableProps("createdAt")}>
                   Filed
@@ -344,7 +390,7 @@ export function OfficerQueuePage() {
             </TableHead>
             <TableBody>
               {paged.length === 0 ? (
-                <DataTableEmpty colSpan={8}>
+                <DataTableEmpty colSpan={10}>
                   <p className="text-ink-muted text-sm">No complaints on this page.</p>
                 </DataTableEmpty>
               ) : (
@@ -363,6 +409,23 @@ export function OfficerQueuePage() {
                         checked={selected.has(c.id)}
                         onChange={() => toggleRow(c.id)}
                       />
+                    </TableCell>
+                    <TableCell>
+                      <Link
+                        to={`/officer/queue/${c.id}`}
+                        className="bg-surface-hover flex size-10 items-center justify-center overflow-hidden rounded-md"
+                        aria-label={`Open ${c.id}`}
+                      >
+                        {c.photoUrl ? (
+                          <img
+                            src={c.photoUrl}
+                            alt=""
+                            className="size-full object-cover"
+                          />
+                        ) : (
+                          <ImageOff className="text-ink-faint size-4" aria-hidden="true" />
+                        )}
+                      </Link>
                     </TableCell>
                     <TableCell>
                       <Link
@@ -386,6 +449,12 @@ export function OfficerQueuePage() {
                     </TableCell>
                     <TableCell>{c.slaLabel && <SlaPill sla={c.slaLabel} />}</TableCell>
                     <TableCell className="text-ink-muted text-sm">
+                      <span className="inline-flex items-center gap-1">
+                        <ArrowUp className="size-3.5 shrink-0" aria-hidden="true" />
+                        {c.upvoteCount ?? 0}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-ink-muted text-sm">
                       {c.assignedOfficerId == null
                         ? "Unassigned"
                         : c.assignedOfficerId === user?.id
@@ -400,7 +469,8 @@ export function OfficerQueuePage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          loading={claim.isPending}
+                          loading={claimingId === c.id}
+                          disabled={claimingId !== null && claimingId !== c.id}
                           onClick={() => handleClaim(c.id)}
                         >
                           Claim

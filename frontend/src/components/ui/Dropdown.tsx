@@ -36,6 +36,16 @@ function useDropdownContext(component: string) {
   return ctx;
 }
 
+/**
+ * Lets custom content inside a `DropdownMenu` dismiss it — `DropdownItem`
+ * closes itself, but a panel holding its own links/controls (see
+ * `SettingsPopover`) needs to say when it's done.
+ */
+export function useDropdownClose(): () => void {
+  const { setOpen } = useDropdownContext("useDropdownClose");
+  return () => setOpen(false);
+}
+
 export interface DropdownProps {
   children: ReactNode;
   align?: "start" | "end";
@@ -96,9 +106,20 @@ export function DropdownTrigger({
 export function DropdownMenu({
   children,
   className,
+  role = "menu",
+  label,
 }: {
   children: ReactNode;
   className?: string;
+  /**
+   * `menu` for a list of actions (the default). Panels that hold controls
+   * rather than commands — switches, radio groups — must pass `dialog`:
+   * announcing a settings panel as a menu tells a screen-reader user to
+   * expect menu items that aren't there.
+   */
+  role?: "menu" | "dialog";
+  /** Accessible name, required in practice for `role="dialog"`. */
+  label?: string;
 }) {
   const { open, setOpen, triggerRef, position } = useDropdownContext("DropdownMenu");
   const menuRef = useRef<HTMLDivElement>(null);
@@ -131,7 +152,8 @@ export function DropdownMenu({
   return createPortal(
     <div
       ref={menuRef}
-      role="menu"
+      role={role}
+      aria-label={label}
       style={{
         position: "absolute",
         top: position.top,

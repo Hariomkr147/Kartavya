@@ -1,6 +1,41 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { ImagePlus, X } from "lucide-react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type DragEvent,
+} from "react";
+import { Camera, ImagePlus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+const COARSE_POINTER = "(pointer: coarse)";
+
+function matchMediaSupported(): boolean {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function";
+}
+
+function subscribeToPointer(onChange: () => void) {
+  if (!matchMediaSupported()) return () => {};
+  const query = window.matchMedia(COARSE_POINTER);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
+/**
+ * Touch devices get a second, camera-first input. A single input carrying
+ * `capture` would force the camera and take the gallery away, so the two are
+ * offered side by side — and the extra button never appears on a desktop,
+ * where `capture` does nothing anyway. Subscribed rather than sampled once,
+ * so plugging a mouse into a tablet is picked up.
+ */
+function useHasCamera(): boolean {
+  return useSyncExternalStore(
+    subscribeToPointer,
+    () => (matchMediaSupported() ? window.matchMedia(COARSE_POINTER).matches : false),
+    () => false,
+  );
+}
 
 export interface FileDropzoneProps {
   files: File[];
@@ -29,6 +64,8 @@ export function FileDropzone({
   const [dragActive, setDragActive] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const hasCamera = useHasCamera();
   const acceptedTypes = accept.split(",");
   const slotsLeft = maxFiles - files.length;
 
@@ -50,6 +87,11 @@ export function FileDropzone({
   }
 
   function removeAt(index: number) {
+    // A rejected add's error was about *that* attempt — removing any file,
+    // including one unrelated to the rejection, is a different action and
+    // shouldn't leave a stale "must be under 5 MB" message sitting under
+    // photos that satisfy it.
+    setLocalError(null);
     onFilesChange(files.filter((_, i) => i !== index));
   }
 
@@ -99,17 +141,43 @@ export function FileDropzone({
           <p className="text-sm font-medium text-ink">
             {files.length > 0
               ? `Add another photo (${files.length}/${maxFiles})`
-              : "Drop a photo here, or click to browse"}
+              : hasCamera
+                ? "Tap to choose a photo"
+                : "Drop a photo here, or click to browse"}
           </p>
           <p className="text-ink-faint text-xs">
             JPEG or PNG, up to {Math.round(maxSizeBytes / (1024 * 1024))} MB
             {maxFiles > 1 && ` · up to ${maxFiles} photos`}
           </p>
+          {hasCamera && (
+            <button
+              type="button"
+              onClick={(e) => {
+                // The dropzone itself opens the file browser; stop the click
+                // reaching it so the camera button doesn't open both.
+                e.stopPropagation();
+                cameraInputRef.current?.click();
+              }}
+              className="border-brand/40 text-brand hover:bg-brand/10 mt-1 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors"
+            >
+              <Camera className="size-3.5" aria-hidden="true" />
+              Take a photo
+            </button>
+          )}
           <input
             ref={inputRef}
             type="file"
             accept={accept}
             multiple={maxFiles > 1}
+            className="sr-only"
+            onChange={(e) => addCandidates(e.target.files)}
+          />
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept={accept}
+            capture="environment"
+            aria-label="Take a photo with the camera"
             className="sr-only"
             onChange={(e) => addCandidates(e.target.files)}
           />

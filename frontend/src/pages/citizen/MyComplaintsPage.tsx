@@ -1,5 +1,14 @@
-import { useMemo, useState } from "react";
-import { ClipboardList, CircleAlert, FilePlus2, Search, X } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
+import {
+  Camera,
+  CheckCircle2,
+  ClipboardList,
+  FilePlus2,
+  Search,
+  TimerOff,
+  X,
+} from "lucide-react";
 import { Combobox } from "@/components/ui/Combobox";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
@@ -9,6 +18,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
 import { LinkButton } from "@/components/ui/LinkButton";
 import { ComplaintListItem } from "@/components/complaint/ComplaintListItem";
+import { ConfirmFixButton } from "@/components/complaint/ConfirmFixButton";
 import { useMyComplaints } from "@/hooks/useMyComplaints";
 import { useCategories } from "@/hooks/useCategories";
 import { useZones } from "@/hooks/useZones";
@@ -69,17 +79,20 @@ const ACTIVE_STATUSES = new Set<ComplaintStatus>([
 const RESOLVED_STATUSES = new Set<ComplaintStatus>(["RESOLVED", "CLOSED"]);
 type Bucket = "" | "active" | "resolved";
 
-const boolCodec = {
-  serialize: (v: boolean) => (v ? "1" : undefined),
-  deserialize: (raw: string) => raw === "1",
-};
+/**
+ * `""` = off, `"1"` = any action (what the dashboard tile deep-links to),
+ * or one specific `citizenActionNeeded` value. Kept as one param so the
+ * existing `?action=1` links keep working.
+ */
+type ActionFilter = "" | "1" | NonNullable<Complaint["citizenActionNeeded"]>;
 
 const PAGE_SIZE = 10;
 // A larger single fetch used only while a client-only filter (zone, action-
-// needed, bucket, search) is active, mirroring the officer queue's pattern —
-// the API has no query params for any of these, so they narrow a generously
-// sized page client-side, then get paginated locally, keeping the displayed
-// count and page count honest instead of reflecting the unfiltered server total.
+// needed, bucket, SLA, search) is active, mirroring the officer queue's
+// pattern — the API has no query params for any of these, so they narrow a
+// generously sized page client-side, then get paginated locally, keeping the
+// displayed count and page count honest instead of reflecting the unfiltered
+// server total.
 const FETCH_SIZE = 100;
 
 export function MyComplaintsPage() {
@@ -87,20 +100,32 @@ export function MyComplaintsPage() {
   const [categoryId, setCategoryId] = useSearchParamState("category", "");
   const [zoneId, setZoneId] = useSearchParamState("zone", "");
   const [sort, setSort] = useSearchParamState("sort", "-createdAt");
-  const [actionNeededOnly, setActionNeededOnly] = useSearchParamState(
-    "action",
-    false,
-    boolCodec,
-  );
+  const [actionFilter, setActionFilter] = useSearchParamState<ActionFilter>("action", "");
+  // `slaLabel` is derived server-side and returned on every list row, but
+  // there's no query param for it — so it narrows client-side like the rest.
+  const [lateOnly, setLateOnly] = useSearchParamState("late", false, {
+    serialize: (v: boolean) => (v ? "1" : undefined),
+    deserialize: (raw: string) => raw === "1",
+  });
   const [search, setSearch] = useSearchParamState("q", "");
   const [bucket, setBucket] = useSearchParamState<Bucket>("bucket", "");
   const [page, setPage] = useState(1);
+  // Bypasses the per-field setters above for the "clear everything" case:
+  // each of those closes over its own snapshot of the URL from this render,
+  // so calling several back to back makes each one clobber the previous
+  // one's change instead of composing — only the last field would clear.
+  // One functional update drops every filter key in a single navigation.
+  const [, setRawSearchParams] = useSearchParams();
 
   const { data: categories } = useCategories();
   const { data: zones } = useZones();
 
   const hasClientOnlyFilter =
-    zoneId !== "" || actionNeededOnly || bucket !== "" || search.trim() !== "";
+    zoneId !== "" ||
+    actionFilter !== "" ||
+    lateOnly ||
+    bucket !== "" ||
+    search.trim() !== "";
 
   const { data, isLoading } = useMyComplaints({
     page: hasClientOnlyFilter ? 1 : page,
@@ -119,22 +144,37 @@ export function MyComplaintsPage() {
         ? RESOLVED_STATUSES.has(c.status)
         : true;
 
+  const matchesAction = (c: Complaint) =>
+    actionFilter === ""
+      ? true
+      : actionFilter === "1"
+        ? c.citizenActionNeeded != null
+        : c.citizenActionNeeded === actionFilter;
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return allComplaints.filter(
       (c) =>
         (!zoneId || c.zoneId === zoneId) &&
-        (!actionNeededOnly || c.citizenActionNeeded) &&
+        matchesAction(c) &&
+        (!lateOnly || c.slaLabel === "DELAYED" || c.slaLabel === "OVERDUE") &&
         matchesBucket(c) &&
         (!q ||
           c.id.toLowerCase().includes(q) ||
-          c.category.name.toLowerCase().includes(q)),
+          c.category.name.toLowerCase().includes(q) ||
+          (c.zoneName?.toLowerCase().includes(q) ?? false)),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allComplaints, zoneId, actionNeededOnly, bucket, search]);
+  }, [allComplaints, zoneId, actionFilter, lateOnly, bucket, search]);
 
-  const actionNeededCount = useMemo(
-    () => allComplaints.filter((c) => c.citizenActionNeeded).length,
+  const confirmCount = useMemo(
+    () => allComplaints.filter((c) => c.citizenActionNeeded === "CONFIRM_FIX").length,
+    [allComplaints],
+  );
+  const evidenceCount = useMemo(
+    () =>
+      allComplaints.filter((c) => c.citizenActionNeeded === "PROVIDE_MORE_EVIDENCE")
+        .length,
     [allComplaints],
   );
 
@@ -149,7 +189,8 @@ export function MyComplaintsPage() {
     status !== "" ||
     categoryId !== "" ||
     zoneId !== "" ||
-    actionNeededOnly ||
+    actionFilter !== "" ||
+    lateOnly ||
     bucket !== "" ||
     search !== "";
 
@@ -158,13 +199,30 @@ export function MyComplaintsPage() {
   }
 
   function clearFilters() {
-    setStatus("");
-    setCategoryId("");
-    setZoneId("");
-    setActionNeededOnly(false);
-    setBucket("");
-    setSearch("");
+    setRawSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        for (const key of [
+          "status",
+          "category",
+          "zone",
+          "action",
+          "late",
+          "bucket",
+          "q",
+        ]) {
+          next.delete(key);
+        }
+        return next;
+      },
+      { replace: true },
+    );
     setPage(1);
+  }
+
+  function toggleAction(value: Exclude<ActionFilter, "">) {
+    setActionFilter(actionFilter === value ? "" : value);
+    resetPage();
   }
 
   return (
@@ -179,21 +237,35 @@ export function MyComplaintsPage() {
         </LinkButton>
       </div>
 
-      {actionNeededCount > 0 && !actionNeededOnly && (
-        <button
-          type="button"
-          onClick={() => {
-            setActionNeededOnly(true);
-            resetPage();
-          }}
-          className="border-status-needs_more_evidence/40 bg-status-needs_more_evidence-subtle text-status-needs_more_evidence flex w-full items-center gap-2 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-colors hover:brightness-95"
-        >
-          <CircleAlert className="size-4 shrink-0" aria-hidden="true" />
-          {actionNeededCount === 1
-            ? "1 complaint needs your action"
-            : `${actionNeededCount} complaints need your action`}
-          <span className="ml-auto underline">View</span>
-        </button>
+      {(confirmCount > 0 || evidenceCount > 0) && (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {confirmCount > 0 && (
+            <AttentionBanner
+              tone="good"
+              icon={CheckCircle2}
+              active={actionFilter === "CONFIRM_FIX"}
+              onClick={() => toggleAction("CONFIRM_FIX")}
+              label={
+                confirmCount === 1
+                  ? "1 fix waiting for your confirmation"
+                  : `${confirmCount} fixes waiting for your confirmation`
+              }
+            />
+          )}
+          {evidenceCount > 0 && (
+            <AttentionBanner
+              tone="warning"
+              icon={Camera}
+              active={actionFilter === "PROVIDE_MORE_EVIDENCE"}
+              onClick={() => toggleAction("PROVIDE_MORE_EVIDENCE")}
+              label={
+                evidenceCount === 1
+                  ? "1 report needs a clearer photo"
+                  : `${evidenceCount} reports need a clearer photo`
+              }
+            />
+          )}
+        </div>
       )}
 
       <div className="space-y-4 rounded-lg border border-line bg-surface p-4">
@@ -203,7 +275,7 @@ export function MyComplaintsPage() {
             <Input
               id="complaints-search"
               leftIcon={<Search className="size-4" aria-hidden="true" />}
-              placeholder="Complaint ID or category…"
+              placeholder="Complaint ID, category or zone…"
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -271,53 +343,43 @@ export function MyComplaintsPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
+          <FilterChip
+            active={actionFilter !== ""}
             onClick={() => {
-              setActionNeededOnly(!actionNeededOnly);
+              setActionFilter(actionFilter !== "" ? "" : "1");
               resetPage();
             }}
-            aria-pressed={actionNeededOnly}
-            className={
-              actionNeededOnly
-                ? "bg-brand text-brand-fg rounded-full px-2.5 py-1 text-xs font-medium"
-                : "bg-surface-hover text-ink-muted hover:text-ink rounded-full px-2.5 py-1 text-xs font-medium transition-colors"
-            }
           >
             Needs my action
-          </button>
-          <button
-            type="button"
+          </FilterChip>
+          <FilterChip
+            active={bucket === "active"}
             onClick={() => {
               setBucket(bucket === "active" ? "" : "active");
               resetPage();
             }}
-            aria-pressed={bucket === "active"}
-            className={cn(
-              "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
-              bucket === "active"
-                ? "bg-brand text-brand-fg"
-                : "bg-surface-hover text-ink-muted hover:text-ink",
-            )}
           >
             Active only
-          </button>
-          <button
-            type="button"
+          </FilterChip>
+          <FilterChip
+            active={bucket === "resolved"}
             onClick={() => {
               setBucket(bucket === "resolved" ? "" : "resolved");
               resetPage();
             }}
-            aria-pressed={bucket === "resolved"}
-            className={cn(
-              "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
-              bucket === "resolved"
-                ? "bg-brand text-brand-fg"
-                : "bg-surface-hover text-ink-muted hover:text-ink",
-            )}
           >
             Resolved only
-          </button>
+          </FilterChip>
+          <FilterChip
+            active={lateOnly}
+            onClick={() => {
+              setLateOnly(!lateOnly);
+              resetPage();
+            }}
+          >
+            <TimerOff className="size-3" aria-hidden="true" />
+            Running late
+          </FilterChip>
           {hasFilters && (
             <Button variant="ghost" size="sm" onClick={clearFilters}>
               <X className="size-3.5" aria-hidden="true" />
@@ -361,6 +423,11 @@ export function MyComplaintsPage() {
                 to={`/citizen/complaints/${c.id}`}
                 showZone
                 showUpdatedAt
+                action={
+                  c.citizenActionNeeded === "CONFIRM_FIX" ? (
+                    <ConfirmFixButton complaintId={c.id} />
+                  ) : undefined
+                }
               />
             ))}
           </div>
@@ -373,5 +440,70 @@ export function MyComplaintsPage() {
         </>
       )}
     </div>
+  );
+}
+
+function FilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+        active
+          ? "bg-brand text-brand-fg"
+          : "bg-surface-hover text-ink-muted hover:text-ink",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+const BANNER_TONES = {
+  good: "border-status-resolved/40 bg-status-resolved-subtle text-status-resolved",
+  warning:
+    "border-status-needs_more_evidence/40 bg-status-needs_more_evidence-subtle text-status-needs_more_evidence",
+} as const;
+
+function AttentionBanner({
+  tone,
+  icon: Icon,
+  label,
+  active,
+  onClick,
+}: {
+  tone: keyof typeof BANNER_TONES;
+  icon: typeof CheckCircle2;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-[filter,box-shadow] hover:brightness-95",
+        BANNER_TONES[tone],
+        active && "ring-2 ring-current",
+      )}
+    >
+      <Icon className="size-4 shrink-0" aria-hidden="true" />
+      {label}
+      <span className="ml-auto shrink-0 text-xs underline">
+        {active ? "Clear" : "Show"}
+      </span>
+    </button>
   );
 }

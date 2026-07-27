@@ -9,6 +9,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Clock,
   Info,
   Loader2,
   MapPin,
@@ -24,6 +25,7 @@ import { Label } from "@/components/ui/Label";
 import { Combobox } from "@/components/ui/Combobox";
 import { FileDropzone } from "@/components/ui/FileDropzone";
 import { MapPicker, type LatLng } from "@/components/ui/MapPicker";
+import { MiniMap } from "@/components/ui/MiniMap";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Stepper } from "@/components/ui/Stepper";
 import { Tooltip } from "@/components/ui/Tooltip";
@@ -32,8 +34,10 @@ import { useCategories } from "@/hooks/useCategories";
 import { useZones } from "@/hooks/useZones";
 import { useSuggestZone } from "@/hooks/useSuggestZone";
 import { useCreateComplaint } from "@/hooks/useCreateComplaint";
+import { useLandmark } from "@/hooks/useLandmark";
 import { useLocalDraft } from "@/hooks/useLocalDraft";
 import { useDirtyFormGuard } from "@/hooks/useDirtyFormGuard";
+import { useAuth } from "@/contexts/AuthContext";
 import { iconForCategory } from "@/lib/categoryIcons";
 import { rankCategories } from "@/lib/categoryMatcher";
 import { readExifGps, type ExifGps } from "@/lib/exifGps";
@@ -60,9 +64,35 @@ interface WizardDraft {
 
 const EMPTY_DRAFT: WizardDraft = { step: 0, description: "", categoryId: null };
 
+// Photos, the map pin, and the zone are never part of this persisted draft —
+// a File can't survive localStorage, and re-deriving GPS after a reload
+// would be actively wrong — so a restored draft can only safely resume as
+// far as the category step. Letting it restore any further would land the
+// citizen on the Review screen with an enabled Submit button and nothing
+// behind it (no photo, no location, no zone), which submits nothing and
+// fails silently.
+const MAX_RESTORABLE_STEP = 1;
+
+function sanitizeWizardDraft(raw: WizardDraft): WizardDraft {
+  if (typeof raw !== "object" || raw === null || typeof raw.description !== "string") {
+    return EMPTY_DRAFT;
+  }
+  const categoryId = typeof raw.categoryId === "string" ? raw.categoryId : null;
+  const rawStep = typeof raw.step === "number" ? raw.step : 0;
+  const step = Math.max(0, Math.min(rawStep, MAX_RESTORABLE_STEP));
+  // A restored step of 1 with a description that no longer clears the
+  // continue gate (e.g. hand-edited storage) would land on the category
+  // step with no legal way back except the browser back button.
+  if (step >= 1 && raw.description.trim().length < MIN_DESCRIPTION_LENGTH) {
+    return { step: 0, description: raw.description, categoryId };
+  }
+  return { step, description: raw.description, categoryId };
+}
+
 export function FileComplaintPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const { data: categories, isLoading: categoriesLoading } = useCategories();
   const { data: zones, isLoading: zonesLoading } = useZones();
@@ -70,8 +100,12 @@ export function FileComplaintPage() {
   const createComplaint = useCreateComplaint();
 
   const [draft, setDraft, { hasDraft, clearDraft }] = useLocalDraft<WizardDraft>(
-    "file-complaint",
+    // Scoped per citizen — on a shared browser, an unscoped key would let one
+    // citizen's half-written complaint text be restored into another
+    // citizen's form, and submitted under their name.
+    `file-complaint:${user?.id ?? "anon"}`,
     EMPTY_DRAFT,
+    { sanitize: sanitizeWizardDraft },
   );
   const [draftNoticeDismissed, setDraftNoticeDismissed] = useState(false);
   const { step, description, categoryId } = draft;
@@ -100,6 +134,12 @@ export function FileComplaintPage() {
   // Step 3 — evidence + location
   const [photos, setPhotos] = useState<File[]>([]);
   const [location, setLocation] = useState<LatLng | null>(null);
+  // Tracks whether the current pin came from a photo's EXIF tag or the
+  // citizen dropped it themselves — see the photo-removal effect below,
+  // which only clears a pin that's still purely EXIF-derived and now
+  // orphaned by the photo it came from being deleted, never one the citizen
+  // has taken ownership of by adjusting it on the map.
+  const [locationSource, setLocationSource] = useState<"exif" | "manual" | null>(null);
   const [zoneId, setZoneId] = useState<string>("");
   const [zoneManuallySet, setZoneManuallySet] = useState(false);
   // Keyed by file identity so "checking" is derived (not set synchronously
@@ -127,7 +167,17 @@ export function FileComplaintPage() {
       categoryId != null ||
       photos.length > 0 ||
       step > 0);
-  useDirtyFormGuard(isDirty);
+  // The text and category are autosaved and will be there on return; the
+  // photo and pin are not (a File can't survive localStorage) — so the
+  // warning names the thing that's actually at risk instead of vaguely
+  // gesturing at "unsaved changes" the citizen won't actually lose.
+  const hasUnsavedMedia = photos.length > 0 || location != null;
+  useDirtyFormGuard(
+    isDirty,
+    hasUnsavedMedia
+      ? "Your photo and pinned location can't be saved automatically — leaving now will lose them. Continue?"
+      : undefined,
+  );
 
   // Auto-read EXIF GPS from the first photo, falling back to the manual map
   // when it's absent — most demo/downloaded photos have no GPS tags at all.
@@ -140,6 +190,7 @@ export function FileComplaintPage() {
       setExifResult({ file: firstPhoto, gps });
       if (gps) {
         setLocation(gps);
+        setLocationSource("exif");
         setZoneManuallySet(false);
         setShowManualMap(false);
       } else {
@@ -163,6 +214,29 @@ export function FileComplaintPage() {
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location?.lat, location?.lng, zoneManuallySet]);
+
+  // The last photo was removed, and the pin currently on the form is still
+  // exactly what that photo's EXIF tag produced — it no longer has any
+  // source, and leaving it in place would show "Add a photo above, or drop a
+  // pin below" (the idle copy) right next to a review step that still lists
+  // a location. The zone is only cleared if the citizen never touched it
+  // themselves; a manual override is a deliberate choice independent of the
+  // photo and outlives it. Adjusting state during render (rather than in an
+  // effect) on a tracked-previous-value comparison is the same pattern
+  // `BatchStatusModal` and the dispute modal above use to react to a change
+  // like this — it re-renders before the browser paints instead of costing
+  // a second, effect-driven render pass.
+  const [lastPhotoCount, setLastPhotoCount] = useState(photos.length);
+  if (photos.length !== lastPhotoCount) {
+    setLastPhotoCount(photos.length);
+    if (photos.length === 0 && locationSource === "exif") {
+      setLocation(null);
+      setLocationSource(null);
+      setExifResult(null);
+      setShowManualMap(false);
+      if (!zoneManuallySet) setZoneId("");
+    }
+  }
 
   // Poll the freshly created complaint until every photo's AI screening
   // resolves (or reports itself unavailable) — mirrors the mock's real
@@ -219,7 +293,15 @@ export function FileComplaintPage() {
 
   async function handleSubmit() {
     setFormError(null);
-    if (!categoryId || photos.length === 0 || !location || !zoneId) return;
+    if (!categoryId || photos.length === 0 || !location || !zoneId) {
+      // Not reachable through the normal Continue-gated flow, but a restored
+      // draft or an unexpected state change should never leave the button
+      // simply doing nothing with no explanation.
+      setFormError(
+        "Something's missing before this can be submitted — go back through the steps and check each one.",
+      );
+      return;
+    }
 
     try {
       const complaint = await createComplaint.mutateAsync({
@@ -245,6 +327,13 @@ export function FileComplaintPage() {
 
   const selectedCategory = categories?.find((c) => c.id === categoryId) ?? null;
   const selectedZone = zones?.find((z) => z.id === zoneId) ?? null;
+  // The pin is the one thing on the review step a citizen can't otherwise
+  // check — it was auto-read from EXIF or tapped onto a map several steps
+  // ago. A nearby-landmark hint makes it verifiable at a glance.
+  const { data: reviewLandmark, isLoading: reviewLandmarkLoading } = useLandmark(
+    location?.lat,
+    location?.lng,
+  );
 
   function resetForm() {
     setStep(0);
@@ -255,6 +344,7 @@ export function FileComplaintPage() {
     setSecondGuessId(null);
     setPhotos([]);
     setLocation(null);
+    setLocationSource(null);
     setZoneId("");
     setZoneManuallySet(false);
     setExifResult(null);
@@ -291,7 +381,10 @@ export function FileComplaintPage() {
 
       {hasDraft && !draftNoticeDismissed && (
         <div className="border-brand/30 bg-brand/5 text-ink-muted flex items-center justify-between gap-3 rounded-md border px-4 py-2.5 text-sm">
-          <span>Draft restored — pick up where you left off.</span>
+          <span>
+            Draft restored — your description and category are back. You'll need to add
+            your photo and location again to continue.
+          </span>
           <button
             type="button"
             onClick={() => setDraftNoticeDismissed(true)}
@@ -480,7 +573,13 @@ export function FileComplaintPage() {
               </p>
             )}
             {(showManualMap || exifStatus === "not-found" || exifStatus === "idle") && (
-              <MapPicker value={location} onChange={setLocation} />
+              <MapPicker
+                value={location}
+                onChange={(next) => {
+                  setLocation(next);
+                  setLocationSource("manual");
+                }}
+              />
             )}
           </div>
 
@@ -539,14 +638,43 @@ export function FileComplaintPage() {
             </ReviewRow>
             <ReviewRow label="Category">
               {selectedCategory && (
-                <div className="flex items-center gap-2 text-ink">
-                  <DynamicIcon
-                    icon={iconForCategory(selectedCategory.name)}
-                    className="text-ink-muted size-4"
-                    aria-hidden="true"
-                  />
-                  {selectedCategory.name}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="flex items-center gap-2 text-ink">
+                    <DynamicIcon
+                      icon={iconForCategory(selectedCategory.name)}
+                      className="text-ink-muted size-4"
+                      aria-hidden="true"
+                    />
+                    {selectedCategory.name}
+                  </span>
+                  {selectedCategory.slaTargetHours != null && (
+                    <span className="bg-brand-subtle text-brand inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium">
+                      <Clock className="size-3" aria-hidden="true" />
+                      {selectedCategory.slaTargetHours}h resolution target
+                    </span>
+                  )}
                 </div>
+              )}
+            </ReviewRow>
+            <ReviewRow label="Location">
+              {location ? (
+                <div className="space-y-2">
+                  <MiniMap
+                    pins={[{ id: "new-complaint", lat: location.lat, lng: location.lng }]}
+                    height={160}
+                  />
+                  <p className="text-ink-faint flex items-center gap-1.5 text-xs">
+                    <MapPinned className="size-3.5 shrink-0" aria-hidden="true" />
+                    {reviewLandmarkLoading ? (
+                      <Skeleton className="h-3 w-40" />
+                    ) : (
+                      (reviewLandmark ??
+                      `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`)
+                    )}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-ink">—</p>
               )}
             </ReviewRow>
             <ReviewRow label="Zone">
@@ -560,6 +688,12 @@ export function FileComplaintPage() {
               </div>
             </ReviewRow>
           </div>
+
+          <p className="text-ink-muted bg-surface-hover rounded-md px-3 py-2 text-xs">
+            Once you submit, an officer checks your photos before the work is scheduled.
+            You'll be asked to confirm the fix at the end — that's what closes the report
+            and credits your Civic Service Points.
+          </p>
 
           <div className="flex justify-between">
             <Button type="button" variant="ghost" onClick={goBack}>

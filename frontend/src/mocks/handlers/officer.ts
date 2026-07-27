@@ -457,7 +457,19 @@ export const officerHandlers = [
     if (!auth.ok) return auth.response;
 
     const zone = db.zones.find((z) => z.id === auth.user.zoneId)!;
-    const rows = db.complaints.filter((c) => c.zoneId === zone.id);
+    const url = new URL(request.url);
+    const dateFrom = url.searchParams.get("dateFrom");
+    const dateTo = url.searchParams.get("dateTo");
+
+    // The contract declares dateFrom/dateTo on this endpoint; they narrow the
+    // sample by when a complaint was *filed*. Note this deliberately does not
+    // touch avgResolutionHoursThisMonth below — that field is pinned by the
+    // contract to the current calendar month whatever range is requested.
+    const allZoneRows = db.complaints.filter((c) => c.zoneId === zone.id);
+    let rows = allZoneRows;
+    if (dateFrom) rows = rows.filter((c) => new Date(c.createdAt) >= new Date(dateFrom));
+    if (dateTo) rows = rows.filter((c) => new Date(c.createdAt) <= new Date(dateTo));
+
     const active = rows.filter((c) => !TERMINAL_STATUSES.has(c.status));
     const overdue = rows.filter(
       (c) =>
@@ -466,7 +478,7 @@ export const officerHandlers = [
     );
 
     const now = new Date();
-    const resolvedThisMonth = rows.filter(
+    const resolvedThisMonth = allZoneRows.filter(
       (c) =>
         c.resolvedAt &&
         new Date(c.resolvedAt).getMonth() === now.getMonth() &&

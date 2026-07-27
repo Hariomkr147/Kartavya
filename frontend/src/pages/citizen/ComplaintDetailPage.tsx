@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
+  ArrowUp,
   Copy,
   FileQuestion,
   Info,
-  ThumbsDown,
-  ThumbsUp,
+  MapPinned,
   Users,
   UserCog,
 } from "lucide-react";
@@ -24,17 +24,25 @@ import { useToast } from "@/components/ui/Toast";
 import { DynamicIcon } from "@/components/DynamicIcon";
 import { EvidenceGallery } from "@/components/complaint/EvidenceGallery";
 import { TimelineSidebar } from "@/components/complaint/TimelineSidebar";
+import { LifecycleTracker } from "@/components/complaint/LifecycleTracker";
+import { ActionRequiredPanel } from "@/components/complaint/ActionRequiredPanel";
 import { useComplaint } from "@/hooks/useComplaint";
 import { useOfficerStats } from "@/hooks/useOfficerStats";
 import { useSubmitEvidence } from "@/hooks/useSubmitEvidence";
 import { useConfirmResolution } from "@/hooks/useConfirmResolution";
 import { useDisputeResolution } from "@/hooks/useDisputeResolution";
+import { useLandmark } from "@/hooks/useLandmark";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
 import { useLocalDraft } from "@/hooks/useLocalDraft";
 import { iconForCategory } from "@/lib/categoryIcons";
+import { otherReporterCount } from "@/lib/clusterInsight";
+import { describeLifecycle } from "@/lib/lifecycle";
 import { relativeTime } from "@/lib/datetime";
 import { ApiRequestError } from "@/services/http";
+
+/** Documented in the contract on `POST /complaints/{id}/upvote`. */
+const CSP_PER_UPVOTE = 5;
 
 export function ComplaintDetailPage() {
   const { complaintId } = useParams<{ complaintId: string }>();
@@ -42,6 +50,7 @@ export function ComplaintDetailPage() {
   const { user } = useAuth();
   const { data: complaint, isLoading, isError } = useComplaint(complaintId);
   const { data: officerStats } = useOfficerStats(complaint?.assignedOfficerId);
+  const { data: landmark } = useLandmark(complaint?.latitude, complaint?.longitude);
   const { record: recordRecentlyViewed } = useRecentlyViewed(
     `citizen:${user?.id ?? "anon"}`,
   );
@@ -52,10 +61,31 @@ export function ComplaintDetailPage() {
 
   const [resubmitPhoto, setResubmitPhoto] = useState<File | null>(null);
   const [disputeOpen, setDisputeOpen] = useState(false);
-  const [disputeReason, setDisputeReason, { clearDraft: clearDisputeDraft }] =
-    useLocalDraft(`dispute-reason:${complaintId ?? "unknown"}`, "");
+  const [
+    disputeReason,
+    setDisputeReason,
+    { hasDraft: hasDisputeDraft, clearDraft: clearDisputeDraft },
+  ] = useLocalDraft(
+    // Scoped per citizen, matching every other client-persisted key in this
+    // app — a complaint's owner is the only one who can ever reach this
+    // page (403 otherwise), so the practical exposure is low, but there's no
+    // reason for this one key to be the exception.
+    `dispute-reason:${user?.id ?? "anon"}:${complaintId ?? "unknown"}`,
+    "",
+  );
   const [disputePhoto, setDisputePhoto] = useState<File | null>(null);
   const [disputeError, setDisputeError] = useState<string | null>(null);
+  // Resets only what should never survive a reopen. `disputeReason` is
+  // deliberately excluded — it's the one field persisted via
+  // `useLocalDraft`, precisely so closing the modal by accident doesn't lose
+  // typed text — and `disputePhoto` is left alone too: within the same page
+  // session (no reload) a citizen who closes and reopens the modal should
+  // find their selected photo still there, the same way the reason does.
+  const [wasDisputeOpen, setWasDisputeOpen] = useState(disputeOpen);
+  if (disputeOpen !== wasDisputeOpen) {
+    setWasDisputeOpen(disputeOpen);
+    if (disputeOpen) setDisputeError(null);
+  }
 
   useEffect(() => {
     if (!complaint) return;
@@ -70,10 +100,11 @@ export function ComplaintDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto w-full max-w-3xl space-y-4">
+      <div className="mx-auto w-full max-w-5xl space-y-4">
         <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-32 w-full" />
         <Skeleton className="h-64 w-full" />
-        <Skeleton className="h-40 w-full" />
       </div>
     );
   }
@@ -172,6 +203,15 @@ export function ComplaintDetailPage() {
     }
   }
 
+  const upvoteCount = complaint.upvoteCount ?? 0;
+  // Recoverable from the contract's own severity formula — the cluster
+  // endpoints themselves are officer/admin-scoped, so this is the only way a
+  // citizen can be told how many neighbours hit the same problem.
+  const otherReporters = complaint.clusterId
+    ? otherReporterCount(complaint.severityScore, upvoteCount)
+    : null;
+  const showBackingCard = upvoteCount > 0 || !!complaint.clusterId;
+
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6 pb-12">
       <Link
@@ -219,8 +259,8 @@ export function ComplaintDetailPage() {
                   content={
                     <span className="block max-w-xs text-left">
                       {complaint.clusterId
-                        ? `Score ${complaint.severityScore} = (nearby reports − 1) × 3 + ${complaint.upvoteCount ?? 0} upvote(s). This complaint is linked to nearby duplicate reports via its cluster.`
-                        : `Score ${complaint.severityScore} = ${complaint.upvoteCount ?? 0} upvote(s) — no nearby duplicates linked to this complaint.`}
+                        ? `Score ${complaint.severityScore} = (nearby reports − 1) × 3 + ${upvoteCount} upvote(s). This complaint is linked to nearby duplicate reports via its cluster.`
+                        : `Score ${complaint.severityScore} = ${upvoteCount} upvote(s) — no nearby duplicates linked to this complaint.`}
                     </span>
                   }
                 >
@@ -235,20 +275,76 @@ export function ComplaintDetailPage() {
               )}
             </span>
           )}
-          {complaint.slaLabel && <SlaPill sla={complaint.slaLabel} />}
+          {complaint.slaLabel && (
+            <SlaPill
+              sla={complaint.slaLabel}
+              past={describeLifecycle(complaint.status).isTerminal}
+            />
+          )}
         </div>
       </div>
 
-      {complaint.clusterId && (
-        <div className="text-ink-muted flex items-center gap-2 rounded-md border border-line bg-surface p-3 text-sm">
-          <Users className="text-brand size-4 shrink-0" aria-hidden="true" />
-          Reported by others nearby — this issue is linked to similar reports in its
-          cluster.
-        </div>
-      )}
+      <LifecycleTracker
+        status={complaint.status}
+        statusHistory={complaint.statusHistory}
+      />
+
+      <ActionRequiredPanel
+        complaint={complaint}
+        resubmitPhoto={resubmitPhoto}
+        onResubmitPhotoChange={setResubmitPhoto}
+        onResubmit={handleResubmit}
+        resubmitting={submitEvidence.isPending}
+        onConfirm={handleConfirm}
+        confirming={confirmResolution.isPending}
+        onOpenDispute={() => setDisputeOpen(true)}
+      />
 
       <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
         <div className="min-w-0 space-y-6">
+          {showBackingCard && (
+            <section className="rounded-lg border border-line bg-surface p-4">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                {upvoteCount > 0 && (
+                  <p className="flex items-center gap-2 text-sm text-ink">
+                    <span className="bg-brand-subtle text-brand inline-flex size-7 shrink-0 items-center justify-center rounded-full">
+                      <ArrowUp className="size-4" aria-hidden="true" />
+                    </span>
+                    <span>
+                      <span className="font-semibold">{upvoteCount}</span>{" "}
+                      {upvoteCount === 1 ? "neighbour has" : "neighbours have"} backed this
+                      report
+                    </span>
+                  </p>
+                )}
+                {upvoteCount > 0 && (
+                  <span className="bg-csp/15 text-csp rounded-full px-2.5 py-0.5 text-xs font-semibold">
+                    +{upvoteCount * CSP_PER_UPVOTE} CSP earned from upvotes
+                  </span>
+                )}
+              </div>
+              {complaint.clusterId && (
+                <p className="text-ink-muted mt-3 flex items-start gap-2 text-sm">
+                  <Users className="text-brand mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                  {otherReporters && otherReporters > 0 ? (
+                    <span>
+                      <span className="font-medium text-ink">
+                        {otherReporters} other {otherReporters === 1 ? "person" : "people"}
+                      </span>{" "}
+                      reported this same issue nearby — the city treats them as one job,
+                      so fixing it resolves all of them together.
+                    </span>
+                  ) : (
+                    <span>
+                      Reported by others nearby — this issue is linked to similar reports
+                      in its cluster.
+                    </span>
+                  )}
+                </p>
+              )}
+            </section>
+          )}
+
           {complaint.assignedOfficerId && (
             <div className="text-ink-muted flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface p-3 text-sm">
               <UserCog className="size-4 shrink-0" aria-hidden="true" />
@@ -260,20 +356,29 @@ export function ComplaintDetailPage() {
               )}
             </div>
           )}
-          <h2 className="font-display mb-3 text-base font-semibold text-ink">
-            Description
-          </h2>
+
           {complaint.description && (
-            <p className="text-ink-muted text-sm leading-relaxed">
-              {complaint.description}
-            </p>
+            <section>
+              <h2 className="font-display mb-3 text-base font-semibold text-ink">
+                Description
+              </h2>
+              <p className="text-ink-muted text-sm leading-relaxed">
+                {complaint.description}
+              </p>
+            </section>
           )}
 
           {complaint.latitude != null && complaint.longitude != null && (
             <section>
-              <h2 className="font-display mb-3 text-base font-semibold text-ink">
-                Location
-              </h2>
+              <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="font-display text-base font-semibold text-ink">Location</h2>
+                {landmark && (
+                  <p className="text-ink-faint flex items-center gap-1.5 text-xs">
+                    <MapPinned className="size-3.5 shrink-0" aria-hidden="true" />
+                    {landmark}
+                  </p>
+                )}
+              </div>
               <MiniMap
                 pins={[
                   { id: complaint.id, lat: complaint.latitude, lng: complaint.longitude },
@@ -288,59 +393,6 @@ export function ComplaintDetailPage() {
                 Evidence
               </h2>
               <EvidenceGallery evidence={complaint.evidence} />
-            </section>
-          )}
-
-          {complaint.status === "NEEDS_MORE_EVIDENCE" && (
-            <section className="rounded-lg border border-status-needs_more_evidence/30 bg-status-needs_more_evidence-subtle p-4">
-              <h2 className="font-display text-base font-semibold text-ink">
-                A clearer photo is needed
-              </h2>
-              <p className="text-ink-muted mt-1 text-sm">
-                The officer reviewing this complaint asked for better evidence before
-                proceeding.
-              </p>
-              <div className="mt-3 max-w-sm">
-                <FileDropzone
-                  files={resubmitPhoto ? [resubmitPhoto] : []}
-                  onFilesChange={(files) => setResubmitPhoto(files[0] ?? null)}
-                />
-              </div>
-              <Button
-                size="sm"
-                className="mt-3"
-                disabled={!resubmitPhoto}
-                loading={submitEvidence.isPending}
-                onClick={handleResubmit}
-              >
-                Resubmit evidence
-              </Button>
-            </section>
-          )}
-
-          {complaint.status === "RESOLVED" && (
-            <section className="rounded-lg border border-line bg-surface p-4">
-              <h2 className="font-display text-base font-semibold text-ink">
-                Is this actually fixed?
-              </h2>
-              <p className="text-ink-muted mt-1 text-sm">
-                The officer marked this as resolved. Confirm it, or dispute it if the
-                issue is still there.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-3">
-                <Button
-                  size="sm"
-                  loading={confirmResolution.isPending}
-                  onClick={handleConfirm}
-                >
-                  <ThumbsUp className="size-4" aria-hidden="true" />
-                  Confirm the fix
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setDisputeOpen(true)}>
-                  <ThumbsDown className="size-4" aria-hidden="true" />
-                  It's not actually fixed
-                </Button>
-              </div>
             </section>
           )}
         </div>
@@ -381,6 +433,16 @@ export function ComplaintDetailPage() {
               className="bg-status-rejected-subtle text-status-rejected rounded-md px-3 py-2 text-sm"
             >
               {disputeError}
+            </p>
+          )}
+          <p className="text-ink-muted text-sm">
+            This sends the report to an administrator for a verdict. If they uphold it, an
+            officer picks the work back up; if not, it closes here.
+          </p>
+          {hasDisputeDraft && !disputePhoto && (
+            <p className="text-ink-muted bg-surface-hover rounded-md px-3 py-2 text-xs">
+              We restored the reason you'd started typing earlier — a photo can't be saved
+              the same way, so please attach a fresh one to finish.
             </p>
           )}
           <div>

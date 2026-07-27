@@ -83,10 +83,26 @@ export function AccountPage() {
     handleSubmit: handlePasswordSubmit,
     setError: setPasswordError,
     reset: resetPasswordForm,
-    formState: { errors: passwordErrors, isSubmitting: passwordSubmitting },
+    formState: {
+      errors: passwordErrors,
+      isSubmitting: passwordSubmitting,
+      isDirty: passwordDirty,
+    },
   } = useForm<PasswordFormValues>({ resolver: zodResolver(passwordSchema) });
 
-  useDirtyFormGuard(profileDirty && !profileSubmitting);
+  // One guard covering both forms — react-router only expects a single
+  // active navigation blocker per component, so this combines both dirty
+  // flags rather than calling the hook twice. The message names whichever
+  // form actually has unsaved input; a half-typed password never had
+  // anywhere it could autosave to, so it's just as much at risk of being
+  // lost as the profile form is.
+  const passwordIsDirty = passwordDirty && !passwordSubmitting;
+  useDirtyFormGuard(
+    (profileDirty && !profileSubmitting) || passwordIsDirty,
+    passwordIsDirty
+      ? "Your password change hasn't been saved. Leave this page anyway?"
+      : undefined,
+  );
 
   const newPasswordValue =
     useWatch({ control: passwordControl, name: "newPassword" }) ?? "";

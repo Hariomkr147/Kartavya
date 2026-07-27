@@ -40,18 +40,26 @@ export function TrendLineChart({
   return (
     <div className={cn("w-full", className)} style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ left: -20, right: 12, top: 8 }}>
+        {/* `left: 0`, not a negative pull: the y-axis reserves its own width,
+            and eating into it clipped the leading digit off three-figure
+            ticks (a 330-point CSP total rendered as "30"). */}
+        <LineChart data={data} margin={{ left: 0, right: 12, top: 8 }}>
           <CartesianGrid strokeDasharray="3 3" className="stroke-line" vertical={false} />
           <XAxis
             dataKey="x"
             tick={{ fontSize: 12, fill: "var(--color-ink-muted)" }}
             tickLine={false}
+            // Thin the labels rather than stacking a legible tick under every
+            // point — dense series otherwise repeat the same date several
+            // times across a few pixels.
+            interval="preserveStartEnd"
+            minTickGap={24}
           />
           <YAxis
             allowDecimals={false}
             tick={{ fontSize: 12, fill: "var(--color-ink-muted)" }}
             tickLine={false}
-            width={40}
+            width={44}
             label={
               yLabel
                 ? {

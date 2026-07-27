@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, ImageOff, Link2, List, MapPin, MapPinned, Rss } from "lucide-react";
+import {
+  ArrowUp,
+  ImageOff,
+  Link2,
+  List,
+  MapPin,
+  MapPinned,
+  Rss,
+  UserRound,
+} from "lucide-react";
 import { Combobox } from "@/components/ui/Combobox";
 import { Label } from "@/components/ui/Label";
 import { Checkbox } from "@/components/ui/Checkbox";
@@ -14,13 +23,15 @@ import { iconForCategory } from "@/lib/categoryIcons";
 import { relativeTime } from "@/lib/datetime";
 import { useFeed } from "@/hooks/useFeed";
 import { useCategories } from "@/hooks/useCategories";
+import { useMyComplaints } from "@/hooks/useMyComplaints";
 import { useUpvoteComplaint } from "@/hooks/useUpvoteComplaint";
 import { useLandmark } from "@/hooks/useLandmark";
 import { useAuth } from "@/contexts/AuthContext";
 import { useZones } from "@/hooks/useZones";
 import { useSearchParamState } from "@/hooks/useSearchParamState";
+import { ApiRequestError } from "@/services/http";
 import { cn } from "@/lib/utils";
-import type { FeedItem, SeverityLabel } from "@/types/api";
+import type { FeedItem, SeverityLabel, UpvoteResult } from "@/types/api";
 
 const PAGE_SIZE = 12;
 // Bumped only while the (client-only) severity filter is active — the API
@@ -28,6 +39,9 @@ const PAGE_SIZE = 12;
 // pagination stay honest against the *filtered* set instead of the
 // unfiltered server total.
 const FETCH_SIZE = 100;
+// Same params the rest of the citizen app uses for "my complaints", so this
+// shares one cache entry rather than issuing a second identical read.
+const OWN_COMPLAINTS_PARAMS = { pageSize: FETCH_SIZE, sort: "-updatedAt" };
 const RESOLVED_STATUSES = new Set(["CLOSED", "REJECTED", "UNRESOLVABLE"]);
 
 const SORT_OPTIONS: { value: string; label: string }[] = [
@@ -44,6 +58,17 @@ const SEVERITY_OPTIONS: { value: SeverityLabel | ""; label: string }[] = [
   { value: "HIGH", label: "High" },
   { value: "CRITICAL", label: "Critical" },
 ];
+
+// Tailwind can't see class names built at runtime, so the severity cap on
+// each card is written out per label.
+const SEVERITY_BAR: Record<SeverityLabel, string> = {
+  // Neutral, to match the pill — the cap exists to make HIGH/CRITICAL jump
+  // out of a grid, which only works if the floor value stays quiet.
+  LOW: "bg-line",
+  MEDIUM: "bg-severity-medium",
+  HIGH: "bg-severity-high",
+  CRITICAL: "bg-severity-critical",
+};
 
 const boolCodec = {
   serialize: (v: boolean) => (v ? "1" : undefined),
@@ -64,11 +89,17 @@ export function FeedPage() {
   const [highlightId, setHighlightId] = useSearchParamState("highlight", "");
   const [page, setPage] = useState(1);
   const [view, setView] = useState<"list" | "map">("list");
-  const [justUpvoted, setJustUpvoted] = useState<Set<string>>(new Set());
+  // The server's own answer for each upvote we've placed this session —
+  // shown in place of the listed count so the card never displays a number
+  // the server didn't confirm.
+  const [upvoteResults, setUpvoteResults] = useState<Record<string, UpvoteResult>>({});
+  const [pendingUpvoteId, setPendingUpvoteId] = useState<string | null>(null);
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   const { data: categories } = useCategories();
   const { data: zones } = useZones();
+  const { data: myComplaints } = useMyComplaints(OWN_COMPLAINTS_PARAMS);
+  const upvote = useUpvoteComplaint();
 
   const hasSeverityFilter = severity !== "";
 
@@ -81,6 +112,13 @@ export function FeedPage() {
   });
 
   const zoneName = zones?.find((z) => z.id === user?.zoneId)?.name;
+  // The feed is zone-scoped, not reporter-scoped, so a citizen's own reports
+  // appear in it — and upvoting one is a guaranteed 403. Cross-referencing
+  // ids lets the card say so up front instead of offering a doomed action.
+  const ownIds = useMemo(
+    () => new Set((myComplaints?.data ?? []).map((c) => c.id)),
+    [myComplaints],
+  );
   const allItems = useMemo(() => data?.data ?? [], [data]);
   const filtered = useMemo(
     () => (severity ? allItems.filter((i) => i.severityLabel === severity) : allItems),
@@ -112,7 +150,7 @@ export function FeedPage() {
 
   // Scroll to / briefly highlight a card shared via "Copy link".
   useEffect(() => {
-    if (!highlightId || isLoading) return;
+    if (!highlightId || isLoading || view !== "list") return;
     const el = cardRefs.current.get(highlightId);
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -120,7 +158,7 @@ export function FeedPage() {
     const timeout = setTimeout(() => setHighlightId(""), 2500);
     return () => clearTimeout(timeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [highlightId, isLoading, items.length]);
+  }, [highlightId, isLoading, items.length, view]);
 
   async function copyLink(item: FeedItem) {
     const params = new URLSearchParams(window.location.search);
@@ -138,8 +176,29 @@ export function FeedPage() {
     }
   }
 
-  function markUpvoted(id: string) {
-    setJustUpvoted((prev) => new Set(prev).add(id));
+  async function handleUpvote(item: FeedItem) {
+    setPendingUpvoteId(item.id);
+    try {
+      const result = await upvote.mutateAsync(item.id);
+      setUpvoteResults((prev) => ({ ...prev, [item.id]: result }));
+    } catch (error) {
+      toast({
+        title: "Couldn't add your upvote",
+        description:
+          error instanceof ApiRequestError
+            ? error.message
+            : "Something went wrong. Please try again.",
+        variant: "error",
+      });
+    } finally {
+      setPendingUpvoteId(null);
+    }
+  }
+
+  /** Jump from a map pin to its card, since the map itself can't be acted on. */
+  function focusPin(id: string) {
+    setHighlightId(id);
+    setView("list");
   }
 
   return (
@@ -259,7 +318,13 @@ export function FeedPage() {
         />
       ) : view === "map" ? (
         pins.length > 0 ? (
-          <MiniMap pins={pins} height={420} zoom={13} />
+          <div className="space-y-2">
+            <MiniMap pins={pins} height={420} zoom={13} onPinClick={focusPin} />
+            <p className="text-ink-faint text-xs">
+              Showing the {pins.length} of {items.length} complaints on this page that
+              have a location. Tap a pin to open its card.
+            </p>
+          </div>
         ) : (
           <EmptyState
             icon={MapPinned}
@@ -275,9 +340,11 @@ export function FeedPage() {
               <FeedCard
                 key={item.id}
                 item={item}
+                isOwn={ownIds.has(item.id)}
                 highlighted={item.id === highlightId}
-                justUpvoted={justUpvoted.has(item.id)}
-                onUpvoted={() => markUpvoted(item.id)}
+                result={upvoteResults[item.id]}
+                pending={pendingUpvoteId === item.id}
+                onUpvote={() => handleUpvote(item)}
                 onCopyLink={() => copyLink(item)}
                 cardRef={(el) => {
                   if (el) cardRefs.current.set(item.id, el);
@@ -300,41 +367,53 @@ export function FeedPage() {
 
 function FeedCard({
   item,
+  isOwn,
   highlighted,
-  justUpvoted,
-  onUpvoted,
+  result,
+  pending,
+  onUpvote,
   onCopyLink,
   cardRef,
 }: {
   item: FeedItem;
+  isOwn: boolean;
   highlighted: boolean;
-  justUpvoted: boolean;
-  onUpvoted: () => void;
+  /** The server's confirmed count/severity after this session's own upvote. */
+  result?: UpvoteResult;
+  pending: boolean;
+  onUpvote: () => void;
   onCopyLink: () => void;
   cardRef: (el: HTMLDivElement | null) => void;
 }) {
-  const upvote = useUpvoteComplaint();
   const { data: landmark, isLoading: landmarkLoading } = useLandmark(
     item.latitude,
     item.longitude,
   );
   const resolved = RESOLVED_STATUSES.has(item.status);
-  const displayedUpvoteCount =
-    item.upvoteCount + (justUpvoted && !item.hasUpvoted ? 1 : 0);
-
-  function handleUpvote() {
-    onUpvoted();
-    upvote.mutate(item.id);
-  }
+  const upvoteCount = result?.upvoteCount ?? item.upvoteCount;
+  const severityLabel = result?.severityLabel ?? item.severityLabel;
+  const hasUpvoted = item.hasUpvoted || result != null;
 
   return (
     <div
       ref={cardRef}
       className={cn(
         "flex flex-col overflow-hidden rounded-lg border bg-surface transition-shadow",
-        highlighted ? "border-brand ring-brand/40 ring-2" : "border-line",
+        highlighted
+          ? "border-brand ring-brand/40 ring-2"
+          : isOwn
+            ? "border-brand/40"
+            : "border-line",
       )}
     >
+      <span
+        className={cn(
+          "h-1 w-full shrink-0",
+          severityLabel ? SEVERITY_BAR[severityLabel] : "bg-line",
+        )}
+        aria-hidden="true"
+      />
+
       <div className="bg-surface-hover relative aspect-video w-full overflow-hidden">
         {item.photoUrl ? (
           <img src={item.photoUrl} alt="" className="size-full object-cover" />
@@ -381,28 +460,47 @@ function FeedCard({
 
         <div className="flex flex-wrap items-center gap-1.5">
           {!resolved && <StatusPill status={item.status} />}
-          {item.severityLabel && <SeverityPill severity={item.severityLabel} />}
+          {severityLabel && <SeverityPill severity={severityLabel} />}
         </div>
 
-        <div className="mt-auto flex items-center justify-between pt-2">
+        <div className="mt-auto flex items-center justify-between gap-2 pt-2">
           <p className="text-ink-faint text-xs">
             {item.createdAt ? relativeTime(item.createdAt) : null}
           </p>
-          <button
-            type="button"
-            disabled={item.hasUpvoted || justUpvoted || upvote.isPending}
-            onClick={handleUpvote}
-            className={cn(
-              "flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-              item.hasUpvoted || justUpvoted
-                ? "border-brand/30 bg-brand/10 text-brand"
-                : "border-line text-ink-muted hover:bg-surface-hover hover:text-ink",
-              "disabled:pointer-events-none",
-            )}
-          >
-            <ArrowUp className="size-3.5" aria-hidden="true" />
-            {displayedUpvoteCount}
-          </button>
+          {isOwn ? (
+            // Not a tooltip: a hover-only explanation on a non-focusable chip
+            // is invisible to keyboard users, and the rule ("you can't upvote
+            // your own report") is better said once, in the label itself.
+            <span
+              className="border-brand/30 bg-brand/10 text-brand flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium"
+              title="You can't upvote your own report — each upvote a neighbour adds earns you points."
+            >
+              <UserRound className="size-3.5" aria-hidden="true" />
+              Your report · {upvoteCount}
+            </span>
+          ) : (
+            <button
+              type="button"
+              disabled={hasUpvoted || pending}
+              onClick={onUpvote}
+              aria-label={
+                hasUpvoted
+                  ? `You have upvoted this complaint — ${upvoteCount} total`
+                  : `Upvote this complaint — ${upvoteCount} so far`
+              }
+              className={cn(
+                "flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                hasUpvoted
+                  ? "border-brand/30 bg-brand/10 text-brand"
+                  : "border-line text-ink-muted hover:bg-surface-hover hover:text-ink",
+                "disabled:pointer-events-none",
+                pending && "opacity-60",
+              )}
+            >
+              <ArrowUp className="size-3.5" aria-hidden="true" />
+              {upvoteCount}
+            </button>
+          )}
         </div>
       </div>
     </div>

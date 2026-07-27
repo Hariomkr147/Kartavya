@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ArrowUp, CircleAlert, ImageOff, MapPin, RefreshCw } from "lucide-react";
 import { StatusPill, SlaPill, SeverityPill } from "@/components/ui/pills";
@@ -12,11 +13,19 @@ const ACTION_LABELS: Record<NonNullable<Complaint["citizenActionNeeded"]>, strin
   PROVIDE_MORE_EVIDENCE: "Add more evidence",
 };
 
+/** Terminal per `schema.dbml` — their SLA label is history, not a live alarm. */
+const FINISHED_STATUSES = new Set<Complaint["status"]>([
+  "CLOSED",
+  "REJECTED",
+  "UNRESOLVABLE",
+]);
+
 export function ComplaintListItem({
   complaint,
   to,
   showZone = false,
   showUpdatedAt = false,
+  action,
 }: {
   complaint: Complaint;
   to: string;
@@ -24,13 +33,27 @@ export function ComplaintListItem({
   showZone?: boolean;
   /** Also shows a "updated <relative time>" line when `complaint.updatedAt` is present. */
   showUpdatedAt?: boolean;
+  /**
+   * An inline control (e.g. "Confirm the fix") rendered at the end of the row.
+   * The row's navigation is a full-card overlay link rather than a wrapper,
+   * so this can be a real button without nesting interactive elements.
+   */
+  action?: ReactNode;
 }) {
   return (
-    <Link
-      to={to}
-      className="flex items-center gap-4 rounded-lg border border-line bg-surface p-3 transition-colors hover:bg-surface-hover"
+    <div
+      className={cn(
+        "relative flex items-center gap-4 rounded-lg border border-line bg-surface p-3 transition-colors",
+        "focus-within:ring-brand/40 hover:bg-surface-hover focus-within:ring-2",
+      )}
     >
-      <div className="bg-surface-hover flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-md">
+      <Link
+        to={to}
+        aria-label={`${complaint.category.name} complaint ${complaint.id}`}
+        className="absolute inset-0 z-0 rounded-lg focus:outline-none"
+      />
+
+      <div className="bg-surface-hover pointer-events-none flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-md">
         {complaint.photoUrl ? (
           <img src={complaint.photoUrl} alt="" className="size-full object-cover" />
         ) : (
@@ -38,7 +61,7 @@ export function ComplaintListItem({
         )}
       </div>
 
-      <div className="min-w-0 flex-1">
+      <div className="pointer-events-none min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <DynamicIcon
             icon={iconForCategory(complaint.category.name)}
@@ -74,11 +97,16 @@ export function ComplaintListItem({
         )}
       </div>
 
-      <div className="flex shrink-0 flex-col items-end gap-1.5">
+      <div className="pointer-events-none flex shrink-0 flex-col items-end gap-1.5">
         <StatusPill status={complaint.status} />
         <div className="flex items-center gap-2">
           {complaint.severityLabel && <SeverityPill severity={complaint.severityLabel} />}
-          {complaint.slaLabel && <SlaPill sla={complaint.slaLabel} />}
+          {complaint.slaLabel && (
+            <SlaPill
+              sla={complaint.slaLabel}
+              past={FINISHED_STATUSES.has(complaint.status)}
+            />
+          )}
           {typeof complaint.upvoteCount === "number" && complaint.upvoteCount > 0 && (
             <span className={cn("text-ink-faint flex items-center gap-0.5 text-xs")}>
               <ArrowUp className="size-3.5" aria-hidden="true" />
@@ -87,6 +115,8 @@ export function ComplaintListItem({
           )}
         </div>
       </div>
-    </Link>
+
+      {action && <div className="relative z-10 shrink-0">{action}</div>}
+    </div>
   );
 }

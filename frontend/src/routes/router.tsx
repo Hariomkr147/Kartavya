@@ -2,7 +2,8 @@ import { createBrowserRouter } from "react-router-dom";
 import { RequireRole } from "./RequireRole";
 import { RedirectIfAuthenticated } from "./RedirectIfAuthenticated";
 import { AppShell } from "@/components/layout/AppShell";
-import { citizenNavItems, officerNavItems, adminNavItems } from "./navConfig";
+import { CitizenShell } from "@/components/layout/CitizenShell";
+import { officerNavItems, adminNavItems } from "./navConfig";
 import { LandingPage } from "@/pages/public/LandingPage";
 import { LoginPage } from "@/pages/public/LoginPage";
 import { RegisterPage } from "@/pages/public/RegisterPage";
@@ -48,13 +49,7 @@ export const router = createBrowserRouter([
     element: <RequireRole roles={["CITIZEN"]} />,
     children: [
       {
-        element: (
-          <AppShell
-            roleLabel="Citizen"
-            accountPath="/citizen/account"
-            navItems={citizenNavItems}
-          />
-        ),
+        element: <CitizenShell />,
         children: [
           { index: true, element: <CitizenDashboardPage /> },
           { path: "file", element: <FileComplaintPage /> },

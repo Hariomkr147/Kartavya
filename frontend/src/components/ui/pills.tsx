@@ -88,8 +88,13 @@ const SEVERITY_LABELS: Record<SeverityLabel, string> = {
   CRITICAL: "Critical",
 };
 
+// LOW is deliberately neutral rather than green: it's the floor value and
+// appears on most rows, so colouring it competed with the status pill beside
+// it — and a green "Low" next to a green "Closed" read as a second positive
+// outcome rather than a severity. MEDIUM upwards keep their escalating hues,
+// which is what should actually catch the eye.
 const SEVERITY_CLASSES: Record<SeverityLabel, string> = {
-  LOW: "bg-severity-low-subtle text-severity-low",
+  LOW: "bg-surface-hover text-ink-muted",
   MEDIUM: "bg-severity-medium-subtle text-severity-medium",
   HIGH: "bg-severity-high-subtle text-severity-high",
   CRITICAL: "bg-severity-critical-subtle text-severity-critical",
@@ -115,14 +120,41 @@ const SLA_LABELS: Record<SlaLabel, string> = {
   OVERDUE: "Overdue",
 };
 
+/** Past tense, for a complaint that has already finished. */
+const SLA_PAST_LABELS: Record<SlaLabel, string> = {
+  ON_TIME: "Closed on time",
+  DELAYED: "Closed late",
+  OVERDUE: "Closed overdue",
+};
+
 const SLA_CLASSES: Record<SlaLabel, string> = {
   ON_TIME: "bg-sla-on_time-subtle text-sla-on_time",
   DELAYED: "bg-sla-delayed-subtle text-sla-delayed",
   OVERDUE: "bg-sla-overdue-subtle text-sla-overdue",
 };
 
-export function SlaPill({ sla, className }: { sla: SlaLabel; className?: string }) {
+export function SlaPill({
+  sla,
+  className,
+  past = false,
+}: {
+  sla: SlaLabel;
+  className?: string;
+  /**
+   * Render as settled history rather than a live alarm. A finished complaint
+   * still carries the SLA label it ended on, but a red "Overdue" on something
+   * nobody can act on any more shouts over the rows that do need attention.
+   */
+  past?: boolean;
+}) {
   return (
-    <BasePill className={cn(SLA_CLASSES[sla], className)}>{SLA_LABELS[sla]}</BasePill>
+    <BasePill
+      className={cn(
+        past ? "bg-surface-hover text-ink-faint" : SLA_CLASSES[sla],
+        className,
+      )}
+    >
+      {past ? SLA_PAST_LABELS[sla] : SLA_LABELS[sla]}
+    </BasePill>
   );
 }

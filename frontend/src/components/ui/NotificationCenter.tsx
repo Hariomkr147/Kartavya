@@ -1,4 +1,14 @@
-import { Bell, CheckCircle2, AlertTriangle, XCircle, Info, Trash2 } from "lucide-react";
+import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
+import {
+  Bell,
+  CheckCircle2,
+  AlertTriangle,
+  ChevronRight,
+  XCircle,
+  Info,
+  Trash2,
+} from "lucide-react";
 import { useToast, type ToastVariant } from "@/components/ui/Toast";
 import { Dropdown, DropdownTrigger, DropdownMenu } from "@/components/ui/Dropdown";
 import { relativeTime } from "@/lib/datetime";
@@ -18,7 +28,19 @@ const VARIANT_CLASSES: Record<ToastVariant, string> = {
   error: "text-status-rejected",
 };
 
-/** Session log of this app's own toasts — nothing persists here across a reload, it's a convenience recall, not a real notification backend. */
+/** Wraps an entry in a link when it points at a record, leaving plain entries untouched. */
+function EntryShell({ href, children }: { href?: string; children: ReactNode }) {
+  const className =
+    "flex items-start gap-2.5 border-b border-line px-3 py-2.5 last:border-b-0";
+  if (!href) return <div className={className}>{children}</div>;
+  return (
+    <Link to={href} className={cn(className, "hover:bg-surface-hover transition-colors")}>
+      {children}
+    </Link>
+  );
+}
+
+/** Session log of this app's own toasts, plus anything `notify()` files while the user was away — nothing persists across a reload, it's a convenience recall, not a real notification backend. */
 export function NotificationCenter() {
   const { history, unreadCount, markHistoryRead, clearHistory } = useToast();
 
@@ -64,10 +86,7 @@ export function NotificationCenter() {
             history.map((item) => {
               const Icon = VARIANT_ICON[item.variant];
               return (
-                <div
-                  key={item.id}
-                  className="flex items-start gap-2.5 border-b border-line px-3 py-2.5 last:border-b-0"
-                >
+                <EntryShell key={item.id} href={item.href}>
                   <Icon
                     className={cn(
                       "mt-0.5 size-4 shrink-0",
@@ -84,7 +103,13 @@ export function NotificationCenter() {
                       {relativeTime(item.createdAt)}
                     </p>
                   </div>
-                </div>
+                  {item.href && (
+                    <ChevronRight
+                      className="text-ink-faint mt-0.5 size-4 shrink-0"
+                      aria-hidden="true"
+                    />
+                  )}
+                </EntryShell>
               );
             })
           )}

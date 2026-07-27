@@ -24,6 +24,14 @@ export interface StatCardProps {
   accent?: StatCardAccent;
   format?: (n: number) => string;
   className?: string;
+  /**
+   * One short line under the value, e.g. "2 running late". Kept
+   * non-interactive on purpose — tiles are often wrapped in a link by the
+   * dashboards that use them, and a nested control there would be invalid.
+   */
+  hint?: string;
+  /** Tints the hint when it's a warning rather than a neutral aside. */
+  hintTone?: "muted" | "warning";
 }
 
 /**
@@ -39,6 +47,8 @@ export function StatCard({
   accent = "brand",
   format,
   className,
+  hint,
+  hintTone = "muted",
 }: StatCardProps) {
   const accentClasses = ACCENT_CLASSES[accent];
   return (
@@ -67,6 +77,16 @@ export function StatCard({
           value
         )}
       </p>
+      {hint && (
+        <p
+          className={cn(
+            "mt-1 text-xs font-medium",
+            hintTone === "warning" ? "text-sla-overdue" : "text-ink-faint",
+          )}
+        >
+          {hint}
+        </p>
+      )}
     </motion.div>
   );
 }

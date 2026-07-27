@@ -1,7 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
+  Camera,
   CheckCircle2,
   CircleAlert,
   ClipboardList,
@@ -15,9 +16,11 @@ import { LinkButton } from "@/components/ui/LinkButton";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ComplaintListItem } from "@/components/complaint/ComplaintListItem";
+import { ConfirmFixButton } from "@/components/complaint/ConfirmFixButton";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { AnimatedNumber } from "@/components/dashboard/AnimatedNumber";
 import { RecentlyViewedList } from "@/components/dashboard/RecentlyViewedList";
+import { UpdatesCard } from "@/components/dashboard/UpdatesCard";
 import {
   HorizontalBarChart,
   type BarDatum,
@@ -26,6 +29,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useMyComplaints } from "@/hooks/useMyComplaints";
 import { usePointsSummary } from "@/hooks/usePointsSummary";
 import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
+import { useComplaintUpdates } from "@/hooks/useComplaintUpdates";
 import { staggerContainer, staggerItem } from "@/lib/motionVariants";
 import { formatFullDate, timeOfDayGreeting } from "@/lib/greeting";
 import type { Complaint, ComplaintStatus } from "@/types/api";
@@ -51,6 +55,11 @@ function topBreakdown(
 // not just the most recent page — demo-scale trade-off, not a general one.
 const FETCH_SIZE = 100;
 
+// Below this, a bar chart of your own six reports says less than the list
+// right above it does — the breakdowns only earn their space once there's a
+// real distribution to see.
+const CHART_MIN_COMPLAINTS = 8;
+
 const ACTIVE_STATUSES = new Set<ComplaintStatus>([
   "SUBMITTED",
   "EVIDENCE_UNDER_REVIEW",
@@ -72,12 +81,22 @@ export function CitizenDashboardPage() {
   const { items: recentlyViewed, clear: clearRecentlyViewed } = useRecentlyViewed(
     `citizen:${user?.id ?? "anon"}`,
   );
+  const { updates, acknowledge } = useComplaintUpdates();
 
   const complaints = useMemo(() => data?.data ?? [], [data]);
   const actionNeeded = complaints.filter((c) => c.citizenActionNeeded);
+  const toConfirm = actionNeeded.filter((c) => c.citizenActionNeeded === "CONFIRM_FIX");
+  const needEvidence = actionNeeded.filter(
+    (c) => c.citizenActionNeeded === "PROVIDE_MORE_EVIDENCE",
+  );
   const recent = complaints.slice(0, 5);
-  const activeCount = complaints.filter((c) => ACTIVE_STATUSES.has(c.status)).length;
+  const active = complaints.filter((c) => ACTIVE_STATUSES.has(c.status));
   const resolvedCount = complaints.filter((c) => RESOLVED_STATUSES.has(c.status)).length;
+  // The SLA labels are derived server-side from the complaint's own targets —
+  // this only counts them, it never recomputes one.
+  const runningLateCount = active.filter(
+    (c) => c.slaLabel === "DELAYED" || c.slaLabel === "OVERDUE",
+  ).length;
 
   const categoryBreakdown = useMemo(
     () => topBreakdown(complaints, (c) => c.category.name),
@@ -87,6 +106,10 @@ export function CitizenDashboardPage() {
     () => topBreakdown(complaints, (c) => c.zoneName),
     [complaints],
   );
+  const showCharts =
+    !isLoading &&
+    complaints.length >= CHART_MIN_COMPLAINTS &&
+    (categoryBreakdown.length > 0 || zoneBreakdown.length > 0);
 
   const firstName = user?.displayName || user?.name?.split(" ")[0];
 
@@ -108,10 +131,12 @@ export function CitizenDashboardPage() {
         </LinkButton>
       </div>
 
+      <UpdatesCard updates={updates} onDismiss={acknowledge} />
+
       {isLoading ? (
         <div className="grid gap-4 sm:grid-cols-4">
           {Array.from({ length: 4 }, (_, i) => (
-            <Skeleton key={i} className="h-28 w-full" />
+            <Skeleton key={i} className="h-32 w-full" />
           ))}
         </div>
       ) : (
@@ -124,12 +149,14 @@ export function CitizenDashboardPage() {
           <Link
             to="/citizen/complaints?bucket=active"
             className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-            aria-label={`View ${activeCount} active complaints`}
+            aria-label={`View ${active.length} active complaints`}
           >
             <StatCard
               icon={ClipboardList}
               label="Active complaints"
-              value={activeCount}
+              value={active.length}
+              hint={runningLateCount > 0 ? `${runningLateCount} running late` : undefined}
+              hintTone="warning"
             />
           </Link>
           <Link
@@ -154,74 +181,66 @@ export function CitizenDashboardPage() {
               label="Needs your attention"
               value={actionNeeded.length}
               accent={actionNeeded.length > 0 ? "warning" : "brand"}
+              hint={
+                actionNeeded.length > 0
+                  ? [
+                      toConfirm.length > 0 && `${toConfirm.length} to confirm`,
+                      needEvidence.length > 0 && `${needEvidence.length} needs a photo`,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : undefined
+              }
             />
           </Link>
-          <StatCard
-            icon={Trophy}
-            label="Civic Service Points"
-            value={points?.totalLifetimeCsp ?? 0}
-            accent="csp"
-          />
+          <Link
+            to="/citizen/gamification"
+            className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+            aria-label="View your Civic Service Points, badges and leaderboard"
+          >
+            <StatCard
+              icon={Trophy}
+              label="Civic Service Points"
+              value={points?.totalLifetimeCsp ?? 0}
+              accent="csp"
+              hint={
+                (points?.currentMonthCsp ?? 0) > 0
+                  ? `+${points?.currentMonthCsp} this month`
+                  : undefined
+              }
+            />
+          </Link>
         </motion.div>
       )}
 
-      {actionNeeded.length > 0 && (
-        <motion.section
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          className="rounded-lg border border-status-needs_more_evidence/30 bg-status-needs_more_evidence-subtle p-4"
-        >
-          <div className="mb-3 flex items-center gap-2">
-            <CircleAlert
-              className="text-status-needs_more_evidence size-5"
-              aria-hidden="true"
-            />
-            <p className="font-display text-base font-semibold text-ink">
-              {actionNeeded.length === 1
-                ? "1 complaint needs"
-                : `${actionNeeded.length} complaints need`}{" "}
-              your attention
-            </p>
-          </div>
-          <div className="space-y-2">
-            {actionNeeded.map((c) => (
-              <ComplaintListItem
-                key={c.id}
-                complaint={c}
-                to={`/citizen/complaints/${c.id}`}
-              />
-            ))}
-          </div>
-        </motion.section>
+      {toConfirm.length > 0 && (
+        <ActionSection
+          tone="good"
+          icon={CheckCircle2}
+          title={
+            toConfirm.length === 1
+              ? "1 fix is waiting on your word"
+              : `${toConfirm.length} fixes are waiting on your word`
+          }
+          description="An officer says these are done. Confirm to close them and collect your points — or open one to dispute it."
+          complaints={toConfirm}
+          renderAction={(complaint) => <ConfirmFixButton complaintId={complaint.id} />}
+        />
       )}
 
-      {!isLoading &&
-        complaints.length > 0 &&
-        (categoryBreakdown.length > 0 || zoneBreakdown.length > 0) && (
-          <div className="grid gap-4 sm:grid-cols-2 sm:items-start">
-            {categoryBreakdown.length > 0 && (
-              <section className="rounded-lg border border-line bg-surface p-5">
-                <div className="mb-3 flex items-center gap-2">
-                  <Tag className="text-ink-muted size-4" aria-hidden="true" />
-                  <h2 className="font-display text-sm font-semibold text-ink">
-                    By category
-                  </h2>
-                </div>
-                <HorizontalBarChart data={categoryBreakdown} />
-              </section>
-            )}
-            {zoneBreakdown.length > 0 && (
-              <section className="rounded-lg border border-line bg-surface p-5">
-                <div className="mb-3 flex items-center gap-2">
-                  <MapPinned className="text-ink-muted size-4" aria-hidden="true" />
-                  <h2 className="font-display text-sm font-semibold text-ink">By zone</h2>
-                </div>
-                <HorizontalBarChart data={zoneBreakdown} />
-              </section>
-            )}
-          </div>
-        )}
+      {needEvidence.length > 0 && (
+        <ActionSection
+          tone="warning"
+          icon={Camera}
+          title={
+            needEvidence.length === 1
+              ? "1 report needs a clearer photo"
+              : `${needEvidence.length} reports need a clearer photo`
+          }
+          description="The resolution clock is paused on these until you send a better picture."
+          complaints={needEvidence}
+        />
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <section className="space-y-3 lg:col-span-2">
@@ -323,6 +342,91 @@ export function CitizenDashboardPage() {
           </div>
         </aside>
       </div>
+
+      {showCharts && (
+        <div className="grid gap-4 sm:grid-cols-2 sm:items-start">
+          {categoryBreakdown.length > 0 && (
+            <section className="rounded-lg border border-line bg-surface p-5">
+              <div className="mb-3 flex items-center gap-2">
+                <Tag className="text-ink-muted size-4" aria-hidden="true" />
+                <h2 className="font-display text-sm font-semibold text-ink">
+                  What you report most
+                </h2>
+              </div>
+              <HorizontalBarChart data={categoryBreakdown} />
+            </section>
+          )}
+          {zoneBreakdown.length > 0 && (
+            <section className="rounded-lg border border-line bg-surface p-5">
+              <div className="mb-3 flex items-center gap-2">
+                <MapPinned className="text-ink-muted size-4" aria-hidden="true" />
+                <h2 className="font-display text-sm font-semibold text-ink">
+                  Where you report
+                </h2>
+              </div>
+              <HorizontalBarChart data={zoneBreakdown} />
+            </section>
+          )}
+        </div>
+      )}
     </div>
+  );
+}
+
+const SECTION_TONES = {
+  good: {
+    card: "border-status-resolved/30 bg-status-resolved-subtle",
+    icon: "text-status-resolved",
+  },
+  warning: {
+    card: "border-status-needs_more_evidence/30 bg-status-needs_more_evidence-subtle",
+    icon: "text-status-needs_more_evidence",
+  },
+} as const;
+
+/**
+ * One block per kind of `citizenActionNeeded`. Splitting them is what lets
+ * each carry the right verb — "confirm" and "add a photo" are different jobs
+ * and only one of them can be done in place.
+ */
+function ActionSection({
+  tone,
+  icon: Icon,
+  title,
+  description,
+  complaints,
+  renderAction,
+}: {
+  tone: keyof typeof SECTION_TONES;
+  icon: typeof CheckCircle2;
+  title: string;
+  description: string;
+  complaints: Complaint[];
+  renderAction?: (complaint: Complaint) => ReactNode;
+}) {
+  const classes = SECTION_TONES[tone];
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className={`rounded-lg border p-4 ${classes.card}`}
+    >
+      <div className="mb-1 flex items-center gap-2">
+        <Icon className={`size-5 shrink-0 ${classes.icon}`} aria-hidden="true" />
+        <h2 className="font-display text-base font-semibold text-ink">{title}</h2>
+      </div>
+      <p className="text-ink-muted mb-3 text-sm">{description}</p>
+      <div className="space-y-2">
+        {complaints.map((complaint) => (
+          <ComplaintListItem
+            key={complaint.id}
+            complaint={complaint}
+            to={`/citizen/complaints/${complaint.id}`}
+            action={renderAction?.(complaint)}
+          />
+        ))}
+      </div>
+    </motion.section>
   );
 }

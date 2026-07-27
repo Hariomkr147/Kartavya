@@ -13,7 +13,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { SettingsPopover } from "@/components/ui/SettingsPopover";
 import { Tooltip } from "@/components/ui/Tooltip";
 import {
   Dropdown,
@@ -293,7 +293,10 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
           <div className="flex items-center gap-2">
             <CommandPalette navItems={navItems} accountPath={accountPath} />
             <NotificationCenter />
-            <ThemeToggle />
+            {/* Replaces the standalone theme toggle that used to sit here:
+                the popover shows all three themes (plus density and the
+                account link) instead of blind-cycling one step at a time. */}
+            <SettingsPopover accountPath={accountPath} />
             <Dropdown align="end">
               <DropdownTrigger>
                 <button

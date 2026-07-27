@@ -9,6 +9,43 @@ import {
 } from "recharts";
 import { cn } from "@/lib/utils";
 
+const AXIS_WIDTH = 140;
+// ~7px per character at 12px in the app's UI face; leaves a little breathing
+// room before the bars start.
+const MAX_LABEL_CHARS = Math.floor((AXIS_WIDTH - 12) / 7);
+
+interface TickProps {
+  x?: number;
+  y?: number;
+  payload?: { value?: string };
+}
+
+/**
+ * Recharts wraps an over-long category tick onto a second line, which then
+ * collides with the row beneath it ("First complaint bonus" overlapping
+ * "Upvote received"). Truncating to one line keeps every row on its own
+ * baseline; the full text stays available as a native tooltip.
+ */
+function CategoryTick({ x = 0, y = 0, payload }: TickProps) {
+  const label = payload?.value ?? "";
+  const truncated =
+    label.length > MAX_LABEL_CHARS ? `${label.slice(0, MAX_LABEL_CHARS - 1)}…` : label;
+  return (
+    <text
+      x={x}
+      y={y}
+      dy={4}
+      textAnchor="end"
+      fontSize={12}
+      fill="var(--color-ink)"
+      aria-label={label}
+    >
+      <title>{label}</title>
+      {truncated}
+    </text>
+  );
+}
+
 export interface BarDatum {
   label: string;
   value: number;
@@ -54,10 +91,10 @@ export function HorizontalBarChart({
           <YAxis
             type="category"
             dataKey="label"
-            width={140}
+            width={AXIS_WIDTH}
             tickLine={false}
             axisLine={false}
-            tick={{ fontSize: 12, fill: "var(--color-ink)" }}
+            tick={<CategoryTick />}
           />
           <Bar dataKey="value" radius={[0, 4, 4, 0]} maxBarSize={18}>
             {data.map((entry, i) => (

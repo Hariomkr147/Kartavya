@@ -22,6 +22,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ComplaintListItem } from "@/components/complaint/ComplaintListItem";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { RecentlyViewedList } from "@/components/dashboard/RecentlyViewedList";
+import { OfficerUpdatesCard } from "@/components/dashboard/OfficerUpdatesCard";
 import { HorizontalBarChart } from "@/components/charts/HorizontalBarChart";
 import { formatFullDate } from "@/lib/greeting";
 import { staggerContainer, staggerItem } from "@/lib/motionVariants";
@@ -30,6 +31,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useOfficerAnalytics } from "@/hooks/useOfficerAnalytics";
 import { useZoneSummary } from "@/hooks/useZoneSummary";
 import { useOfficerQueue } from "@/hooks/useOfficerQueue";
+import { useOfficerQueueUpdates } from "@/hooks/useOfficerQueueUpdates";
 import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
 import type { ComplaintStatus } from "@/types/api";
 
@@ -110,6 +112,7 @@ export function OfficerDashboardPage() {
   const { items: recentItems, clear: clearRecent } = useRecentlyViewed(
     `officer:${user?.id ?? "anon"}`,
   );
+  const { updates, acknowledge: acknowledgeUpdates } = useOfficerQueueUpdates();
 
   const activeQueue = useMemo(() => queueData?.data ?? [], [queueData]);
   const priorityItems = activeQueue.slice(0, PRIORITY_PREVIEW_COUNT);
@@ -166,6 +169,8 @@ export function OfficerDashboardPage() {
           </Button>
         </div>
       </div>
+
+      <OfficerUpdatesCard updates={updates} onDismiss={acknowledgeUpdates} />
 
       {analyticsLoading ? (
         <div className="grid gap-4 sm:grid-cols-4">

@@ -5,12 +5,14 @@ export type PhotoValidation = { ok: true; url: string } | { ok: false; message: 
 
 /**
  * Validates an uploaded photo (JPEG/PNG, max 5MB per openapi.yaml) and turns
- * it into a renderable URL. Uses `URL.createObjectURL` so the real uploaded
- * image actually displays in the UI during the session — object URLs don't
- * survive a hard page reload, which is an accepted limitation of a
- * client-only mock layer (everything else persists via localStorage).
+ * it into a renderable URL. Encodes as a base64 `data:` URI (rather than
+ * `URL.createObjectURL`) so the persisted `filePath` survives
+ * JSON.stringify/localStorage round-trips and reload/cross-tab viewing —
+ * object URLs die with the document that created them, which made every
+ * live-uploaded photo render as a blank card the moment anyone else (or the
+ * same user after a reload) viewed it.
  */
-export function validateAndStorePhoto(file: File | null): PhotoValidation {
+export async function validateAndStorePhoto(file: File | null): Promise<PhotoValidation> {
   if (!file || file.size === 0) {
     return { ok: false, message: "A photo is required." };
   }
@@ -20,5 +22,11 @@ export function validateAndStorePhoto(file: File | null): PhotoValidation {
   if (file.size > MAX_PHOTO_BYTES) {
     return { ok: false, message: "Photo must be 5 MB or smaller." };
   }
-  return { ok: true, url: URL.createObjectURL(file) };
+  const buffer = await file.arrayBuffer();
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return { ok: true, url: `data:${file.type};base64,${btoa(binary)}` };
 }

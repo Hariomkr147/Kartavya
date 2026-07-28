@@ -1,15 +1,8 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import {
-  ClipboardList,
-  Copy,
-  Download,
-  ImageOff,
-  MoreHorizontal,
-  Search,
-  X,
-} from "lucide-react";
+import { ClipboardList, Copy, Download, MoreHorizontal, Search, X } from "lucide-react";
 import { DatePicker } from "@/components/ui/DatePicker";
+import { PhotoThumb } from "@/components/ui/PhotoThumb";
 import { Combobox } from "@/components/ui/Combobox";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
@@ -546,11 +539,11 @@ export function AdminComplaintsPage() {
                         to={`/admin/complaints/${c.id}`}
                         className="bg-surface-hover flex size-10 items-center justify-center overflow-hidden rounded-md"
                       >
-                        {c.photoUrl ? (
-                          <img src={c.photoUrl} alt="" className="size-full object-cover" />
-                        ) : (
-                          <ImageOff className="text-ink-faint size-4" aria-hidden="true" />
-                        )}
+                        <PhotoThumb
+                          src={c.photoUrl}
+                          className="size-full object-cover"
+                          iconClassName="text-ink-faint size-4"
+                        />
                       </Link>
                     </TableCell>
                     <TableCell>

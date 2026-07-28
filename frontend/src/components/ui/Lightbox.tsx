@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PhotoThumb } from "@/components/ui/PhotoThumb";
 
 export interface LightboxImage {
   src: string;
@@ -85,10 +86,12 @@ export function Lightbox({ images, openIndex, onClose }: LightboxProps) {
         </button>
       )}
 
-      <img
+      <PhotoThumb
         src={current.src}
         alt={current.alt}
         className={cn("max-h-[80vh] max-w-full rounded-md object-contain shadow-lg")}
+        iconClassName="size-12 text-white/60"
+        fallbackClassName="bg-white/5"
       />
 
       {(current.caption || images.length > 1) && (

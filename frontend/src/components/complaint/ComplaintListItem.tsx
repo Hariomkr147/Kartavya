@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ArrowUp, CircleAlert, ImageOff, MapPin, RefreshCw } from "lucide-react";
+import { ArrowUp, CircleAlert, MapPin, RefreshCw } from "lucide-react";
 import { StatusPill, SlaPill, SeverityPill } from "@/components/ui/pills";
+import { PhotoThumb } from "@/components/ui/PhotoThumb";
 import { DynamicIcon } from "@/components/DynamicIcon";
 import { iconForCategory } from "@/lib/categoryIcons";
 import { relativeTime } from "@/lib/datetime";
@@ -54,11 +55,7 @@ export function ComplaintListItem({
       />
 
       <div className="bg-surface-hover pointer-events-none flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-md">
-        {complaint.photoUrl ? (
-          <img src={complaint.photoUrl} alt="" className="size-full object-cover" />
-        ) : (
-          <ImageOff className="text-ink-faint size-5" aria-hidden="true" />
-        )}
+        <PhotoThumb src={complaint.photoUrl} className="size-full object-cover" />
       </div>
 
       <div className="pointer-events-none min-w-0 flex-1">

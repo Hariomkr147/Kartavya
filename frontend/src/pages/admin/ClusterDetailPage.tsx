@@ -1,6 +1,7 @@
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, FileQuestion, ImageOff } from "lucide-react";
+import { ArrowLeft, FileQuestion } from "lucide-react";
 import { StatusPill, SeverityPill, SlaPill } from "@/components/ui/pills";
+import { PhotoThumb } from "@/components/ui/PhotoThumb";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { DynamicIcon } from "@/components/DynamicIcon";
@@ -165,11 +166,11 @@ export function AdminClusterDetailPage() {
                     to={`/admin/complaints/${c.id}`}
                     className="bg-surface-hover flex size-10 items-center justify-center overflow-hidden rounded-md"
                   >
-                    {c.photoUrl ? (
-                      <img src={c.photoUrl} alt="" className="size-full object-cover" />
-                    ) : (
-                      <ImageOff className="text-ink-faint size-4" aria-hidden="true" />
-                    )}
+                    <PhotoThumb
+                      src={c.photoUrl}
+                      className="size-full object-cover"
+                      iconClassName="text-ink-faint size-4"
+                    />
                   </Link>
                 </TableCell>
                 <TableCell>

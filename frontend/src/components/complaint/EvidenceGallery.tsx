@@ -10,6 +10,7 @@ import {
   ZoomIn,
 } from "lucide-react";
 import { Lightbox } from "@/components/ui/Lightbox";
+import { PhotoThumb } from "@/components/ui/PhotoThumb";
 import { relativeTime, absoluteDateTime } from "@/lib/datetime";
 import { screeningPhase } from "@/lib/aiScreening";
 import { cn } from "@/lib/utils";
@@ -61,10 +62,11 @@ export function EvidenceGallery({ evidence }: { evidence: Evidence[] }) {
               aria-label={`View photo ${item.sequence} full-size`}
               className="group relative block w-full"
             >
-              <img
+              <PhotoThumb
                 src={item.photoUrl}
                 alt={`Evidence photo ${item.sequence}`}
                 className="h-48 w-full object-cover"
+                iconClassName="text-ink-faint size-8"
               />
               <span className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/30 group-hover:opacity-100 focus-visible:opacity-100">
                 <ZoomIn className="size-6 text-white" aria-hidden="true" />

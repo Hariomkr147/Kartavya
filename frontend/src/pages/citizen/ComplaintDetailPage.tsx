@@ -284,10 +284,7 @@ export function ComplaintDetailPage() {
         </div>
       </div>
 
-      <LifecycleTracker
-        status={complaint.status}
-        statusHistory={complaint.statusHistory}
-      />
+      <LifecycleTracker status={complaint.status} />
 
       <ActionRequiredPanel
         complaint={complaint}

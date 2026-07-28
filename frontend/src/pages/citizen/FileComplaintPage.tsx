@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { LinkButton } from "@/components/ui/LinkButton";
+import { PhotoThumb as EvidencePhotoThumb } from "@/components/ui/PhotoThumb";
 import { DynamicIcon } from "@/components/DynamicIcon";
 import { Textarea } from "@/components/ui/Textarea";
 import { Label } from "@/components/ui/Label";
@@ -919,7 +920,7 @@ function SubmittedView({
               key={evidence.id}
               className="flex items-center gap-3 rounded-md border border-line p-3"
             >
-              <img
+              <EvidencePhotoThumb
                 src={evidence.photoUrl}
                 alt={`Evidence photo ${evidence.sequence}`}
                 className="size-12 shrink-0 rounded object-cover"

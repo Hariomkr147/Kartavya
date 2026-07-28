@@ -49,7 +49,7 @@ export const complaintsHandlers = [
     if (photos.length > 3) {
       return Errors.badRequest("At most 3 photos are allowed.");
     }
-    const photoChecks = photos.map((p) => validateAndStorePhoto(p));
+    const photoChecks = await Promise.all(photos.map((p) => validateAndStorePhoto(p)));
     const firstBad = photoChecks.find((p) => !p.ok);
     if (firstBad && !firstBad.ok) return Errors.badRequest(firstBad.message);
 
@@ -192,7 +192,7 @@ export const complaintsHandlers = [
     }
 
     const form = await request.formData();
-    const photoCheck = validateAndStorePhoto(
+    const photoCheck = await validateAndStorePhoto(
       form.get("photo") instanceof File ? (form.get("photo") as File) : null,
     );
     if (!photoCheck.ok) return Errors.badRequest(photoCheck.message);
@@ -390,7 +390,7 @@ export const complaintsHandlers = [
 
     const form = await request.formData();
     const reason = String(form.get("reason") ?? "").trim();
-    const photoCheck = validateAndStorePhoto(
+    const photoCheck = await validateAndStorePhoto(
       form.get("photo") instanceof File ? (form.get("photo") as File) : null,
     );
     if (!reason)

@@ -3,7 +3,8 @@ import { RequireRole } from "./RequireRole";
 import { RedirectIfAuthenticated } from "./RedirectIfAuthenticated";
 import { AppShell } from "@/components/layout/AppShell";
 import { CitizenShell } from "@/components/layout/CitizenShell";
-import { officerNavItems, adminNavItems } from "./navConfig";
+import { OfficerShell } from "@/components/layout/OfficerShell";
+import { adminNavItems } from "./navConfig";
 import { LandingPage } from "@/pages/public/LandingPage";
 import { LoginPage } from "@/pages/public/LoginPage";
 import { RegisterPage } from "@/pages/public/RegisterPage";
@@ -71,13 +72,7 @@ export const router = createBrowserRouter([
     element: <RequireRole roles={["OFFICER"]} />,
     children: [
       {
-        element: (
-          <AppShell
-            roleLabel="Officer"
-            accountPath="/officer/account"
-            navItems={officerNavItems}
-          />
-        ),
+        element: <OfficerShell />,
         children: [
           { index: true, element: <OfficerDashboardPage /> },
           { path: "queue", element: <OfficerQueuePage /> },

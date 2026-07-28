@@ -47,7 +47,19 @@ function evidenceRequestReason(evidence: Evidence[] | undefined): string | null 
   return rejected[0]?.verdictReason?.trim() || null;
 }
 
-function OfficerQuote({ children }: { children: ReactNode }) {
+/**
+ * `attribution` must match who actually authored the quoted `reason` for the
+ * given status — REOPENED's reason is the citizen's own dispute text, and a
+ * CLOSED reached via a rejected dispute carries the admin's verdict, not an
+ * officer's; only the other statuses' reasons come from the reviewing officer.
+ */
+function AttributedQuote({
+  attribution,
+  children,
+}: {
+  attribution: string;
+  children: ReactNode;
+}) {
   return (
     <figure className="bg-surface/70 mt-3 rounded-md border border-line p-3">
       <div className="flex gap-2">
@@ -55,7 +67,7 @@ function OfficerQuote({ children }: { children: ReactNode }) {
         <blockquote className="text-sm leading-relaxed text-ink">{children}</blockquote>
       </div>
       <figcaption className="text-ink-faint mt-1.5 pl-5.5 text-xs">
-        — the reviewing officer
+        — {attribution}
       </figcaption>
     </figure>
   );
@@ -125,7 +137,7 @@ export function ActionRequiredPanel({
           The officer reviewing your report couldn't act on the evidence so far. Add
           another photo and it goes straight back to them.
         </p>
-        {reason && <OfficerQuote>{reason}</OfficerQuote>}
+        {reason && <AttributedQuote attribution="the reviewing officer">{reason}</AttributedQuote>}
         <p className="text-ink-faint mt-3 text-xs">
           The resolution clock is paused while this waits on you — the time you take
           isn't counted against the city's target.
@@ -157,7 +169,9 @@ export function ActionRequiredPanel({
           ground — confirm the fix to close it, or dispute it if the problem is still
           there.
         </p>
-        {statusReason && <OfficerQuote>{statusReason}</OfficerQuote>}
+        {statusReason && (
+          <AttributedQuote attribution="the reviewing officer">{statusReason}</AttributedQuote>
+        )}
         <div className="mt-4 flex flex-wrap gap-3">
           <Button size="sm" loading={confirming} onClick={onConfirm}>
             <ThumbsUp className="size-4" aria-hidden="true" />
@@ -185,7 +199,9 @@ export function ActionRequiredPanel({
           goes back to an officer to fix; if not, it closes here. Nothing is needed from
           you in the meantime.
         </p>
-        {statusReason && <OfficerQuote>{statusReason}</OfficerQuote>}
+        {statusReason && (
+          <AttributedQuote attribution="your dispute">{statusReason}</AttributedQuote>
+        )}
       </PanelShell>
     );
   }
@@ -198,7 +214,9 @@ export function ActionRequiredPanel({
           final for this report — if the problem is real and ongoing, file a fresh one
           with clearer photos.
         </p>
-        {statusReason && <OfficerQuote>{statusReason}</OfficerQuote>}
+        {statusReason && (
+          <AttributedQuote attribution="the reviewing officer">{statusReason}</AttributedQuote>
+        )}
       </PanelShell>
     );
   }
@@ -210,7 +228,9 @@ export function ActionRequiredPanel({
           The zone office concluded this can't be fixed through the complaints process.
           It stops here.
         </p>
-        {statusReason && <OfficerQuote>{statusReason}</OfficerQuote>}
+        {statusReason && (
+          <AttributedQuote attribution="the reviewing officer">{statusReason}</AttributedQuote>
+        )}
       </PanelShell>
     );
   }
@@ -222,7 +242,9 @@ export function ActionRequiredPanel({
           This report is finished. Any points it earned are in your ledger under My
           Kartavya.
         </p>
-        {statusReason && <OfficerQuote>{statusReason}</OfficerQuote>}
+        {statusReason && (
+          <AttributedQuote attribution="an administrator">{statusReason}</AttributedQuote>
+        )}
       </PanelShell>
     );
   }

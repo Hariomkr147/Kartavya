@@ -13,6 +13,7 @@ import { severityLabel } from "../lib/severity";
 import { avgResolutionHours, slaLabel } from "../lib/sla";
 import { lifetimePoints } from "../lib/points";
 import { TERMINAL_STATUSES, AT_OR_PAST_UNDER_REVIEW } from "../lib/fsm";
+import { reassignComplaintCluster } from "../lib/cluster";
 import { fromApiId, toApiId } from "../lib/ids";
 import { toCsv } from "../lib/csv";
 import { simulateAiZoneReportGeneration } from "../lib/ai";
@@ -100,19 +101,27 @@ export const adminHandlers = [
     const body = (await request.json()) as ComplaintOverrideRequest;
     const now = new Date().toISOString();
 
+    let categoryOrZoneChanged = false;
     if (body.categoryId !== undefined) {
       const categoryId = fromApiId(body.categoryId);
       if (categoryId == null || !db.categories.some((c) => c.id === categoryId)) {
         return Errors.badRequest("categoryId does not refer to a known category.");
       }
+      if (categoryId !== complaint.categoryId) categoryOrZoneChanged = true;
       complaint.categoryId = categoryId;
     }
     if (body.zoneId !== undefined) {
       const zoneId = fromApiId(body.zoneId);
       const zone = zoneId != null ? db.zones.find((z) => z.id === zoneId) : undefined;
       if (!zone) return Errors.badRequest("zoneId does not refer to a known zone.");
+      if (zone.id !== complaint.zoneId) categoryOrZoneChanged = true;
       complaint.zoneId = zone.id;
     }
+    // Clusters are strictly same-category/same-zone — a category/zone edit
+    // must re-place the complaint rather than leave it in a now-mismatched
+    // cluster (or stranded standalone when it newly matches one).
+    if (categoryOrZoneChanged) reassignComplaintCluster(complaint);
+
     if (body.status !== undefined) {
       const previousStatus = complaint.status;
       complaint.status = body.status;

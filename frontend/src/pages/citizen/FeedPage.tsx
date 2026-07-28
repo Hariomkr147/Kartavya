@@ -1,15 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  ArrowUp,
-  ImageOff,
-  Link2,
-  List,
-  MapPin,
-  MapPinned,
-  Rss,
-  UserRound,
-} from "lucide-react";
+import { ArrowUp, Link2, List, MapPin, MapPinned, Rss, UserRound } from "lucide-react";
 import { Combobox } from "@/components/ui/Combobox";
+import { PhotoThumb } from "@/components/ui/PhotoThumb";
 import { Label } from "@/components/ui/Label";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -415,13 +407,11 @@ function FeedCard({
       />
 
       <div className="bg-surface-hover relative aspect-video w-full overflow-hidden">
-        {item.photoUrl ? (
-          <img src={item.photoUrl} alt="" className="size-full object-cover" />
-        ) : (
-          <div className="flex size-full items-center justify-center">
-            <ImageOff className="text-ink-faint size-8" aria-hidden="true" />
-          </div>
-        )}
+        <PhotoThumb
+          src={item.photoUrl}
+          className="size-full object-cover"
+          iconClassName="text-ink-faint size-8"
+        />
         {resolved && (
           <div className="absolute top-2 left-2">
             <StatusPill status={item.status} />

@@ -2,7 +2,7 @@ import { Check, CircleDashed, Loader2, TriangleAlert, X } from "lucide-react";
 import { motion } from "framer-motion";
 import { describeLifecycle, type StageState } from "@/lib/lifecycle";
 import { cn } from "@/lib/utils";
-import type { ComplaintStatus, StatusHistoryEntry } from "@/types/api";
+import type { ComplaintStatus } from "@/types/api";
 
 const NODE_CLASSES: Record<StageState, string> = {
   done: "border-transparent bg-brand text-brand-fg",
@@ -63,14 +63,12 @@ function StageIcon({ state }: { state: StageState }) {
  */
 export function LifecycleTracker({
   status,
-  statusHistory,
   className,
 }: {
   status: ComplaintStatus;
-  statusHistory?: StatusHistoryEntry[];
   className?: string;
 }) {
-  const { stages, currentIndex, detour } = describeLifecycle(status, statusHistory);
+  const { stages, currentIndex, detour } = describeLifecycle(status);
   const current = stages[currentIndex];
 
   return (

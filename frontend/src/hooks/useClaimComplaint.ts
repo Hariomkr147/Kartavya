@@ -8,6 +8,7 @@ export function useClaimComplaint() {
     onSuccess: (complaint) => {
       queryClient.invalidateQueries({ queryKey: ["officer", "queue"] });
       queryClient.invalidateQueries({ queryKey: ["complaints", complaint.id] });
+      queryClient.invalidateQueries({ queryKey: ["clusters"] });
     },
   });
 }

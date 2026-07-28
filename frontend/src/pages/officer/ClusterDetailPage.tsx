@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Boxes, FileQuestion, ImageOff } from "lucide-react";
+import { ArrowLeft, Boxes, FileQuestion } from "lucide-react";
 import { StatusPill, SeverityPill, SlaPill } from "@/components/ui/pills";
+import { PhotoThumb } from "@/components/ui/PhotoThumb";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Textarea } from "@/components/ui/Textarea";
@@ -230,11 +231,11 @@ export function OfficerClusterDetailPage() {
                     to={`/officer/queue/${c.id}`}
                     className="bg-surface-hover flex size-10 items-center justify-center overflow-hidden rounded-md"
                   >
-                    {c.photoUrl ? (
-                      <img src={c.photoUrl} alt="" className="size-full object-cover" />
-                    ) : (
-                      <ImageOff className="text-ink-faint size-4" aria-hidden="true" />
-                    )}
+                    <PhotoThumb
+                      src={c.photoUrl}
+                      className="size-full object-cover"
+                      iconClassName="text-ink-faint size-4"
+                    />
                   </Link>
                 </TableCell>
                 <TableCell>
@@ -265,7 +266,7 @@ export function OfficerClusterDetailPage() {
         open={batchOpen}
         onClose={() => setBatchOpen(false)}
         target={{ type: "cluster", clusterId: cluster.id }}
-        count={cluster.complaints.length}
+        statuses={cluster.complaints.map((c) => c.status)}
       />
 
       <Modal

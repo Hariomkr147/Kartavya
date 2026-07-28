@@ -105,21 +105,10 @@ const DETOURS: Partial<Record<ComplaintStatus, { label: string; tone: "warning" 
     UNRESOLVABLE: { label: "Marked unresolvable — stopped here", tone: "bad" },
   };
 
-export function describeLifecycle(
-  status: ComplaintStatus,
-  statusHistory?: StatusHistoryEntry[],
-): Lifecycle {
+export function describeLifecycle(status: ComplaintStatus): Lifecycle {
   const currentStage = STATUS_STAGE[status];
   const currentIndex = STAGE_ORDER.indexOf(currentStage);
   const isTerminal = TERMINAL.includes(status);
-  // A complaint can skip a stage's *statuses* on paper (e.g. history is
-  // truncated), so reached-ness is the furthest stage ever visited rather
-  // than a per-stage lookup — that way an earlier stage never renders as
-  // "upcoming" behind a later one.
-  const visitedIndex = (statusHistory ?? []).reduce((furthest, entry) => {
-    const index = STAGE_ORDER.indexOf(STATUS_STAGE[entry.toStatus]);
-    return index > furthest ? index : furthest;
-  }, currentIndex);
 
   const stages = STAGE_ORDER.map((key, index): LifecycleStage => {
     let state: StageState;
@@ -134,7 +123,12 @@ export function describeLifecycle(
               ? "attention"
               : "current";
     } else if (isTerminal) state = "cancelled";
-    else state = index <= visitedIndex ? "done" : "upcoming";
+    // A stage strictly after the current one is always "upcoming" — even if
+    // a REOPENED dispute previously reached it (e.g. RESOLVED/FIXED) before
+    // regressing back to WORKING, since that earlier pass is exactly what's
+    // now in question. Marking it "done" here would tell the citizen the fix
+    // is confirmed-good at the moment they're disputing that it isn't.
+    else state = "upcoming";
 
     return { key, label: STAGE_LABELS[key], hint: STAGE_HINTS[key], state };
   });

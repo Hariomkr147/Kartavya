@@ -26,11 +26,39 @@ function recomputeClusterCentroid(clusterId: number): void {
   const cluster = db.clusters.find((c) => c.id === clusterId);
   if (!cluster) return;
   const members = db.complaints.filter((c) => c.clusterId === clusterId);
+  // A cluster left with no members (its last one just moved out) keeps its
+  // row — clusters are never deleted here — but recomputing an average over
+  // zero members would poison centroid/lat/lng with NaN, so leave it as-is.
+  if (members.length === 0) {
+    cluster.reportCount = 0;
+    cluster.uniqueReporterCount = 0;
+    cluster.updatedAt = new Date().toISOString();
+    return;
+  }
   cluster.centroidLat = members.reduce((sum, m) => sum + m.latitude, 0) / members.length;
   cluster.centroidLng = members.reduce((sum, m) => sum + m.longitude, 0) / members.length;
   cluster.reportCount = members.length;
   cluster.uniqueReporterCount = new Set(members.map((m) => m.citizenId)).size;
   cluster.updatedAt = new Date().toISOString();
+  for (const member of members) recomputeSeverity(member);
+}
+
+/**
+ * Detaches a complaint from its current cluster (if any) and re-links it
+ * under its (possibly just-changed) category/zone. Clusters are strictly
+ * same-category/same-zone (CLUSTERED_COMPLAINT_LIFECYCLE.MD), so an admin
+ * override that edits `categoryId`/`zoneId` on a clustered complaint must
+ * route through this rather than mutating those fields in place — otherwise
+ * the complaint's own category/zone would permanently diverge from the
+ * cluster it's still sitting in.
+ */
+export function reassignComplaintCluster(complaint: ComplaintRow): void {
+  const previousClusterId = complaint.clusterId;
+  if (previousClusterId != null) {
+    complaint.clusterId = null;
+    recomputeClusterCentroid(previousClusterId);
+  }
+  linkComplaintToCluster(complaint);
 }
 
 /**

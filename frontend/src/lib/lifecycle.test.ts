@@ -17,9 +17,9 @@ function entry(
   } as StatusHistoryEntry;
 }
 
-function stateOf(status: ComplaintStatus, history: StatusHistoryEntry[] = []) {
+function stateOf(status: ComplaintStatus) {
   return Object.fromEntries(
-    describeLifecycle(status, history).stages.map((stage) => [stage.key, stage.state]),
+    describeLifecycle(status).stages.map((stage) => [stage.key, stage.state]),
   );
 }
 
@@ -36,12 +36,7 @@ describe("describeLifecycle", () => {
   });
 
   it("marks every earlier stage done once work is underway", () => {
-    const states = stateOf("IN_PROGRESS", [
-      entry("SUBMITTED"),
-      entry("EVIDENCE_UNDER_REVIEW"),
-      entry("UNDER_REVIEW"),
-      entry("IN_PROGRESS"),
-    ]);
+    const states = stateOf("IN_PROGRESS");
     expect(states.FILED).toBe("done");
     expect(states.EVIDENCE).toBe("done");
     expect(states.ACCEPTED).toBe("done");
@@ -56,11 +51,7 @@ describe("describeLifecycle", () => {
   });
 
   it("cancels the stages a terminal complaint will never reach", () => {
-    const states = stateOf("REJECTED", [
-      entry("SUBMITTED"),
-      entry("EVIDENCE_UNDER_REVIEW"),
-      entry("REJECTED"),
-    ]);
+    const states = stateOf("REJECTED");
     expect(states.EVIDENCE).toBe("stopped");
     expect(states.ACCEPTED).toBe("cancelled");
     expect(states.CLOSED).toBe("cancelled");
@@ -68,16 +59,23 @@ describe("describeLifecycle", () => {
   });
 
   it("shows a closed complaint as finished, not still in progress", () => {
-    const states = stateOf("CLOSED", [entry("RESOLVED"), entry("CLOSED")]);
+    const states = stateOf("CLOSED");
     expect(states.FIXED).toBe("done");
     expect(states.CLOSED).toBe("done");
   });
 
   it("never renders an earlier stage as upcoming behind a later one", () => {
-    // History skipping straight to IN_PROGRESS must not leave EVIDENCE dim.
-    const states = stateOf("IN_PROGRESS", [entry("SUBMITTED"), entry("IN_PROGRESS")]);
+    const states = stateOf("IN_PROGRESS");
     expect(states.EVIDENCE).toBe("done");
     expect(states.ACCEPTED).toBe("done");
+  });
+
+  it("never shows FIXED as done while a REOPENED dispute is under review", () => {
+    // A dispute regresses WORKING behind a FIXED it already passed through —
+    // FIXED must go back to "upcoming", not stay "done" from the earlier pass.
+    const states = stateOf("REOPENED");
+    expect(states.WORKING).toBe("attention");
+    expect(states.FIXED).toBe("upcoming");
   });
 
   it("labels the detour off the happy path", () => {

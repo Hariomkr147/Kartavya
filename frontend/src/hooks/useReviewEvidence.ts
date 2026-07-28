@@ -9,6 +9,7 @@ export function useReviewEvidence(complaintId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["complaints", complaintId] });
       queryClient.invalidateQueries({ queryKey: ["officer", "queue"] });
+      queryClient.invalidateQueries({ queryKey: ["clusters"] });
     },
   });
 }

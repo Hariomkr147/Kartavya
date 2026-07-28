@@ -10,6 +10,7 @@ export function useReviewDispute(complaintId: string) {
       queryClient.invalidateQueries({ queryKey: ["complaints", complaintId] });
       queryClient.invalidateQueries({ queryKey: ["admin", "complaints"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "analytics"] });
+      queryClient.invalidateQueries({ queryKey: ["clusters"] });
     },
   });
 }

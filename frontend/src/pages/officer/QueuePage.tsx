@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { ArrowUp, ClipboardList, ImageOff, Search, X } from "lucide-react";
+import { ArrowUp, ClipboardList, Search, X } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Combobox } from "@/components/ui/Combobox";
 import { Label } from "@/components/ui/Label";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Button } from "@/components/ui/Button";
+import { PhotoThumb } from "@/components/ui/PhotoThumb";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
@@ -173,8 +174,12 @@ export function OfficerQueuePage() {
 
   const total = sorted.length;
   const paged = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const pageIds = paged.map((c) => c.id);
-  const allSelectedOnPage = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+  // REOPENED has no legal officer-triggered transition — it's the one exit
+  // that belongs to the admin's dispute review — so it can never be a valid
+  // batch target and must not be selectable for one.
+  const selectablePageIds = paged.filter((c) => c.status !== "REOPENED").map((c) => c.id);
+  const allSelectedOnPage =
+    selectablePageIds.length > 0 && selectablePageIds.every((id) => selected.has(id));
 
   function sortableProps(key: QueueSortKey) {
     return {
@@ -211,8 +216,8 @@ export function OfficerQueuePage() {
   function toggleSelectAll() {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (allSelectedOnPage) pageIds.forEach((id) => next.delete(id));
-      else pageIds.forEach((id) => next.add(id));
+      if (allSelectedOnPage) selectablePageIds.forEach((id) => next.delete(id));
+      else selectablePageIds.forEach((id) => next.add(id));
       return next;
     });
   }
@@ -365,6 +370,7 @@ export function OfficerQueuePage() {
                     aria-label="Select all on this page"
                     checked={allSelectedOnPage}
                     onChange={toggleSelectAll}
+                    disabled={selectablePageIds.length === 0}
                   />
                 </TableHeaderCell>
                 <TableHeaderCell className="w-14">Photo</TableHeaderCell>
@@ -408,6 +414,12 @@ export function OfficerQueuePage() {
                         aria-label={`Select ${c.id}`}
                         checked={selected.has(c.id)}
                         onChange={() => toggleRow(c.id)}
+                        disabled={c.status === "REOPENED"}
+                        title={
+                          c.status === "REOPENED"
+                            ? "Reopened complaints are under admin dispute review and can't be batch-updated by an officer."
+                            : undefined
+                        }
                       />
                     </TableCell>
                     <TableCell>
@@ -416,15 +428,11 @@ export function OfficerQueuePage() {
                         className="bg-surface-hover flex size-10 items-center justify-center overflow-hidden rounded-md"
                         aria-label={`Open ${c.id}`}
                       >
-                        {c.photoUrl ? (
-                          <img
-                            src={c.photoUrl}
-                            alt=""
-                            className="size-full object-cover"
-                          />
-                        ) : (
-                          <ImageOff className="text-ink-faint size-4" aria-hidden="true" />
-                        )}
+                        <PhotoThumb
+                          src={c.photoUrl}
+                          className="size-full object-cover"
+                          iconClassName="text-ink-faint size-4"
+                        />
                       </Link>
                     </TableCell>
                     <TableCell>
@@ -505,7 +513,7 @@ export function OfficerQueuePage() {
           setSelected(new Set());
         }}
         target={{ type: "ids", complaintIds: [...selected] }}
-        count={selected.size}
+        statuses={rows.filter((c) => selected.has(c.id)).map((c) => c.status)}
       />
     </div>
   );

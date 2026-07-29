@@ -61,7 +61,7 @@ def _init_extensions(app: "Flask") -> None:
 
     # Importing the models package registers every mapper. Alembic autogenerate
     # and db.create_all() both depend on that having happened.
-    import app.models  # noqa: F401
+    from app import models as _models  # noqa: F401
 
     # The upload directory must exist before the first photo arrives; creating
     # it lazily on the first POST is a race between concurrent uploads.

@@ -45,7 +45,15 @@ export function Combobox({
   const [position, setPosition] = useState({ top: 0, left: 0, width: 0 });
 
   const selectable = options.filter((o) => !(placeholderDisabled && o.value === ""));
-  const selected = options.find((o) => o.value === value && o.value !== "");
+  // Matched by value alone — including the empty-value option — so a filter's
+  // own "All zones"/"All categories" row (a real, meaningful selection) and a
+  // required field's "Choose a zone…" row (informational only) both show
+  // their own label instead of the generic `placeholder` fallback. The two
+  // are told apart for *styling* by `isPlaceholderOption` below: only the
+  // latter should still read as unset (muted text, no checkmark).
+  const matched = options.find((o) => o.value === value);
+  const isPlaceholderOption = placeholderDisabled && matched?.value === "";
+  const hasRealSelection = matched != null && !isPlaceholderOption;
   const describedBy = error ? `${id}-error` : hint ? `${id}-hint` : undefined;
 
   useEffect(() => {
@@ -131,12 +139,12 @@ export function Combobox({
             "flex h-11 w-full items-center gap-2 rounded-md border bg-surface px-3 text-left text-sm transition-colors",
             "border-line focus-visible:border-brand focus-visible:outline-none",
             error && "border-status-rejected focus-visible:border-status-rejected",
-            selected ? "text-ink" : "text-ink-faint",
+            hasRealSelection ? "text-ink" : "text-ink-faint",
           )}
         >
-          {selected?.icon}
+          {hasRealSelection && matched?.icon}
           <span className="flex-1 truncate">
-            {selected ? selected.label : placeholder}
+            {matched ? matched.label : placeholder}
           </span>
           <ChevronDown className="size-4 shrink-0 text-ink-faint" aria-hidden="true" />
         </button>

@@ -57,6 +57,16 @@ interface ToastContextValue {
   unreadCount: number;
   markHistoryRead: () => void;
   clearHistory: () => void;
+  /**
+   * Wipes history *and* the `notify` dedupe keys — unlike `clearHistory`
+   * (the notification bell's user-facing "Clear" button), which deliberately
+   * leaves dedupe keys alone so an unrelated data refetch can't resurface
+   * something the user just dismissed. Call this on logout: a complaint can
+   * change owners (reassigned officer) between sessions, and a dedupe key
+   * left over from the previous account would silently swallow the next
+   * account's first legitimate notification about it.
+   */
+  resetSession: () => void;
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -134,10 +144,23 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setHistory([]);
     setUnreadCount(0);
   }, []);
+  const resetSession = useCallback(() => {
+    notifiedKeys.current.clear();
+    setHistory([]);
+    setUnreadCount(0);
+  }, []);
 
   const value = useMemo(
-    () => ({ toast, notify, history, unreadCount, markHistoryRead, clearHistory }),
-    [toast, notify, history, unreadCount, markHistoryRead, clearHistory],
+    () => ({
+      toast,
+      notify,
+      history,
+      unreadCount,
+      markHistoryRead,
+      clearHistory,
+      resetSession,
+    }),
+    [toast, notify, history, unreadCount, markHistoryRead, clearHistory, resetSession],
   );
 
   return (
@@ -154,7 +177,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             return (
               <div
                 key={t.id}
-                role="status"
+                role={t.variant === "error" ? "alert" : "status"}
                 className="animate-in slide-in-from-bottom-2 fade-in flex items-start gap-3 rounded-lg border border-line bg-surface p-4 shadow-lg duration-150"
               >
                 <Icon

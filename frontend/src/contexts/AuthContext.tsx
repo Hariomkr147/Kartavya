@@ -2,6 +2,8 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import * as authService from "@/services/auth";
 import * as accountService from "@/services/account";
 import { ApiRequestError, getStoredToken, setStoredToken } from "@/services/http";
+import { queryClient } from "@/lib/queryClient";
+import { useToast } from "@/components/ui/Toast";
 import type { LoginRequest, RegisterRequest, User } from "@/types/api";
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
@@ -26,6 +28,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [status, setStatus] = useState<AuthStatus>("loading");
+  const { resetSession } = useToast();
 
   useEffect(() => {
     let cancelled = false;
@@ -72,6 +75,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStoredToken(null);
     setUser(null);
     setStatus("unauthenticated");
+    // Every query key in this app is unscoped by user id, so a stale cache
+    // entry from the outgoing account would otherwise render instantly for
+    // whoever signs in next on this browser — a real privacy leak given the
+    // per-role/per-citizen data this app handles.
+    queryClient.clear();
+    resetSession();
   }
 
   async function refreshUser() {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Bot,
   BotOff,
@@ -37,6 +37,43 @@ function confidenceBadgeClass(confidence: number | null | undefined): string {
   return "bg-status-rejected-subtle text-status-rejected";
 }
 
+/**
+ * Same three phases the thumbnail badges above show, spelled out in full for
+ * the lightbox's caption area — text-white/70 rather than the card's
+ * text-ink-faint since this renders over the lightbox's dark overlay, not
+ * the page surface.
+ */
+function aiScreeningDescription(item: Evidence): ReactNode {
+  const phase = item.aiConfidenceNote ? screeningPhase(item.aiConfidenceNote) : null;
+  if (phase === "pending") {
+    return (
+      <span className="flex items-center gap-1.5 text-xs text-white/70">
+        <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
+        Analyzing photo {item.sequence}…
+      </span>
+    );
+  }
+  if (phase === "done" && item.aiConfidenceNote) {
+    return (
+      <span className="flex items-center gap-1.5 text-xs text-white/70">
+        <Bot className="size-3.5 shrink-0" aria-hidden="true" />
+        {item.aiConfidenceNote.note}
+        {item.aiConfidenceNote.confidence != null &&
+          ` (${Math.round(item.aiConfidenceNote.confidence * 100)}% confidence)`}
+      </span>
+    );
+  }
+  if (phase === "unavailable") {
+    return (
+      <span className="flex items-center gap-1.5 text-xs text-white/70">
+        <BotOff className="size-3.5 shrink-0" aria-hidden="true" />
+        AI screening was unavailable — an officer will review it directly.
+      </span>
+    );
+  }
+  return undefined;
+}
+
 export function EvidenceGallery({ evidence }: { evidence: Evidence[] }) {
   const sorted = [...evidence].sort((a, b) => a.sequence - b.sequence);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -45,6 +82,7 @@ export function EvidenceGallery({ evidence }: { evidence: Evidence[] }) {
     src: item.photoUrl,
     alt: `Evidence photo ${item.sequence}`,
     caption: `Photo #${item.sequence} · submitted ${absoluteDateTime(item.submittedAt)}`,
+    description: aiScreeningDescription(item),
   }));
 
   return (

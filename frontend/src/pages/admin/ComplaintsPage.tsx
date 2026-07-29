@@ -79,6 +79,14 @@ function dateDeserialize(raw: string): Date | undefined {
   return Number.isNaN(d.getTime()) ? undefined : d;
 }
 
+function pageSerialize(p: number): string {
+  return String(p);
+}
+function pageDeserialize(raw: string): number {
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 1 ? n : 1;
+}
+
 const PAGE_SIZE = 15;
 
 export function AdminComplaintsPage() {
@@ -105,7 +113,12 @@ export function AdminComplaintsPage() {
   });
   const [sort, setSort] = useSearchParamState("sort", "-createdAt");
   const [search, setSearch] = useSearchParamState("q", "");
-  const [page, setPage] = useState(1);
+  // In the URL like every other filter here — so "Copy link to this view"
+  // (below) reopens on the same page instead of always resetting to page 1.
+  const [page, setPage] = useSearchParamState("page", 1, {
+    serialize: pageSerialize,
+    deserialize: pageDeserialize,
+  });
   const [exporting, setExporting] = useState(false);
   // Bypasses the per-field `useSearchParamState` setters below for the
   // "clear all" case: each of those setters closes over its own stale

@@ -95,6 +95,21 @@ export function FileDropzone({
     onFilesChange(files.filter((_, i) => i !== index));
   }
 
+  // Single-photo mode (maxFiles === 1, the default) hides the whole drop-
+  // zone/browse prompt once the one slot is filled — `slotsLeft > 0` below
+  // goes false — leaving nothing on screen that reads as "you can pick a
+  // different one" besides the small, unlabeled ✕ on the thumbnail. This
+  // clears the current file and reopens the picker in a single click so
+  // there's an explicit, visible "Change photo" affordance instead. Safe to
+  // call `inputRef.current?.click()` synchronously here even though
+  // `onFilesChange([])` hasn't committed yet — the native file dialog takes
+  // real user time to resolve, so by the time `onChange` actually fires,
+  // React has already re-rendered with the freed-up slot.
+  function replaceSinglePhoto() {
+    onFilesChange([]);
+    inputRef.current?.click();
+  }
+
   function handleDrop(e: DragEvent<HTMLDivElement>) {
     e.preventDefault();
     setDragActive(false);
@@ -108,7 +123,12 @@ export function FileDropzone({
       {files.length > 0 && (
         <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
           {files.map((file, index) => (
-            <FilePreview key={index} file={file} onRemove={() => removeAt(index)} />
+            <FilePreview
+              key={index}
+              file={file}
+              onRemove={() => removeAt(index)}
+              onReplace={maxFiles === 1 ? replaceSinglePhoto : undefined}
+            />
           ))}
         </div>
       )}
@@ -164,31 +184,60 @@ export function FileDropzone({
               Take a photo
             </button>
           )}
-          <input
-            ref={inputRef}
-            type="file"
-            accept={accept}
-            multiple={maxFiles > 1}
-            className="sr-only"
-            onChange={(e) => addCandidates(e.target.files)}
-          />
-          <input
-            ref={cameraInputRef}
-            type="file"
-            accept={accept}
-            capture="environment"
-            aria-label="Take a photo with the camera"
-            className="sr-only"
-            onChange={(e) => addCandidates(e.target.files)}
-          />
         </div>
       )}
+      {/*
+        Outside the `slotsLeft > 0` block, and thus always mounted — even in
+        single-photo mode once the one slot is filled and the drop-zone above
+        stops rendering — so `replaceSinglePhoto`'s `inputRef.current?.click()`
+        always has a real node to open.
+      */}
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        multiple={maxFiles > 1}
+        className="sr-only"
+        onChange={(e) => {
+          addCandidates(e.target.files);
+          // Without this, re-picking the exact same file after removing
+          // it leaves the input's value unchanged, so the browser never
+          // fires another `change` event and the photo silently fails to
+          // re-add.
+          e.target.value = "";
+        }}
+      />
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept={accept}
+        capture="environment"
+        aria-label="Take a photo with the camera"
+        className="sr-only"
+        onChange={(e) => {
+          addCandidates(e.target.files);
+          // Without this, re-picking the exact same file after removing
+          // it leaves the input's value unchanged, so the browser never
+          // fires another `change` event and the photo silently fails to
+          // re-add.
+          e.target.value = "";
+        }}
+      />
       {displayError && <p className="text-status-rejected mt-1.5 text-xs">{displayError}</p>}
     </div>
   );
 }
 
-function FilePreview({ file, onRemove }: { file: File; onRemove: () => void }) {
+function FilePreview({
+  file,
+  onRemove,
+  onReplace,
+}: {
+  file: File;
+  onRemove: () => void;
+  /** Single-photo mode only — the explicit, visible counterpart to the ✕ above, for when removing is the only way back to the picker (see `replaceSinglePhoto`). */
+  onReplace?: () => void;
+}) {
   const previewUrl = useMemo(() => URL.createObjectURL(file), [file]);
   useEffect(() => {
     // Deferred rather than immediate — revoking synchronously on unmount can
@@ -199,18 +248,29 @@ function FilePreview({ file, onRemove }: { file: File; onRemove: () => void }) {
   }, [previewUrl]);
 
   return (
-    <div className="relative overflow-hidden rounded-md border border-line">
-      {previewUrl && (
-        <img src={previewUrl} alt="Selected evidence preview" className="h-32 w-full object-cover" />
+    <div>
+      <div className="relative overflow-hidden rounded-md border border-line">
+        {previewUrl && (
+          <img src={previewUrl} alt="Selected evidence preview" className="h-32 w-full object-cover" />
+        )}
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label="Remove photo"
+          className="bg-ink/60 hover:bg-ink/80 absolute top-1.5 right-1.5 inline-flex size-7 items-center justify-center rounded-full text-white transition-colors"
+        >
+          <X className="size-3.5" aria-hidden="true" />
+        </button>
+      </div>
+      {onReplace && (
+        <button
+          type="button"
+          onClick={onReplace}
+          className="text-brand mt-1.5 text-xs font-medium hover:underline"
+        >
+          Change photo
+        </button>
       )}
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label="Remove photo"
-        className="bg-ink/60 hover:bg-ink/80 absolute top-1.5 right-1.5 inline-flex size-7 items-center justify-center rounded-full text-white transition-colors"
-      >
-        <X className="size-3.5" aria-hidden="true" />
-      </button>
     </div>
   );
 }

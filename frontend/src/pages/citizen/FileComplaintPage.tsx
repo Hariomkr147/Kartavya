@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   Bot,
@@ -10,10 +11,12 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
+  GripVertical,
   Info,
   Loader2,
   MapPin,
   MapPinned,
+  RotateCcw,
   Wand2,
   X as XIcon,
 } from "lucide-react";
@@ -27,6 +30,7 @@ import { Combobox } from "@/components/ui/Combobox";
 import { FileDropzone } from "@/components/ui/FileDropzone";
 import { MapPicker, type LatLng } from "@/components/ui/MapPicker";
 import { MiniMap } from "@/components/ui/MiniMap";
+import { Modal } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Stepper } from "@/components/ui/Stepper";
 import { Tooltip } from "@/components/ui/Tooltip";
@@ -38,10 +42,10 @@ import { useCreateComplaint } from "@/hooks/useCreateComplaint";
 import { useLandmark } from "@/hooks/useLandmark";
 import { useLocalDraft } from "@/hooks/useLocalDraft";
 import { useDirtyFormGuard } from "@/hooks/useDirtyFormGuard";
+import { usePhotoGpsLocation } from "@/hooks/usePhotoGpsLocation";
 import { useAuth } from "@/contexts/AuthContext";
 import { iconForCategory } from "@/lib/categoryIcons";
 import { rankCategories } from "@/lib/categoryMatcher";
-import { readExifGps, type ExifGps } from "@/lib/exifGps";
 import { screeningPhase } from "@/lib/aiScreening";
 import { getComplaintById } from "@/services/complaints";
 import { ApiRequestError } from "@/services/http";
@@ -143,24 +147,26 @@ export function FileComplaintPage() {
   const [locationSource, setLocationSource] = useState<"exif" | "manual" | null>(null);
   const [zoneId, setZoneId] = useState<string>("");
   const [zoneManuallySet, setZoneManuallySet] = useState(false);
-  // Keyed by file identity so "checking" is derived (not set synchronously
-  // in the effect below) — it's simply "no result yet for this file".
-  const [exifResult, setExifResult] = useState<{
-    file: File;
-    gps: ExifGps | null;
-  } | null>(null);
   const [showManualMap, setShowManualMap] = useState(false);
-  const exifStatus: "idle" | "checking" | "found" | "not-found" =
+  // Scans every selected photo (not just the first) for embedded GPS and
+  // reconciles them — see the hook for the single/consensus/inconsistent
+  // rules. Reordering doesn't retrigger a scan (it's the same Files), so
+  // dragging photos around never flashes "checking" again.
+  const { resolution: gpsResolution, scanning: gpsScanning } = usePhotoGpsLocation(photos);
+  const exifStatus: "idle" | "checking" | "found" | "not-found" | "inconsistent" =
     photos.length === 0
       ? "idle"
-      : exifResult?.file !== photos[0]
+      : gpsScanning
         ? "checking"
-        : exifResult.gps
-          ? "found"
-          : "not-found";
+        : gpsResolution.status === "none"
+          ? "not-found"
+          : gpsResolution.status === "inconsistent"
+            ? "inconsistent"
+            : "found";
 
   const [formError, setFormError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState<ComplaintDetail | null>(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const isDirty =
     !submitted &&
@@ -180,29 +186,38 @@ export function FileComplaintPage() {
       : undefined,
   );
 
-  // Auto-read EXIF GPS from the first photo, falling back to the manual map
-  // when it's absent — most demo/downloaded photos have no GPS tags at all.
-  useEffect(() => {
-    const firstPhoto = photos[0];
-    if (!firstPhoto) return;
-    let cancelled = false;
-    readExifGps(firstPhoto).then((gps) => {
-      if (cancelled) return;
-      setExifResult({ file: firstPhoto, gps });
-      if (gps) {
-        setLocation(gps);
+  // Sync the pin to whatever `usePhotoGpsLocation` just resolved. A manual
+  // pin is a deliberate choice the citizen made themselves — see
+  // `locationSource`'s own comment — so it's never silently overwritten or
+  // taken away by an automatic re-scan, whichever way that re-scan goes. An
+  // exif-derived pin gets the opposite treatment: it's only trustworthy for
+  // as long as the reading behind it still stands, so it's cleared the
+  // moment the scan no longer backs it up (the photo that produced it was
+  // removed, or a newly-added photo now disagrees with it). Adjusting state
+  // during render (rather than in an effect) on a tracked-previous-value
+  // comparison is the same pattern `BatchStatusModal` and the dispute modal
+  // below use to react to a change like this.
+  const [lastSyncedGpsResolution, setLastSyncedGpsResolution] = useState(gpsResolution);
+  if (gpsResolution !== lastSyncedGpsResolution) {
+    setLastSyncedGpsResolution(gpsResolution);
+    if (gpsResolution.status === "found") {
+      if (locationSource !== "manual") {
+        setLocation(gpsResolution.location);
         setLocationSource("exif");
         setZoneManuallySet(false);
         setShowManualMap(false);
-      } else {
-        setShowManualMap(true);
       }
-    });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [photos[0]]);
+    } else {
+      // "none" or "inconsistent" — neither is a location worth keeping if
+      // it's the thing that put it there in the first place.
+      if (locationSource === "exif") {
+        setLocation(null);
+        setLocationSource(null);
+        if (!zoneManuallySet) setZoneId("");
+      }
+      setShowManualMap(true);
+    }
+  }
 
   // Zone auto-suggestion from whatever location is currently set (EXIF or manual pin).
   useEffect(() => {
@@ -215,29 +230,6 @@ export function FileComplaintPage() {
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location?.lat, location?.lng, zoneManuallySet]);
-
-  // The last photo was removed, and the pin currently on the form is still
-  // exactly what that photo's EXIF tag produced — it no longer has any
-  // source, and leaving it in place would show "Add a photo above, or drop a
-  // pin below" (the idle copy) right next to a review step that still lists
-  // a location. The zone is only cleared if the citizen never touched it
-  // themselves; a manual override is a deliberate choice independent of the
-  // photo and outlives it. Adjusting state during render (rather than in an
-  // effect) on a tracked-previous-value comparison is the same pattern
-  // `BatchStatusModal` and the dispute modal above use to react to a change
-  // like this — it re-renders before the browser paints instead of costing
-  // a second, effect-driven render pass.
-  const [lastPhotoCount, setLastPhotoCount] = useState(photos.length);
-  if (photos.length !== lastPhotoCount) {
-    setLastPhotoCount(photos.length);
-    if (photos.length === 0 && locationSource === "exif") {
-      setLocation(null);
-      setLocationSource(null);
-      setExifResult(null);
-      setShowManualMap(false);
-      if (!zoneManuallySet) setZoneId("");
-    }
-  }
 
   // Poll the freshly created complaint until every photo's AI screening
   // resolves (or reports itself unavailable) — mirrors the mock's real
@@ -348,10 +340,14 @@ export function FileComplaintPage() {
     setLocationSource(null);
     setZoneId("");
     setZoneManuallySet(false);
-    setExifResult(null);
     setShowManualMap(false);
     setFormError(null);
     setSubmitted(null);
+    // Otherwise the emptied draft only overwrites localStorage after the
+    // 300ms debounce — clearing it immediately means the "Draft restored"
+    // banner can't linger for a moment after the citizen just asked to start
+    // over, and a refresh right after resetting won't restore anything.
+    clearDraft();
   }
 
   if (submitted) {
@@ -369,13 +365,26 @@ export function FileComplaintPage() {
 
   return (
     <div className="mx-auto w-full max-w-2xl space-y-6 pb-12">
-      <div>
-        <h1 className="font-display text-display-sm font-semibold text-ink">
-          File a complaint
-        </h1>
-        <p className="text-ink-muted mt-1 text-sm">
-          Let us know what problems you're facing.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="font-display text-display-sm font-semibold text-ink">
+            File a complaint
+          </h1>
+          <p className="text-ink-muted mt-1 text-sm">
+            Let us know what problems you're facing.
+          </p>
+        </div>
+        {isDirty && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowResetConfirm(true)}
+          >
+            <RotateCcw className="size-4" aria-hidden="true" />
+            Reset
+          </Button>
+        )}
       </div>
 
       <Stepper steps={STEP_LABELS} currentStep={step} />
@@ -528,8 +537,8 @@ export function FileComplaintPage() {
           <div>
             <Label required>Photo evidence</Label>
             <p className="text-ink-muted mb-3 text-sm">
-              Up to {MAX_PHOTOS} photos. We'll try to read the location from the first one
-              automatically.
+              Up to {MAX_PHOTOS} photos. We'll try to read the location from whichever
+              ones have it.
             </p>
             <FileDropzone
               files={photos}
@@ -537,7 +546,18 @@ export function FileComplaintPage() {
               maxFiles={MAX_PHOTOS}
             />
             {photos.length > 1 && (
-              <ReorderablePhotoList photos={photos} onReorder={setPhotos} />
+              <ReorderablePhotoList
+                photos={photos}
+                onReorder={setPhotos}
+                gpsPhotoIndices={
+                  new Set(
+                    gpsResolution.status !== "none"
+                      ? gpsResolution.candidates.map((c) => c.index)
+                      : [],
+                  )
+                }
+                inconsistentLocation={gpsResolution.status === "inconsistent"}
+              />
             )}
           </div>
 
@@ -546,13 +566,15 @@ export function FileComplaintPage() {
             {exifStatus === "checking" && (
               <p className="text-ink-muted mt-1 mb-3 flex items-center gap-1.5 text-sm">
                 <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden="true" />
-                Checking the photo for a location…
+                Checking your photos for a location…
               </p>
             )}
             {exifStatus === "found" && (
               <p className="text-ink-muted mt-1 mb-3 flex items-center gap-1.5 text-sm">
                 <MapPin className="text-brand size-4 shrink-0" aria-hidden="true" />
-                Location detected from your photo.{" "}
+                {gpsResolution.status === "found" && gpsResolution.source === "consensus"
+                  ? `Location confirmed from ${gpsResolution.candidates.length} of your photos.`
+                  : "Location detected from your photo."}{" "}
                 <button
                   type="button"
                   onClick={() => setShowManualMap((v) => !v)}
@@ -565,7 +587,17 @@ export function FileComplaintPage() {
             {exifStatus === "not-found" && (
               <p className="text-ink-muted mt-1 mb-3 flex items-center gap-1.5 text-sm">
                 <MapPinned className="size-4 shrink-0" aria-hidden="true" />
-                Your photo didn't have a location saved in it — drop a pin below.
+                None of your photos had a location saved in them — drop a pin below.
+              </p>
+            )}
+            {exifStatus === "inconsistent" && (
+              <p className="text-status-rejected mt-1 mb-3 flex items-start gap-1.5 text-sm">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                <span>
+                  Inconsistent location data found — your photos suggest different
+                  spots, marked with a pin below. Remove the one that doesn&rsquo;t
+                  belong, or set the correct location on the map yourself.
+                </span>
               </p>
             )}
             {exifStatus === "idle" && (
@@ -573,7 +605,10 @@ export function FileComplaintPage() {
                 Add a photo above, or drop a pin below.
               </p>
             )}
-            {(showManualMap || exifStatus === "not-found" || exifStatus === "idle") && (
+            {(showManualMap ||
+              exifStatus === "not-found" ||
+              exifStatus === "idle" ||
+              exifStatus === "inconsistent") && (
               <MapPicker
                 value={location}
                 onChange={(next) => {
@@ -712,6 +747,29 @@ export function FileComplaintPage() {
           </div>
         </section>
       )}
+
+      <Modal
+        open={showResetConfirm}
+        onClose={() => setShowResetConfirm(false)}
+        title="Reset this complaint?"
+        description="This clears everything you've entered — description, category, photos, and location — and takes you back to the first step. This can't be undone."
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowResetConfirm(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                resetForm();
+                setShowResetConfirm(false);
+              }}
+            >
+              Reset
+            </Button>
+          </>
+        }
+      />
     </div>
   );
 }
@@ -801,10 +859,21 @@ function CategoryCard({
 function ReorderablePhotoList({
   photos,
   onReorder,
+  gpsPhotoIndices,
+  inconsistentLocation,
 }: {
   photos: File[];
   onReorder: (files: File[]) => void;
+  /** Positions whose photo contributed a GPS reading — see `usePhotoGpsLocation` — so each row can flag it. */
+  gpsPhotoIndices: Set<number>;
+  /** True when those readings disagreed — colors the flags as a warning instead of a confirmation. */
+  inconsistentLocation: boolean;
 }) {
+  // Drag state lives here (not per-row) since a drop target needs to know
+  // about the photo currently being dragged from a sibling row.
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
   function move(index: number, direction: -1 | 1) {
     const target = index + direction;
     if (target < 0 || target >= photos.length) return;
@@ -813,10 +882,24 @@ function ReorderablePhotoList({
     onReorder(next);
   }
 
+  function moveToIndex(from: number, to: number) {
+    if (from === to) return;
+    const next = [...photos];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    onReorder(next);
+  }
+
+  function endDrag() {
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  }
+
   return (
     <div className="mt-3 space-y-1.5">
       <p className="text-ink-faint text-xs">
-        First photo drives the automatic location detection — reorder if needed.
+        Drag to reorder for maximum impact — the first photo becomes your complaint's
+        cover image wherever it's listed.
       </p>
       <ul className="space-y-1.5">
         {photos.map((photo, i) => (
@@ -826,8 +909,31 @@ function ReorderablePhotoList({
             index={i}
             isFirst={i === 0}
             isLast={i === photos.length - 1}
+            hasGps={gpsPhotoIndices.has(i)}
+            inconsistentLocation={inconsistentLocation}
+            dragging={draggedIndex === i}
+            dropTarget={dragOverIndex === i && draggedIndex !== null && draggedIndex !== i}
             onMoveUp={() => move(i, -1)}
             onMoveDown={() => move(i, 1)}
+            onDragStart={(e) => {
+              setDraggedIndex(i);
+              e.dataTransfer.effectAllowed = "move";
+              // Firefox refuses to start a drag at all without this.
+              e.dataTransfer.setData("text/plain", String(i));
+            }}
+            onDragOver={(e) => {
+              // Required to allow a drop at all — browsers reject drops on
+              // any target that doesn't call this.
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              if (dragOverIndex !== i) setDragOverIndex(i);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (draggedIndex !== null) moveToIndex(draggedIndex, i);
+              endDrag();
+            }}
+            onDragEnd={endDrag}
           />
         ))}
       </ul>
@@ -840,15 +946,31 @@ function PhotoReorderRow({
   index,
   isFirst,
   isLast,
+  hasGps,
+  inconsistentLocation,
+  dragging,
+  dropTarget,
   onMoveUp,
   onMoveDown,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
 }: {
   file: File;
   index: number;
   isFirst: boolean;
   isLast: boolean;
+  hasGps: boolean;
+  inconsistentLocation: boolean;
+  dragging: boolean;
+  dropTarget: boolean;
   onMoveUp: () => void;
   onMoveDown: () => void;
+  onDragStart: (e: DragEvent<HTMLLIElement>) => void;
+  onDragOver: (e: DragEvent<HTMLLIElement>) => void;
+  onDrop: (e: DragEvent<HTMLLIElement>) => void;
+  onDragEnd: () => void;
 }) {
   const url = useMemo(() => URL.createObjectURL(file), [file]);
   useEffect(() => {
@@ -856,11 +978,42 @@ function PhotoReorderRow({
   }, [url]);
 
   return (
-    <li className="border-line bg-surface flex items-center gap-2 rounded-md border p-1.5">
+    <li
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
+      className={cn(
+        "border-line bg-surface flex cursor-grab items-center gap-2 rounded-md border p-1.5 transition-[opacity,border-color] active:cursor-grabbing",
+        dragging && "opacity-40",
+        dropTarget && "border-brand",
+      )}
+    >
+      <GripVertical
+        className="text-ink-faint size-4 shrink-0"
+        aria-hidden="true"
+      />
       <img src={url} alt="" className="size-8 shrink-0 rounded object-cover" />
-      <span className="text-ink-muted flex-1 text-xs">
+      <span className="text-ink-muted flex flex-1 items-center gap-1 text-xs">
         Photo {index + 1}
-        {index === 0 && " (location source)"}
+        {hasGps && (
+          <span
+            title={
+              inconsistentLocation
+                ? "This photo's location doesn't match the others"
+                : "This photo has location data"
+            }
+          >
+            <MapPin
+              className={cn(
+                "size-3 shrink-0",
+                inconsistentLocation ? "text-status-rejected" : "text-brand",
+              )}
+              aria-hidden="true"
+            />
+          </span>
+        )}
       </span>
       <button
         type="button"

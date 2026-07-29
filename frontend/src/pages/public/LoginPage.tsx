@@ -54,8 +54,15 @@ export function LoginPage() {
       } catch {
         // Best-effort convenience only.
       }
+      // Only honor `from` when it's actually inside this user's own role
+      // area — RequireRole stashes the attempted path before it even knows
+      // who's signing in, so a citizen who followed a stale admin link would
+      // otherwise be sent straight from a successful login to /403.
       const from = (location.state as { from?: Location })?.from?.pathname;
-      navigate(from ?? roleHomePath(user.role), { replace: true });
+      const home = roleHomePath(user.role);
+      const destination =
+        from && (from === home || from.startsWith(`${home}/`)) ? from : home;
+      navigate(destination, { replace: true });
     } catch (error) {
       if (error instanceof ApiRequestError) setFormError(error.message);
       else setFormError("Something went wrong. Please try again.");

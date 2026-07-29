@@ -180,6 +180,8 @@ export function OfficerQueuePage() {
   const selectablePageIds = paged.filter((c) => c.status !== "REOPENED").map((c) => c.id);
   const allSelectedOnPage =
     selectablePageIds.length > 0 && selectablePageIds.every((id) => selected.has(id));
+  const someSelectedOnPage =
+    !allSelectedOnPage && selectablePageIds.some((id) => selected.has(id));
 
   function sortableProps(key: QueueSortKey) {
     return {
@@ -285,7 +287,7 @@ export function OfficerQueuePage() {
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
-              setPage(1);
+              resetForFilterChange();
             }}
           />
         </div>
@@ -369,6 +371,7 @@ export function OfficerQueuePage() {
                   <Checkbox
                     aria-label="Select all on this page"
                     checked={allSelectedOnPage}
+                    indeterminate={someSelectedOnPage}
                     onChange={toggleSelectAll}
                     disabled={selectablePageIds.length === 0}
                   />

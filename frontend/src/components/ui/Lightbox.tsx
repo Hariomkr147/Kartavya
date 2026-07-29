@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -8,6 +8,12 @@ export interface LightboxImage {
   src: string;
   alt: string;
   caption?: string;
+  /**
+   * Extra context rendered below the caption — e.g. the evidence gallery's
+   * AI screening note. Caller-rendered rather than a data shape this
+   * component understands, so `Lightbox` itself stays domain-agnostic.
+   */
+  description?: ReactNode;
 }
 
 export interface LightboxProps {
@@ -16,6 +22,9 @@ export interface LightboxProps {
   openIndex: number | null;
   onClose: () => void;
 }
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
 
 /** Full-screen image viewer — click-to-enlarge target for evidence photo thumbnails. Esc to close, arrow keys to step between images. */
 export function Lightbox({ images, openIndex, onClose }: LightboxProps) {
@@ -32,6 +41,7 @@ export function Lightbox({ images, openIndex, onClose }: LightboxProps) {
   }
 
   const triggerRef = useRef<Element | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (openIndex != null) triggerRef.current = document.activeElement;
@@ -40,11 +50,33 @@ export function Lightbox({ images, openIndex, onClose }: LightboxProps) {
   useEffect(() => {
     if (openIndex == null) return;
 
+    const node = dialogRef.current;
+    const focusable = node?.querySelectorAll<HTMLElement>(FOCUSABLE);
+    (focusable?.[0] ?? node)?.focus();
+
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-      else if (e.key === "ArrowRight") setIndex((i) => (i + 1) % images.length);
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key === "ArrowRight") setIndex((i) => (i + 1) % images.length);
       else if (e.key === "ArrowLeft")
         setIndex((i) => (i - 1 + images.length) % images.length);
+
+      // Same Tab-trap `Modal` uses — otherwise focus walks past the close/
+      // prev/next buttons straight into the page hidden behind the overlay.
+      if (e.key !== "Tab" || !node) return;
+      const items = Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE));
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     }
     document.addEventListener("keydown", handleKeyDown);
     document.body.style.overflow = "hidden";
@@ -61,10 +93,12 @@ export function Lightbox({ images, openIndex, onClose }: LightboxProps) {
 
   return createPortal(
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-label={current.caption ?? current.alt}
-      className="animate-in fade-in fixed inset-0 z-[200] flex flex-col items-center justify-center bg-black/90 p-4 duration-150"
+      tabIndex={-1}
+      className="animate-in fade-in fixed inset-0 z-[200] flex flex-col items-center justify-center bg-black/90 p-4 duration-150 focus:outline-none"
     >
       <button
         type="button"
@@ -94,9 +128,10 @@ export function Lightbox({ images, openIndex, onClose }: LightboxProps) {
         fallbackClassName="bg-white/5"
       />
 
-      {(current.caption || images.length > 1) && (
-        <div className="mt-3 flex flex-col items-center gap-1 text-center text-sm text-white/80">
+      {(current.caption || current.description || images.length > 1) && (
+        <div className="mt-3 flex max-w-md flex-col items-center gap-1.5 text-center text-sm text-white/80">
           {current.caption && <p>{current.caption}</p>}
+          {current.description}
           {images.length > 1 && (
             <p className="text-xs text-white/50">
               {index + 1} of {images.length}

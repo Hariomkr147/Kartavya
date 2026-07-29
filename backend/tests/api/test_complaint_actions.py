@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 
-from sqlalchemy import select
+from flask import g
+from sqlalchemy import func, select
 
 from app.domain.enums import AiScreenStatus, ComplaintStatus, PointsReason, StatusActor, UserRole
 from app.models import Complaint, ComplaintEvidence, ComplaintUpvote, PointsLedger, StatusHistory, User
@@ -46,6 +47,7 @@ def _create_complaint(
     sla_target_hours: int | None = None,
     sla_paused_at: datetime | None = None,
     sla_paused_seconds: int = 0,
+    cluster_id: int | None = None,
 ) -> Complaint:
     now = _utcnow()
     complaint = Complaint(
@@ -53,6 +55,7 @@ def _create_complaint(
         citizen_id=citizen_id,
         zone_id=zone_id,
         category_id=category_id,
+        cluster_id=cluster_id,
         description="Broken road",
         category_suggested_by_matcher=False,
         latitude=12.0,
@@ -89,10 +92,6 @@ def _create_complaint(
     )
     session.flush()
     return complaint
-
-
-def _seed_case(session):
-    zone = session.execute(select(User.zone.property.entity.class_).where(False)).scalar_one_or_none()
 
 
 def _base_entities(session):
@@ -227,6 +226,67 @@ def test_upvote_complaint_rejects_repeat_vote(seeded_app, session, auth_header):
     assert response.get_json()["error"]["code"] == "ALREADY_UPVOTED"
 
 
+def test_upvote_enforces_every_contract_restriction(seeded_app, session, auth_header):
+    client = seeded_app.test_client()
+    zone, category, citizen, other_citizen = _base_entities(session)
+    other_zone = Zone(
+        zone_code="OTHER",
+        zone_name="Other zone",
+        center_lat=13.0,
+        center_lng=78.0,
+        is_catch_all=False,
+        is_active=True,
+    )
+    session.add(other_zone)
+    session.flush()
+    outsider = _create_user(
+        session,
+        email="outsider@example.com",
+        role=UserRole.CITIZEN,
+        zone_id=other_zone.id,
+    )
+    active = _create_complaint(
+        session,
+        citizen_id=citizen.id,
+        zone_id=zone.id,
+        category_id=category.id,
+        complaint_code="KTV-2026-000109",
+        status=ComplaintStatus.UNDER_REVIEW,
+    )
+    closed = _create_complaint(
+        session,
+        citizen_id=citizen.id,
+        zone_id=zone.id,
+        category_id=category.id,
+        complaint_code="KTV-2026-000110",
+        status=ComplaintStatus.CLOSED,
+    )
+    session.commit()
+    citizen_auth = auth_header(citizen)
+    outsider_auth = auth_header(outsider)
+    other_auth = auth_header(other_citizen)
+
+    self_upvote = client.post(
+        f"{API_PREFIX}/complaints/{active.id}/upvote",
+        headers=citizen_auth,
+    )
+    g.pop("current_user", None)
+    cross_zone = client.post(
+        f"{API_PREFIX}/complaints/{active.id}/upvote",
+        headers=outsider_auth,
+    )
+    g.pop("current_user", None)
+    closed_upvote = client.post(
+        f"{API_PREFIX}/complaints/{closed.id}/upvote",
+        headers=other_auth,
+    )
+
+    assert self_upvote.status_code == 403
+    assert cross_zone.status_code == 403
+    assert closed_upvote.status_code == 409
+    assert closed_upvote.get_json()["error"]["code"] == "COMPLAINT_CLOSED"
+
+
 def test_confirm_resolution_success(seeded_app, session, auth_header):
     client = seeded_app.test_client()
     zone, category, citizen, _ = _base_entities(session)
@@ -258,6 +318,140 @@ def test_confirm_resolution_success(seeded_app, session, auth_header):
     ).scalars().all()
     assert [row.reason for row in ledger] == [PointsReason.COMPLAINT_CLOSED]
     assert ledger[0].points_change == 50
+
+
+def test_interleaved_confirm_allows_only_one_winner(
+    seeded_app, session, auth_header, monkeypatch
+):
+    import app.api.citizen.routes as citizen_routes
+
+    zone, category, citizen, _ = _base_entities(session)
+    complaint = _create_complaint(
+        session,
+        citizen_id=citizen.id,
+        zone_id=zone.id,
+        category_id=category.id,
+        complaint_code="KTV-2026-000111",
+        status=ComplaintStatus.RESOLVED,
+    )
+    session.commit()
+    complaint_id = complaint.id
+    headers = auth_header(citizen)
+    validate_confirm = citizen_routes.validate_confirm
+    competitor_response = None
+    interleaved = False
+
+    def interleave_competing_request(status):
+        nonlocal competitor_response, interleaved
+        result = validate_confirm(status)
+        if not interleaved:
+            interleaved = True
+            with seeded_app.test_client() as competitor:
+                competitor_response = competitor.post(
+                    f"{API_PREFIX}/complaints/{complaint_id}/confirm",
+                    headers=headers,
+                )
+        return result
+
+    monkeypatch.setattr(
+        citizen_routes,
+        "validate_confirm",
+        interleave_competing_request,
+    )
+    with seeded_app.test_client() as client:
+        stale_response = client.post(
+            f"{API_PREFIX}/complaints/{complaint_id}/confirm",
+            headers=headers,
+        )
+
+    assert competitor_response is not None
+    assert competitor_response.status_code == 200
+    assert stale_response.status_code == 409
+    session.expire_all()
+    assert session.execute(
+        select(func.count(PointsLedger.id)).where(
+            PointsLedger.complaint_id == complaint_id,
+            PointsLedger.reason == PointsReason.COMPLAINT_CLOSED,
+        )
+    ).scalar_one() == 1
+    assert session.execute(
+        select(func.count(StatusHistory.id)).where(
+            StatusHistory.complaint_id == complaint_id,
+            StatusHistory.to_status == ComplaintStatus.CLOSED,
+        )
+    ).scalar_one() == 1
+
+
+def test_cluster_confirmation_rewards_are_not_repeated(
+    seeded_app, session, auth_header
+):
+    client = seeded_app.test_client()
+    zone, category, citizen, other_citizen = _base_entities(session)
+    cluster = ComplaintCluster(
+        category_id=category.id,
+        zone_id=zone.id,
+        centroid_lat=12.0,
+        centroid_lng=77.0,
+        report_count=3,
+        unique_reporter_count=2,
+        reward_granted=False,
+        updated_at=_utcnow(),
+    )
+    session.add(cluster)
+    session.flush()
+    complaints = [
+        _create_complaint(
+            session,
+            citizen_id=reporter.id,
+            zone_id=zone.id,
+            category_id=category.id,
+            cluster_id=cluster.id,
+            complaint_code=f"KTV-2026-00011{index}",
+            status=ComplaintStatus.RESOLVED,
+        )
+        for index, reporter in enumerate(
+            [citizen, other_citizen, other_citizen],
+            start=2,
+        )
+    ]
+    session.commit()
+    citizen_auth = auth_header(citizen)
+    other_auth = auth_header(other_citizen)
+
+    responses = []
+    for complaint, headers in [
+        (complaints[0], citizen_auth),
+        (complaints[1], other_auth),
+        (complaints[2], other_auth),
+    ]:
+        g.pop("current_user", None)
+        responses.append(
+            client.post(
+                f"{API_PREFIX}/complaints/{complaint.id}/confirm",
+                headers=headers,
+            )
+        )
+
+    assert [response.status_code for response in responses] == [200, 200, 200]
+    rewards = (
+        session.execute(
+            select(PointsLedger)
+            .where(
+                PointsLedger.complaint_id.in_([complaint.id for complaint in complaints]),
+                PointsLedger.reason.in_(
+                    [PointsReason.COMPLAINT_CLOSED, PointsReason.CLUSTER_MEMBER_CLOSED]
+                ),
+            )
+            .order_by(PointsLedger.id)
+        )
+        .scalars()
+        .all()
+    )
+    assert [(reward.citizen_id, reward.points_change) for reward in rewards] == [
+        (citizen.id, 50),
+        (other_citizen.id, 10),
+    ]
+    assert session.get(ComplaintCluster, cluster.id).reward_granted is True
 
 
 def test_confirm_resolution_rejects_wrong_status(seeded_app, session, auth_header):

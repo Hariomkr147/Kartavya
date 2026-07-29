@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from flask import Blueprint, current_app, jsonify, request
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.api.shared.responses import todo
 from app.core.auth import current_user, require_auth, require_role
@@ -48,6 +49,8 @@ from app.models import (
     User,
     Zone,
 )
+from app.services.complaints.clusters import claim_cluster_reward
+from app.services.complaints.lifecycle import apply_transition
 
 bp = Blueprint("citizen", __name__)
 
@@ -262,29 +265,6 @@ def _serialize_complaint_detail(complaint: Complaint, *, now: datetime) -> dict[
     return payload
 
 
-def _record_history(
-    *,
-    complaint_id: int,
-    from_status: ComplaintStatus,
-    to_status: ComplaintStatus,
-    actor_role: StatusActor,
-    changed_by_user_id: int,
-    now: datetime,
-    reason: str | None = None,
-) -> None:
-    db.session.add(
-        StatusHistory(
-            complaint_id=complaint_id,
-            from_status=from_status,
-            to_status=to_status,
-            actor_role=actor_role,
-            changed_by_user_id=changed_by_user_id,
-            reason=reason,
-            created_at=now,
-        )
-    )
-
-
 # --- Complaints ---------------------------------------------------------------
 
 
@@ -364,18 +344,17 @@ def submit_additional_evidence(complaint_id: str):
         complaint.sla_paused_at,
         now,
     )
-    previous = complaint.status
-    complaint.status = ComplaintStatus.EVIDENCE_UNDER_REVIEW
-    complaint.updated_at = now
-    complaint.sla_paused_seconds = paused_seconds
-    complaint.sla_paused_at = paused_at
-    _record_history(
+    complaint = apply_transition(
         complaint_id=complaint.id,
-        from_status=previous,
-        to_status=complaint.status,
+        expected_status=ComplaintStatus.NEEDS_MORE_EVIDENCE,
+        new_status=ComplaintStatus.EVIDENCE_UNDER_REVIEW,
         actor_role=StatusActor.CITIZEN,
         changed_by_user_id=citizen.id,
         now=now,
+        extra_values={
+            "sla_paused_seconds": paused_seconds,
+            "sla_paused_at": paused_at,
+        },
     )
     db.session.commit()
     return jsonify(_serialize_complaint_detail(complaint, now=now)), 201
@@ -394,7 +373,11 @@ def upvote_complaint(complaint_id: str):
     if complaint is None:
         raise NotFoundError("No such complaint.")
     if complaint.citizen_id == citizen.id:
-        raise ConflictError("SELF_UPVOTE_NOT_ALLOWED", "You cannot upvote your own complaint.")
+        raise ForbiddenError("You cannot upvote your own complaint.")
+    if complaint.zone_id != citizen.zone_id:
+        raise ForbiddenError("You cannot upvote a complaint outside your zone.")
+    if complaint.status is ComplaintStatus.CLOSED:
+        raise ConflictError("COMPLAINT_CLOSED", "A closed complaint cannot be upvoted.")
 
     existing = db.session.execute(
         select(ComplaintUpvote).where(
@@ -406,6 +389,13 @@ def upvote_complaint(complaint_id: str):
         raise ConflictError("ALREADY_UPVOTED", "You have already upvoted this complaint.")
 
     db.session.add(ComplaintUpvote(complaint_id=complaint.id, citizen_id=citizen.id))
+    try:
+        db.session.flush()
+    except IntegrityError as exc:
+        db.session.rollback()
+        raise ConflictError(
+            "ALREADY_UPVOTED", "You have already upvoted this complaint."
+        ) from exc
     db.session.add(
         PointsLedger(
             citizen_id=complaint.citizen_id,
@@ -414,7 +404,6 @@ def upvote_complaint(complaint_id: str):
             reason=PointsReason.UPVOTE_RECEIVED,
         )
     )
-    db.session.flush()
 
     cluster_weight = 1
     if complaint.cluster_id is not None:
@@ -450,57 +439,54 @@ def confirm_resolution(complaint_id: str):
     complaint = _owned_complaint(_parse_complaint_id(complaint_id), citizen)
     raise_for(validate_confirm(complaint.status))
 
-    previous = complaint.status
-    complaint.status = ComplaintStatus.CLOSED
-    complaint.closed_at = now
-    complaint.updated_at = now
-    _record_history(
+    complaint = apply_transition(
         complaint_id=complaint.id,
-        from_status=previous,
-        to_status=complaint.status,
+        expected_status=ComplaintStatus.RESOLVED,
+        new_status=ComplaintStatus.CLOSED,
         actor_role=StatusActor.CITIZEN,
         changed_by_user_id=citizen.id,
         now=now,
+        extra_values={"closed_at": now},
     )
 
-    reward_reason = close_reward(
-        is_clustered=complaint.cluster_id is not None,
-        cluster_reward_already_granted=False,
-        citizen_already_rewarded_in_cluster=False,
-    )
-    if reward_reason is not None:
-        if complaint.cluster_id is not None:
-            cluster = db.session.get(ComplaintCluster, complaint.cluster_id)
-            if cluster is not None:
-                if cluster.reward_granted:
-                    reward_reason = PointsReason.CLUSTER_MEMBER_CLOSED
-                else:
-                    cluster.reward_granted = True
-                    repeated_cluster_reward = db.session.execute(
-                        select(func.count(PointsLedger.id))
-                        .join(Complaint, Complaint.id == PointsLedger.complaint_id)
-                        .where(
-                            PointsLedger.citizen_id == citizen.id,
-                            Complaint.cluster_id == complaint.cluster_id,
-                            PointsLedger.reason.in_(
-                                [
-                                    PointsReason.COMPLAINT_CLOSED,
-                                    PointsReason.CLUSTER_MEMBER_CLOSED,
-                                ]
-                            ),
-                        )
-                    ).scalar_one()
-                    if int(repeated_cluster_reward) > 0:
-                        reward_reason = None
-        if reward_reason is not None:
-            db.session.add(
-                PointsLedger(
-                    citizen_id=citizen.id,
-                    complaint_id=complaint.id,
-                    points_change=50 if reward_reason is PointsReason.COMPLAINT_CLOSED else 10,
-                    reason=reward_reason,
+    cluster_reward_already_granted = False
+    citizen_already_rewarded = False
+    if complaint.cluster_id is not None:
+        cluster_reward_already_granted = not claim_cluster_reward(
+            cluster_id=complaint.cluster_id
+        )
+        citizen_already_rewarded = (
+            db.session.execute(
+                select(func.count(PointsLedger.id))
+                .join(Complaint, Complaint.id == PointsLedger.complaint_id)
+                .where(
+                    PointsLedger.citizen_id == citizen.id,
+                    Complaint.cluster_id == complaint.cluster_id,
+                    PointsLedger.reason.in_(
+                        [
+                            PointsReason.COMPLAINT_CLOSED,
+                            PointsReason.CLUSTER_MEMBER_CLOSED,
+                        ]
+                    ),
                 )
             )
+            .scalar_one()
+            > 0
+        )
+    reward_reason = close_reward(
+        is_clustered=complaint.cluster_id is not None,
+        cluster_reward_already_granted=cluster_reward_already_granted,
+        citizen_already_rewarded_in_cluster=citizen_already_rewarded,
+    )
+    if reward_reason is not None:
+        db.session.add(
+            PointsLedger(
+                citizen_id=citizen.id,
+                complaint_id=complaint.id,
+                points_change=50 if reward_reason is PointsReason.COMPLAINT_CLOSED else 10,
+                reason=reward_reason,
+            )
+        )
 
     current_sla = sla_label(
         complaint.sla_target_hours,
@@ -549,13 +535,10 @@ def dispute_resolution(complaint_id: str):
         )
     )
 
-    previous = complaint.status
-    complaint.status = ComplaintStatus.REOPENED
-    complaint.updated_at = now
-    _record_history(
+    complaint = apply_transition(
         complaint_id=complaint.id,
-        from_status=previous,
-        to_status=complaint.status,
+        expected_status=ComplaintStatus.RESOLVED,
+        new_status=ComplaintStatus.REOPENED,
         actor_role=StatusActor.CITIZEN,
         changed_by_user_id=citizen.id,
         now=now,

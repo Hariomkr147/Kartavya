@@ -1,13 +1,25 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
+from threading import Barrier
 
-from flask import g
+import pytest
 from sqlalchemy import func, select
 
-from app.domain.enums import AiScreenStatus, ComplaintStatus, PointsReason, StatusActor, UserRole
-from app.models import Complaint, ComplaintEvidence, ComplaintUpvote, PointsLedger, StatusHistory, User
+from app.domain.enums import AiScreenStatus, ComplaintStatus, PointsReason, UserRole
+from app.models import (
+    CitizenBadge,
+    Complaint,
+    ComplaintCluster,
+    ComplaintEvidence,
+    ComplaintUpvote,
+    PointsLedger,
+    StatusHistory,
+    User,
+    Zone,
+)
 from app.services.accounts.auth import hash_password
 from app.settings import API_PREFIX
 
@@ -18,6 +30,14 @@ def _utcnow() -> datetime:
 
 def _png_file(name: str = "photo.png"):
     return (BytesIO(b"\x89PNG\r\n\x1a\nexample-payload"), name)
+
+
+def _jpeg_file(name: str = "photo.jpg"):
+    return (BytesIO(b"\xff\xd8\xffexample-payload"), name)
+
+
+def _oversized_png(max_bytes: int, name: str = "oversized.png"):
+    return (BytesIO(b"\x89PNG\r\n\x1a\n" + b"x" * max_bytes), name)
 
 
 def _create_user(session, *, email: str, role: UserRole, zone_id: int | None) -> User:
@@ -72,16 +92,6 @@ def _create_complaint(
     session.add(complaint)
     session.flush()
     session.add(
-        StatusHistory(
-            complaint_id=complaint.id,
-            from_status=None,
-            to_status=status,
-            actor_role=StatusActor.CITIZEN,
-            changed_by_user_id=citizen_id,
-            created_at=now,
-        )
-    )
-    session.add(
         ComplaintEvidence(
             complaint_id=complaint.id,
             sequence=1,
@@ -100,7 +110,9 @@ def _base_entities(session):
     zone = session.execute(select(Zone).where(Zone.is_catch_all.is_(True))).scalar_one()
     category = session.execute(select(ComplaintCategory)).scalars().first()
     assert category is not None
-    citizen = _create_user(session, email="citizen@example.com", role=UserRole.CITIZEN, zone_id=zone.id)
+    citizen = _create_user(
+        session, email="citizen@example.com", role=UserRole.CITIZEN, zone_id=zone.id
+    )
     other_citizen = _create_user(
         session,
         email="other@example.com",
@@ -109,6 +121,31 @@ def _base_entities(session):
     )
     session.commit()
     return zone, category, citizen, other_citizen
+
+
+def _file_backed_app(tmp_path):
+    """A SQLite file gives concurrent requests independent connections."""
+    from app import create_app
+    from app.extensions import db
+    from app.seed import seed_all
+    from app.settings import TestingConfig
+
+    config = TestingConfig()
+    config.SQLALCHEMY_DATABASE_URI = f"sqlite:///{(tmp_path / 'race.sqlite3').as_posix()}"
+    config.UPLOAD_DIR = tmp_path / "uploads"
+    app = create_app(config)
+    with app.app_context():
+        db.create_all()
+        seed_all()
+    return app
+
+
+def _auth_for(app, user):
+    from app.core.auth import issue_token
+
+    with app.app_context():
+        token, _ = issue_token(user)
+    return {"Authorization": f"Bearer {token}"}
 
 
 def test_submit_additional_evidence_success(seeded_app, session, auth_header):
@@ -144,6 +181,26 @@ def test_submit_additional_evidence_success(seeded_app, session, auth_header):
     assert refreshed.status is ComplaintStatus.EVIDENCE_UNDER_REVIEW
     assert refreshed.sla_paused_at is None
     assert refreshed.sla_paused_seconds > 0
+    evidence = (
+        session.execute(
+            select(ComplaintEvidence)
+            .where(ComplaintEvidence.complaint_id == complaint.id)
+            .order_by(ComplaintEvidence.sequence)
+        )
+        .scalars()
+        .all()
+    )
+    assert [row.sequence for row in evidence] == [1, 2]
+    assert evidence[-1].ai_screen_status is AiScreenStatus.PENDING
+    assert (
+        session.execute(
+            select(func.count(StatusHistory.id)).where(
+                StatusHistory.complaint_id == complaint.id,
+                StatusHistory.to_status == ComplaintStatus.EVIDENCE_UNDER_REVIEW,
+            )
+        ).scalar_one()
+        == 1
+    )
 
 
 def test_submit_additional_evidence_rejects_wrong_status(seeded_app, session, auth_header):
@@ -168,6 +225,206 @@ def test_submit_additional_evidence_rejects_wrong_status(seeded_app, session, au
 
     assert response.status_code == 409
     assert response.get_json()["error"]["code"] == "INVALID_TRANSITION"
+
+
+def test_submit_additional_evidence_rejects_invalid_photo_without_transition(
+    seeded_app, session, auth_header
+):
+    client = seeded_app.test_client()
+    zone, category, citizen, _ = _base_entities(session)
+    complaint = _create_complaint(
+        session,
+        citizen_id=citizen.id,
+        zone_id=zone.id,
+        category_id=category.id,
+        complaint_code="KTV-2026-000102A",
+        status=ComplaintStatus.NEEDS_MORE_EVIDENCE,
+    )
+    session.commit()
+
+    response = client.post(
+        f"{API_PREFIX}/complaints/{complaint.id}/evidence",
+        headers=auth_header(citizen),
+        data={"photo": (BytesIO(b"not-an-image"), "photo.txt")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 400
+    assert session.get(Complaint, complaint.id).status is ComplaintStatus.NEEDS_MORE_EVIDENCE
+    assert (
+        session.execute(
+            select(func.count(ComplaintEvidence.id)).where(
+                ComplaintEvidence.complaint_id == complaint.id
+            )
+        ).scalar_one()
+        == 1
+    )
+
+
+def test_submit_additional_evidence_requires_a_photo(seeded_app, session, auth_header):
+    client = seeded_app.test_client()
+    zone, category, citizen, _ = _base_entities(session)
+    complaint = _create_complaint(
+        session,
+        citizen_id=citizen.id,
+        zone_id=zone.id,
+        category_id=category.id,
+        complaint_code="KTV-2026-000102B",
+        status=ComplaintStatus.NEEDS_MORE_EVIDENCE,
+    )
+    session.commit()
+
+    response = client.post(
+        f"{API_PREFIX}/complaints/{complaint.id}/evidence",
+        headers=auth_header(citizen),
+        data={},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["code"] == "VALIDATION_ERROR"
+    assert session.get(Complaint, complaint.id).status is ComplaintStatus.NEEDS_MORE_EVIDENCE
+
+
+def test_submit_additional_evidence_rejects_oversized_photo(
+    seeded_app, session, auth_header
+):
+    client = seeded_app.test_client()
+    zone, category, citizen, _ = _base_entities(session)
+    complaint = _create_complaint(
+        session,
+        citizen_id=citizen.id,
+        zone_id=zone.id,
+        category_id=category.id,
+        complaint_code="KTV-2026-000102C",
+        status=ComplaintStatus.NEEDS_MORE_EVIDENCE,
+    )
+    session.commit()
+
+    response = client.post(
+        f"{API_PREFIX}/complaints/{complaint.id}/evidence",
+        headers=auth_header(citizen),
+        data={"photo": _oversized_png(seeded_app.config["MAX_UPLOAD_BYTES"])},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["code"] == "VALIDATION_ERROR"
+    assert session.get(Complaint, complaint.id).status is ComplaintStatus.NEEDS_MORE_EVIDENCE
+    assert (
+        session.execute(
+            select(func.count(ComplaintEvidence.id)).where(
+                ComplaintEvidence.complaint_id == complaint.id
+            )
+        ).scalar_one()
+        == 1
+    )
+
+
+def test_submit_additional_evidence_accepts_jpeg_and_leaves_unstarted_sla_unchanged(
+    seeded_app, session, auth_header
+):
+    client = seeded_app.test_client()
+    zone, category, citizen, _ = _base_entities(session)
+    complaint = _create_complaint(
+        session,
+        citizen_id=citizen.id,
+        zone_id=zone.id,
+        category_id=category.id,
+        complaint_code="KTV-2026-000102D",
+        status=ComplaintStatus.NEEDS_MORE_EVIDENCE,
+        sla_started_at=None,
+        sla_target_hours=None,
+        sla_paused_at=None,
+        sla_paused_seconds=0,
+    )
+    session.commit()
+
+    response = client.post(
+        f"{API_PREFIX}/complaints/{complaint.id}/evidence",
+        headers=auth_header(citizen),
+        data={"photo": _jpeg_file()},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 201
+    refreshed = session.get(Complaint, complaint.id)
+    assert refreshed.status is ComplaintStatus.EVIDENCE_UNDER_REVIEW
+    assert refreshed.sla_started_at is None
+    assert refreshed.sla_target_hours is None
+    assert refreshed.sla_paused_at is None
+    assert refreshed.sla_paused_seconds == 0
+
+
+def test_concurrent_evidence_resubmission_returns_one_success_and_one_conflict(
+    tmp_path, monkeypatch
+):
+    """Force both requests to reach the guarded transition together."""
+    from app.extensions import db
+    from app.services.complaints import submission as submission_service
+
+    app = _file_backed_app(tmp_path)
+    with app.app_context():
+        zone, category, citizen, _ = _base_entities(db.session)
+        complaint = _create_complaint(
+            db.session,
+            citizen_id=citizen.id,
+            zone_id=zone.id,
+            category_id=category.id,
+            complaint_code="KTV-2026-000102E",
+            status=ComplaintStatus.NEEDS_MORE_EVIDENCE,
+        )
+        db.session.commit()
+        complaint_id = complaint.id
+        headers = _auth_for(app, citizen)
+
+    transition_barrier = Barrier(2)
+    original_apply_transition = submission_service.apply_transition
+
+    def synchronized_apply_transition(**kwargs):
+        transition_barrier.wait()
+        return original_apply_transition(**kwargs)
+
+    monkeypatch.setattr(
+        submission_service,
+        "apply_transition",
+        synchronized_apply_transition,
+    )
+
+    def submit(index):
+        with app.test_client() as client:
+            response = client.post(
+                f"{API_PREFIX}/complaints/{complaint_id}/evidence",
+                headers=headers,
+                data={"photo": _png_file(f"evidence-{index}.png")},
+                content_type="multipart/form-data",
+            )
+            return response.status_code, response.get_json()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(submit, range(2)))
+
+    assert sorted(status for status, _ in results) == [201, 409]
+    losing_body = next(body for status, body in results if status == 409)
+    assert losing_body["error"]["code"] == "INVALID_TRANSITION"
+    with app.app_context():
+        assert (
+            db.session.execute(
+                select(func.count(ComplaintEvidence.id)).where(
+                    ComplaintEvidence.complaint_id == complaint_id
+                )
+            ).scalar_one()
+            == 2
+        )
+        assert (
+            db.session.execute(
+                select(func.count(StatusHistory.id)).where(
+                    StatusHistory.complaint_id == complaint_id,
+                    StatusHistory.to_status == ComplaintStatus.EVIDENCE_UNDER_REVIEW,
+                )
+            ).scalar_one()
+            == 1
+        )
 
 
 def test_upvote_complaint_success(seeded_app, session, auth_header):
@@ -195,12 +452,20 @@ def test_upvote_complaint_success(seeded_app, session, auth_header):
         "upvoteCount": 1,
         "severityLabel": "LOW",
     }
-    ledger = session.execute(
-        select(PointsLedger).where(PointsLedger.complaint_id == complaint.id)
-    ).scalars().all()
+    ledger = (
+        session.execute(select(PointsLedger).where(PointsLedger.complaint_id == complaint.id))
+        .scalars()
+        .all()
+    )
     assert len(ledger) == 1
     assert ledger[0].reason is PointsReason.UPVOTE_RECEIVED
     assert ledger[0].points_change == 5
+    assert (
+        session.execute(
+            select(func.count(CitizenBadge.id)).where(CitizenBadge.citizen_id == citizen.id)
+        ).scalar_one()
+        >= 1
+    )
 
 
 def test_upvote_complaint_rejects_repeat_vote(seeded_app, session, auth_header):
@@ -226,9 +491,97 @@ def test_upvote_complaint_rejects_repeat_vote(seeded_app, session, auth_header):
     assert response.get_json()["error"]["code"] == "ALREADY_UPVOTED"
 
 
-def test_upvote_enforces_every_contract_restriction(seeded_app, session, auth_header):
+def test_concurrent_upvote_creates_one_vote_and_one_reward(tmp_path):
+    from app.extensions import db
+
+    app = _file_backed_app(tmp_path)
+    with app.app_context():
+        zone, category, citizen, other_citizen = _base_entities(db.session)
+        complaint = _create_complaint(
+            db.session,
+            citizen_id=citizen.id,
+            zone_id=zone.id,
+            category_id=category.id,
+            complaint_code="KTV-2026-000108",
+            status=ComplaintStatus.UNDER_REVIEW,
+        )
+        db.session.commit()
+        complaint_id = complaint.id
+        headers = _auth_for(app, other_citizen)
+
+    start = Barrier(2)
+
+    def vote():
+        start.wait()
+        with app.test_client() as client:
+            return client.post(
+                f"{API_PREFIX}/complaints/{complaint_id}/upvote",
+                headers=headers,
+            ).status_code
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        statuses = sorted(executor.map(lambda _: vote(), range(2)))
+
+    assert statuses == [200, 409]
+    with app.app_context():
+        assert (
+            db.session.execute(
+                select(func.count(ComplaintUpvote.id)).where(
+                    ComplaintUpvote.complaint_id == complaint_id
+                )
+            ).scalar_one()
+            == 1
+        )
+        assert (
+            db.session.execute(
+                select(func.count(PointsLedger.id)).where(
+                    PointsLedger.complaint_id == complaint_id,
+                    PointsLedger.reason == PointsReason.UPVOTE_RECEIVED,
+                )
+            ).scalar_one()
+            == 1
+        )
+
+
+def test_upvote_rejects_self_vote_without_side_effects(seeded_app, session, auth_header):
     client = seeded_app.test_client()
-    zone, category, citizen, other_citizen = _base_entities(session)
+    zone, category, citizen, _ = _base_entities(session)
+    complaint = _create_complaint(
+        session,
+        citizen_id=citizen.id,
+        zone_id=zone.id,
+        category_id=category.id,
+        complaint_code="KTV-2026-000109",
+        status=ComplaintStatus.UNDER_REVIEW,
+    )
+    session.commit()
+
+    response = client.post(
+        f"{API_PREFIX}/complaints/{complaint.id}/upvote",
+        headers=auth_header(citizen),
+    )
+
+    assert response.status_code == 403
+    assert response.get_json()["error"]["code"] == "FORBIDDEN"
+    assert (
+        session.execute(
+            select(func.count(ComplaintUpvote.id)).where(
+                ComplaintUpvote.complaint_id == complaint.id
+            )
+        ).scalar_one()
+        == 0
+    )
+    assert (
+        session.execute(
+            select(func.count(PointsLedger.id)).where(PointsLedger.complaint_id == complaint.id)
+        ).scalar_one()
+        == 0
+    )
+
+
+def test_upvote_rejects_cross_zone_without_side_effects(seeded_app, session, auth_header):
+    client = seeded_app.test_client()
+    zone, category, citizen, _ = _base_entities(session)
     other_zone = Zone(
         zone_code="OTHER",
         zone_name="Other zone",
@@ -245,46 +598,73 @@ def test_upvote_enforces_every_contract_restriction(seeded_app, session, auth_he
         role=UserRole.CITIZEN,
         zone_id=other_zone.id,
     )
-    active = _create_complaint(
-        session,
-        citizen_id=citizen.id,
-        zone_id=zone.id,
-        category_id=category.id,
-        complaint_code="KTV-2026-000109",
-        status=ComplaintStatus.UNDER_REVIEW,
-    )
-    closed = _create_complaint(
+    complaint = _create_complaint(
         session,
         citizen_id=citizen.id,
         zone_id=zone.id,
         category_id=category.id,
         complaint_code="KTV-2026-000110",
+        status=ComplaintStatus.UNDER_REVIEW,
+    )
+    session.commit()
+
+    response = client.post(
+        f"{API_PREFIX}/complaints/{complaint.id}/upvote",
+        headers=auth_header(outsider),
+    )
+
+    assert response.status_code == 403
+    assert response.get_json()["error"]["code"] == "FORBIDDEN"
+    assert (
+        session.execute(
+            select(func.count(ComplaintUpvote.id)).where(
+                ComplaintUpvote.complaint_id == complaint.id
+            )
+        ).scalar_one()
+        == 0
+    )
+    assert (
+        session.execute(
+            select(func.count(PointsLedger.id)).where(PointsLedger.complaint_id == complaint.id)
+        ).scalar_one()
+        == 0
+    )
+
+
+def test_upvote_rejects_closed_complaint_without_side_effects(seeded_app, session, auth_header):
+    client = seeded_app.test_client()
+    zone, category, citizen, other_citizen = _base_entities(session)
+    complaint = _create_complaint(
+        session,
+        citizen_id=citizen.id,
+        zone_id=zone.id,
+        category_id=category.id,
+        complaint_code="KTV-2026-000111",
         status=ComplaintStatus.CLOSED,
     )
     session.commit()
-    citizen_auth = auth_header(citizen)
-    outsider_auth = auth_header(outsider)
-    other_auth = auth_header(other_citizen)
 
-    self_upvote = client.post(
-        f"{API_PREFIX}/complaints/{active.id}/upvote",
-        headers=citizen_auth,
-    )
-    g.pop("current_user", None)
-    cross_zone = client.post(
-        f"{API_PREFIX}/complaints/{active.id}/upvote",
-        headers=outsider_auth,
-    )
-    g.pop("current_user", None)
-    closed_upvote = client.post(
-        f"{API_PREFIX}/complaints/{closed.id}/upvote",
-        headers=other_auth,
+    response = client.post(
+        f"{API_PREFIX}/complaints/{complaint.id}/upvote",
+        headers=auth_header(other_citizen),
     )
 
-    assert self_upvote.status_code == 403
-    assert cross_zone.status_code == 403
-    assert closed_upvote.status_code == 409
-    assert closed_upvote.get_json()["error"]["code"] == "COMPLAINT_CLOSED"
+    assert response.status_code == 409
+    assert response.get_json()["error"]["code"] == "COMPLAINT_CLOSED"
+    assert (
+        session.execute(
+            select(func.count(ComplaintUpvote.id)).where(
+                ComplaintUpvote.complaint_id == complaint.id
+            )
+        ).scalar_one()
+        == 0
+    )
+    assert (
+        session.execute(
+            select(func.count(PointsLedger.id)).where(PointsLedger.complaint_id == complaint.id)
+        ).scalar_one()
+        == 0
+    )
 
 
 def test_confirm_resolution_success(seeded_app, session, auth_header):
@@ -313,145 +693,192 @@ def test_confirm_resolution_success(seeded_app, session, auth_header):
     refreshed = session.get(Complaint, complaint.id)
     assert refreshed is not None
     assert refreshed.status is ComplaintStatus.CLOSED
-    ledger = session.execute(
-        select(PointsLedger).where(PointsLedger.complaint_id == complaint.id)
-    ).scalars().all()
+    assert refreshed.closed_at is not None
+    ledger = (
+        session.execute(select(PointsLedger).where(PointsLedger.complaint_id == complaint.id))
+        .scalars()
+        .all()
+    )
     assert [row.reason for row in ledger] == [PointsReason.COMPLAINT_CLOSED]
     assert ledger[0].points_change == 50
+    assert (
+        session.execute(
+            select(func.count(StatusHistory.id)).where(
+                StatusHistory.complaint_id == complaint.id,
+                StatusHistory.to_status == ComplaintStatus.CLOSED,
+            )
+        ).scalar_one()
+        == 1
+    )
+    assert (
+        session.execute(
+            select(func.count(CitizenBadge.id)).where(CitizenBadge.citizen_id == citizen.id)
+        ).scalar_one()
+        >= 1
+    )
 
 
-def test_interleaved_confirm_allows_only_one_winner(
-    seeded_app, session, auth_header, monkeypatch
-):
-    import app.api.citizen.routes as citizen_routes
-
+def test_confirm_awards_on_time_bonus_independently(seeded_app, session, auth_header):
+    client = seeded_app.test_client()
     zone, category, citizen, _ = _base_entities(session)
     complaint = _create_complaint(
         session,
         citizen_id=citizen.id,
         zone_id=zone.id,
         category_id=category.id,
-        complaint_code="KTV-2026-000111",
+        complaint_code="KTV-2026-000105A",
         status=ComplaintStatus.RESOLVED,
+        sla_started_at=_utcnow() - timedelta(hours=1),
+        sla_target_hours=24,
     )
     session.commit()
-    complaint_id = complaint.id
-    headers = auth_header(citizen)
-    validate_confirm = citizen_routes.validate_confirm
-    competitor_response = None
-    interleaved = False
 
-    def interleave_competing_request(status):
-        nonlocal competitor_response, interleaved
-        result = validate_confirm(status)
-        if not interleaved:
-            interleaved = True
-            with seeded_app.test_client() as competitor:
-                competitor_response = competitor.post(
-                    f"{API_PREFIX}/complaints/{complaint_id}/confirm",
-                    headers=headers,
-                )
-        return result
-
-    monkeypatch.setattr(
-        citizen_routes,
-        "validate_confirm",
-        interleave_competing_request,
+    response = client.post(
+        f"{API_PREFIX}/complaints/{complaint.id}/confirm",
+        headers=auth_header(citizen),
     )
-    with seeded_app.test_client() as client:
-        stale_response = client.post(
-            f"{API_PREFIX}/complaints/{complaint_id}/confirm",
-            headers=headers,
-        )
 
-    assert competitor_response is not None
-    assert competitor_response.status_code == 200
-    assert stale_response.status_code == 409
-    session.expire_all()
-    assert session.execute(
-        select(func.count(PointsLedger.id)).where(
-            PointsLedger.complaint_id == complaint_id,
-            PointsLedger.reason == PointsReason.COMPLAINT_CLOSED,
-        )
-    ).scalar_one() == 1
-    assert session.execute(
-        select(func.count(StatusHistory.id)).where(
-            StatusHistory.complaint_id == complaint_id,
-            StatusHistory.to_status == ComplaintStatus.CLOSED,
-        )
-    ).scalar_one() == 1
-
-
-def test_cluster_confirmation_rewards_are_not_repeated(
-    seeded_app, session, auth_header
-):
-    client = seeded_app.test_client()
-    zone, category, citizen, other_citizen = _base_entities(session)
-    cluster = ComplaintCluster(
-        category_id=category.id,
-        zone_id=zone.id,
-        centroid_lat=12.0,
-        centroid_lng=77.0,
-        report_count=3,
-        unique_reporter_count=2,
-        reward_granted=False,
-        updated_at=_utcnow(),
+    assert response.status_code == 200
+    reasons = set(
+        session.execute(
+            select(PointsLedger.reason).where(PointsLedger.complaint_id == complaint.id)
+        ).scalars()
     )
-    session.add(cluster)
-    session.flush()
-    complaints = [
-        _create_complaint(
-            session,
-            citizen_id=reporter.id,
+    assert reasons == {
+        PointsReason.COMPLAINT_CLOSED,
+        PointsReason.ON_TIME_BONUS,
+    }
+
+
+def test_concurrent_confirm_allows_only_one_winner(tmp_path):
+    from app.extensions import db
+
+    app = _file_backed_app(tmp_path)
+    with app.app_context():
+        zone, category, citizen, _ = _base_entities(db.session)
+        complaint = _create_complaint(
+            db.session,
+            citizen_id=citizen.id,
             zone_id=zone.id,
             category_id=category.id,
-            cluster_id=cluster.id,
-            complaint_code=f"KTV-2026-00011{index}",
+            complaint_code="KTV-2026-000112",
             status=ComplaintStatus.RESOLVED,
         )
-        for index, reporter in enumerate(
-            [citizen, other_citizen, other_citizen],
-            start=2,
-        )
-    ]
-    session.commit()
-    citizen_auth = auth_header(citizen)
-    other_auth = auth_header(other_citizen)
+        db.session.commit()
+        complaint_id = complaint.id
+        headers = _auth_for(app, citizen)
 
-    responses = []
-    for complaint, headers in [
-        (complaints[0], citizen_auth),
-        (complaints[1], other_auth),
-        (complaints[2], other_auth),
-    ]:
-        g.pop("current_user", None)
-        responses.append(
-            client.post(
-                f"{API_PREFIX}/complaints/{complaint.id}/confirm",
+    start = Barrier(2)
+
+    def confirm():
+        start.wait()
+        with app.test_client() as client:
+            return client.post(
+                f"{API_PREFIX}/complaints/{complaint_id}/confirm",
                 headers=headers,
-            )
+            ).status_code
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        statuses = sorted(executor.map(lambda _: confirm(), range(2)))
+
+    assert statuses == [200, 409]
+    with app.app_context():
+        assert (
+            db.session.execute(
+                select(func.count(PointsLedger.id)).where(
+                    PointsLedger.complaint_id == complaint_id,
+                    PointsLedger.reason == PointsReason.COMPLAINT_CLOSED,
+                )
+            ).scalar_one()
+            == 1
+        )
+        assert (
+            db.session.execute(
+                select(func.count(StatusHistory.id)).where(
+                    StatusHistory.complaint_id == complaint_id,
+                    StatusHistory.to_status == ComplaintStatus.CLOSED,
+                )
+            ).scalar_one()
+            == 1
         )
 
-    assert [response.status_code for response in responses] == [200, 200, 200]
-    rewards = (
-        session.execute(
-            select(PointsLedger)
-            .where(
-                PointsLedger.complaint_id.in_([complaint.id for complaint in complaints]),
-                PointsLedger.reason.in_(
-                    [PointsReason.COMPLAINT_CLOSED, PointsReason.CLUSTER_MEMBER_CLOSED]
-                ),
-            )
-            .order_by(PointsLedger.id)
+
+def test_concurrent_cluster_confirms_reward_cluster_and_citizen_once(tmp_path):
+    from app.extensions import db
+
+    app = _file_backed_app(tmp_path)
+    with app.app_context():
+        zone, category, citizen, other_citizen = _base_entities(db.session)
+        cluster = ComplaintCluster(
+            category_id=category.id,
+            zone_id=zone.id,
+            centroid_lat=12.0,
+            centroid_lng=77.0,
+            report_count=3,
+            unique_reporter_count=2,
+            reward_granted=False,
+            updated_at=_utcnow(),
         )
-        .scalars()
-        .all()
-    )
-    assert [(reward.citizen_id, reward.points_change) for reward in rewards] == [
-        (citizen.id, 50),
-        (other_citizen.id, 10),
-    ]
-    assert session.get(ComplaintCluster, cluster.id).reward_granted is True
+        db.session.add(cluster)
+        db.session.flush()
+        complaints = [
+            _create_complaint(
+                db.session,
+                citizen_id=reporter.id,
+                zone_id=zone.id,
+                category_id=category.id,
+                cluster_id=cluster.id,
+                complaint_code=f"KTV-2026-00012{index}",
+                status=ComplaintStatus.RESOLVED,
+            )
+            for index, reporter in enumerate(
+                [citizen, other_citizen, other_citizen],
+                start=1,
+            )
+        ]
+        db.session.commit()
+        complaint_ids = [complaint.id for complaint in complaints]
+        cluster_id = cluster.id
+        headers = [_auth_for(app, citizen), _auth_for(app, other_citizen)]
+
+    start = Barrier(2)
+
+    def confirm(index):
+        start.wait()
+        with app.test_client() as client:
+            return client.post(
+                f"{API_PREFIX}/complaints/{complaint_ids[index]}/confirm",
+                headers=headers[index],
+            ).status_code
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        statuses = list(executor.map(confirm, range(2)))
+    assert statuses == [200, 200]
+
+    with app.test_client() as client:
+        duplicate_reporter_status = client.post(
+            f"{API_PREFIX}/complaints/{complaint_ids[2]}/confirm",
+            headers=headers[1],
+        ).status_code
+    assert duplicate_reporter_status == 200
+
+    with app.app_context():
+        rewards = list(
+            db.session.execute(
+                select(PointsLedger).where(
+                    PointsLedger.complaint_id.in_(complaint_ids),
+                    PointsLedger.reason.in_(
+                        [
+                            PointsReason.COMPLAINT_CLOSED,
+                            PointsReason.CLUSTER_MEMBER_CLOSED,
+                        ]
+                    ),
+                )
+            ).scalars()
+        )
+        assert sorted(reward.points_change for reward in rewards) == [10, 50]
+        assert len({reward.citizen_id for reward in rewards}) == 2
+        assert db.session.get(ComplaintCluster, cluster_id).reward_granted is True
 
 
 def test_confirm_resolution_rejects_wrong_status(seeded_app, session, auth_header):
@@ -479,11 +906,24 @@ def test_confirm_resolution_rejects_wrong_status(seeded_app, session, auth_heade
 def test_dispute_resolution_success(seeded_app, session, auth_header):
     client = seeded_app.test_client()
     zone, category, citizen, _ = _base_entities(session)
+    cluster = ComplaintCluster(
+        category_id=category.id,
+        zone_id=zone.id,
+        centroid_lat=12.0,
+        centroid_lng=77.0,
+        report_count=1,
+        unique_reporter_count=1,
+        reward_granted=False,
+        updated_at=_utcnow(),
+    )
+    session.add(cluster)
+    session.flush()
     complaint = _create_complaint(
         session,
         citizen_id=citizen.id,
         zone_id=zone.id,
         category_id=category.id,
+        cluster_id=cluster.id,
         complaint_code="KTV-2026-000107",
         status=ComplaintStatus.RESOLVED,
         sla_started_at=_utcnow() - timedelta(hours=10),
@@ -501,10 +941,44 @@ def test_dispute_resolution_success(seeded_app, session, auth_header):
     assert response.status_code == 200
     body = response.get_json()
     assert body["status"] == "REOPENED"
+    assert body["clusterId"] == str(cluster.id)
     assert len(body["evidence"]) == 2
     history = body["statusHistory"][-1]
     assert history["toStatus"] == "REOPENED"
     assert history["reason"] == "Still broken"
+    evidence = (
+        session.execute(
+            select(ComplaintEvidence)
+            .where(ComplaintEvidence.complaint_id == complaint.id)
+            .order_by(ComplaintEvidence.sequence)
+        )
+        .scalars()
+        .all()
+    )
+    assert [row.sequence for row in evidence] == [1, 2]
+    assert evidence[-1].verdict is None
+    assert (
+        session.execute(
+            select(func.count(PointsLedger.id)).where(PointsLedger.complaint_id == complaint.id)
+        ).scalar_one()
+        == 0
+    )
+
+    repeat = client.post(
+        f"{API_PREFIX}/complaints/{complaint.id}/dispute",
+        headers=auth_header(citizen),
+        data={"reason": "Still broken", "photo": _png_file("repeat.png")},
+        content_type="multipart/form-data",
+    )
+    assert repeat.status_code == 409
+    assert (
+        session.execute(
+            select(func.count(ComplaintEvidence.id)).where(
+                ComplaintEvidence.complaint_id == complaint.id
+            )
+        ).scalar_one()
+        == 2
+    )
 
 
 def test_dispute_resolution_requires_a_photo(seeded_app, session, auth_header):
@@ -529,3 +1003,281 @@ def test_dispute_resolution_requires_a_photo(seeded_app, session, auth_header):
 
     assert response.status_code == 400
     assert response.get_json()["error"]["code"] == "VALIDATION_ERROR"
+
+    missing_reason = client.post(
+        f"{API_PREFIX}/complaints/{complaint.id}/dispute",
+        headers=auth_header(citizen),
+        data={"photo": _png_file()},
+        content_type="multipart/form-data",
+    )
+    assert missing_reason.status_code == 400
+    assert missing_reason.get_json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_dispute_resolution_rejects_blank_reason(seeded_app, session, auth_header):
+    client = seeded_app.test_client()
+    zone, category, citizen, _ = _base_entities(session)
+    complaint = _create_complaint(
+        session,
+        citizen_id=citizen.id,
+        zone_id=zone.id,
+        category_id=category.id,
+        complaint_code="KTV-2026-000108A",
+        status=ComplaintStatus.RESOLVED,
+    )
+    session.commit()
+
+    response = client.post(
+        f"{API_PREFIX}/complaints/{complaint.id}/dispute",
+        headers=auth_header(citizen),
+        data={"reason": "   ", "photo": _png_file()},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["code"] == "VALIDATION_ERROR"
+    assert session.get(Complaint, complaint.id).status is ComplaintStatus.RESOLVED
+
+
+@pytest.mark.parametrize("photo_kind", ["invalid", "oversized"])
+def test_dispute_resolution_rejects_invalid_photo(
+    seeded_app, session, auth_header, photo_kind
+):
+    client = seeded_app.test_client()
+    zone, category, citizen, _ = _base_entities(session)
+    complaint = _create_complaint(
+        session,
+        citizen_id=citizen.id,
+        zone_id=zone.id,
+        category_id=category.id,
+        complaint_code=f"KTV-2026-000108-{photo_kind}",
+        status=ComplaintStatus.RESOLVED,
+    )
+    session.commit()
+    photo = (
+        (BytesIO(b"not-an-image"), "photo.txt")
+        if photo_kind == "invalid"
+        else _oversized_png(seeded_app.config["MAX_UPLOAD_BYTES"])
+    )
+
+    response = client.post(
+        f"{API_PREFIX}/complaints/{complaint.id}/dispute",
+        headers=auth_header(citizen),
+        data={"reason": "Still broken", "photo": photo},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["code"] == "VALIDATION_ERROR"
+    assert session.get(Complaint, complaint.id).status is ComplaintStatus.RESOLVED
+    assert (
+        session.execute(
+            select(func.count(ComplaintEvidence.id)).where(
+                ComplaintEvidence.complaint_id == complaint.id
+            )
+        ).scalar_one()
+        == 1
+    )
+
+
+def test_concurrent_disputes_return_one_success_and_one_conflict(tmp_path, monkeypatch):
+    """Force both requests to reach the guarded transition together."""
+    from app.extensions import db
+    from app.services.complaints import lifecycle as lifecycle_service
+
+    app = _file_backed_app(tmp_path)
+    with app.app_context():
+        zone, category, citizen, _ = _base_entities(db.session)
+        complaint = _create_complaint(
+            db.session,
+            citizen_id=citizen.id,
+            zone_id=zone.id,
+            category_id=category.id,
+            complaint_code="KTV-2026-000108B",
+            status=ComplaintStatus.RESOLVED,
+        )
+        db.session.commit()
+        complaint_id = complaint.id
+        headers = _auth_for(app, citizen)
+
+    transition_barrier = Barrier(2)
+    original_apply_transition = lifecycle_service.apply_transition
+
+    def synchronized_apply_transition(**kwargs):
+        transition_barrier.wait()
+        return original_apply_transition(**kwargs)
+
+    monkeypatch.setattr(
+        lifecycle_service,
+        "apply_transition",
+        synchronized_apply_transition,
+    )
+
+    def dispute(index):
+        with app.test_client() as client:
+            response = client.post(
+                f"{API_PREFIX}/complaints/{complaint_id}/dispute",
+                headers=headers,
+                data={
+                    "reason": "Still broken",
+                    "photo": _png_file(f"dispute-{index}.png"),
+                },
+                content_type="multipart/form-data",
+            )
+            return response.status_code, response.get_json()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(dispute, range(2)))
+
+    assert sorted(status for status, _ in results) == [200, 409]
+    losing_body = next(body for status, body in results if status == 409)
+    assert losing_body["error"]["code"] == "INVALID_TRANSITION"
+    with app.app_context():
+        assert (
+            db.session.execute(
+                select(func.count(ComplaintEvidence.id)).where(
+                    ComplaintEvidence.complaint_id == complaint_id
+                )
+            ).scalar_one()
+            == 2
+        )
+        assert (
+            db.session.execute(
+                select(func.count(StatusHistory.id)).where(
+                    StatusHistory.complaint_id == complaint_id,
+                    StatusHistory.to_status == ComplaintStatus.REOPENED,
+                )
+            ).scalar_one()
+            == 1
+        )
+
+
+def test_owner_only_actions_reject_another_citizen(seeded_app, session, auth_header):
+    client = seeded_app.test_client()
+    zone, category, citizen, other_citizen = _base_entities(session)
+    evidence_complaint = _create_complaint(
+        session,
+        citizen_id=citizen.id,
+        zone_id=zone.id,
+        category_id=category.id,
+        complaint_code="KTV-2026-000130",
+        status=ComplaintStatus.NEEDS_MORE_EVIDENCE,
+    )
+    confirm_complaint = _create_complaint(
+        session,
+        citizen_id=citizen.id,
+        zone_id=zone.id,
+        category_id=category.id,
+        complaint_code="KTV-2026-000131",
+        status=ComplaintStatus.RESOLVED,
+    )
+    dispute_complaint = _create_complaint(
+        session,
+        citizen_id=citizen.id,
+        zone_id=zone.id,
+        category_id=category.id,
+        complaint_code="KTV-2026-000132",
+        status=ComplaintStatus.RESOLVED,
+    )
+    session.commit()
+    headers = auth_header(other_citizen)
+
+    responses = [
+        client.post(
+            f"{API_PREFIX}/complaints/{evidence_complaint.id}/evidence",
+            headers=headers,
+            data={"photo": _png_file()},
+            content_type="multipart/form-data",
+        ),
+        client.post(
+            f"{API_PREFIX}/complaints/{confirm_complaint.id}/confirm",
+            headers=headers,
+        ),
+        client.post(
+            f"{API_PREFIX}/complaints/{dispute_complaint.id}/dispute",
+            headers=headers,
+            data={"reason": "Still broken", "photo": _png_file()},
+            content_type="multipart/form-data",
+        ),
+    ]
+
+    assert [response.status_code for response in responses] == [403, 403, 403]
+    assert (
+        session.get(Complaint, evidence_complaint.id).status is ComplaintStatus.NEEDS_MORE_EVIDENCE
+    )
+    assert session.get(Complaint, confirm_complaint.id).status is ComplaintStatus.RESOLVED
+    assert session.get(Complaint, dispute_complaint.id).status is ComplaintStatus.RESOLVED
+
+
+@pytest.mark.parametrize("action", ["evidence", "upvote", "confirm", "dispute"])
+def test_complaint_actions_return_not_found_for_unknown_id(
+    seeded_app, session, auth_header, action
+):
+    client = seeded_app.test_client()
+    zone, _, citizen, _ = _base_entities(session)
+    assert zone.id == citizen.zone_id
+    request_kwargs = {"headers": auth_header(citizen)}
+    if action == "evidence":
+        request_kwargs.update(
+            data={"photo": _png_file()},
+            content_type="multipart/form-data",
+        )
+    elif action == "dispute":
+        request_kwargs.update(
+            data={"reason": "Still broken", "photo": _png_file()},
+            content_type="multipart/form-data",
+        )
+
+    response = client.post(
+        f"{API_PREFIX}/complaints/999999/{action}",
+        **request_kwargs,
+    )
+
+    assert response.status_code == 404
+    assert response.get_json()["error"]["code"] == "NOT_FOUND"
+
+
+@pytest.mark.parametrize("action", ["evidence", "upvote", "confirm", "dispute"])
+def test_complaint_actions_reject_non_citizen_role(
+    seeded_app, session, auth_header, action
+):
+    client = seeded_app.test_client()
+    zone, category, citizen, _ = _base_entities(session)
+    officer = _create_user(
+        session,
+        email=f"officer-{action}@example.com",
+        role=UserRole.OFFICER,
+        zone_id=zone.id,
+    )
+    complaint = _create_complaint(
+        session,
+        citizen_id=citizen.id,
+        zone_id=zone.id,
+        category_id=category.id,
+        complaint_code=f"KTV-2026-ROLE-{action}",
+        status=(
+            ComplaintStatus.NEEDS_MORE_EVIDENCE
+            if action == "evidence"
+            else ComplaintStatus.RESOLVED
+        ),
+    )
+    session.commit()
+    request_kwargs = {"headers": auth_header(officer)}
+    if action == "evidence":
+        request_kwargs.update(
+            data={"photo": _png_file()},
+            content_type="multipart/form-data",
+        )
+    elif action == "dispute":
+        request_kwargs.update(
+            data={"reason": "Still broken", "photo": _png_file()},
+            content_type="multipart/form-data",
+        )
+
+    response = client.post(
+        f"{API_PREFIX}/complaints/{complaint.id}/{action}",
+        **request_kwargs,
+    )
+
+    assert response.status_code == 403
+    assert response.get_json()["error"]["code"] == "FORBIDDEN"

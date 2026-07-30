@@ -9,7 +9,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from sqlalchemy import func, select
+
 from app.domain.enums import PointsReason
+from app.domain.points import amount
+from app.extensions import db
 from app.models import PointsLedger
 
 
@@ -18,19 +22,37 @@ def award(
 ) -> PointsLedger:
     """Append one ledger row, with the amount `domain.points` fixes for the reason.
 
-    TODO(phase 6). Callers never pass an amount — that would let two call sites
+    Callers never pass an amount — that would let two call sites
     disagree about what a COMPLAINT_CLOSED is worth.
 
     After awarding, re-evaluate badges (`gamification/badges.py`) in the same
     transaction: crossing 100 lifetime points and earning CENTURY_REFORMER must
     not be separable by a crash.
     """
-    raise NotImplementedError
+    entry = PointsLedger(
+        citizen_id=citizen_id,
+        complaint_id=complaint_id,
+        points_change=amount(reason),
+        reason=reason,
+        created_at=now,
+    )
+    db.session.add(entry)
+    db.session.flush()
+
+    from app.services.gamification.badges import evaluate_and_award
+
+    evaluate_and_award(citizen_id=citizen_id, now=now)
+    return entry
 
 
 def lifetime_points(*, citizen_id: int) -> int:
-    """SUM over the whole ledger. TODO(phase 6)."""
-    raise NotImplementedError
+    """SUM over the whole ledger."""
+    total = db.session.execute(
+        select(func.coalesce(func.sum(PointsLedger.points_change), 0)).where(
+            PointsLedger.citizen_id == citizen_id
+        )
+    ).scalar_one()
+    return int(total)
 
 
 def monthly_points(*, citizen_id: int, year: int, month: int) -> int:

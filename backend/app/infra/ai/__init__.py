@@ -37,6 +37,7 @@ def build_provider(
     timeout_seconds: float,
     failure_threshold: int,
     cooldown_seconds: float,
+    executor_workers: int = 1,
 ) -> GuardedProvider:
     """Build the configured provider, already wrapped in its guard.
 
@@ -58,4 +59,5 @@ def build_provider(
         timeout_seconds=timeout_seconds,
         failure_threshold=failure_threshold,
         cooldown_seconds=cooldown_seconds,
+        executor_workers=executor_workers,
     )

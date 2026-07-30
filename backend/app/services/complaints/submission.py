@@ -9,7 +9,20 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from flask import current_app
+
+from app.core.session import transaction
+from app.domain.enums import ComplaintStatus, StatusActor
+from app.domain.errors import ForbiddenError, NotFoundError, raise_for
+from app.domain.lifecycle import validate_evidence_resubmission
+from app.domain.sla import resume
+from app.extensions import db
+from app.infra.storage import remove_photo
+from app.jobs.screening import submit_evidence_screening
 from app.models import Complaint, User
+from app.services.complaints.evidence import attach_photos
+from app.services.complaints.lifecycle import apply_transition
+from app.services.complaints.views import ComplaintDetailData, load_complaint_detail
 
 
 def create_complaint(
@@ -49,10 +62,10 @@ def create_complaint(
 
 def resubmit_evidence(
     *, complaint_id: int, citizen: User, photos: list[Any], note: str | None, now: datetime
-) -> Complaint:
+) -> ComplaintDetailData:
     """POST /complaints/{id}/evidence — the citizen answers NEEDS_MORE_EVIDENCE.
 
-    TODO(phase 3). Steps:
+    Steps:
       1. Ownership check, then
          `domain.lifecycle.validate_evidence_resubmission(current)`.
       2. Append evidence rows at the NEXT sequence — old rows are always kept.
@@ -61,7 +74,55 @@ def resubmit_evidence(
          Pre-acceptance there is nothing to resume and this is a no-op.
       4. Fire the AI screening job for the new photos.
     """
-    raise NotImplementedError
+    evidence_rows = []
+    try:
+        with transaction():
+            complaint = db.session.get(Complaint, complaint_id)
+            if complaint is None:
+                raise NotFoundError("No such complaint.")
+            if complaint.citizen_id != citizen.id:
+                raise ForbiddenError("You do not have access to this complaint.")
+            raise_for(validate_evidence_resubmission(complaint.status))
+
+            paused_seconds, paused_at = resume(
+                complaint.sla_paused_seconds,
+                complaint.sla_paused_at,
+                now,
+            )
+            apply_transition(
+                complaint_id=complaint.id,
+                expected_status=ComplaintStatus.NEEDS_MORE_EVIDENCE,
+                new_status=ComplaintStatus.EVIDENCE_UNDER_REVIEW,
+                actor_role=StatusActor.CITIZEN,
+                changed_by_user_id=citizen.id,
+                now=now,
+                extra_values={
+                    "sla_paused_seconds": paused_seconds,
+                    "sla_paused_at": paused_at,
+                },
+            )
+            # Let the guarded transition choose the winner before allocating an
+            # evidence sequence. Otherwise two retries can both choose N+1 and
+            # the loser fails with a unique-index 500 before reaching the guard.
+            evidence_rows = attach_photos(
+                complaint_id=complaint.id,
+                photos=photos,
+                now=now,
+            )
+            detail = load_complaint_detail(complaint_id=complaint.id)
+    except Exception:
+        for evidence in evidence_rows:
+            remove_photo(
+                file_path=evidence.file_path,
+                upload_dir=current_app.config["UPLOAD_DIR"],
+            )
+        raise
+
+    submit_evidence_screening(
+        current_app._get_current_object(),
+        [evidence.id for evidence in evidence_rows],
+    )
+    return detail
 
 
 def generate_complaint_code(*, now: datetime, sequence: int) -> str:

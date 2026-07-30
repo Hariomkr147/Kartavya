@@ -8,18 +8,30 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.api.shared.serializers import SerializationContext
+from app.api.shared.serializers import (
+    SerializationContext,
+    serialize_complaint,
+    serialize_complaint_detail,
+)
+from app.domain.enums import ComplaintStatus
 from app.models import Complaint
 
 
 def serialize_own_complaint(complaint: Complaint, ctx: SerializationContext) -> dict[str, Any]:
-    """The shared ComplaintDetail plus `citizenActionNeeded`. TODO(phase 3).
+    """The shared ComplaintDetail plus `citizenActionNeeded`.
 
     `citizenActionNeeded` is CONFIRM_FIX when the complaint is RESOLVED and
     PROVIDE_MORE_EVIDENCE when it is NEEDS_MORE_EVIDENCE — derived from status,
     never stored, and emitted only to the owner.
     """
-    raise NotImplementedError
+    payload = serialize_complaint_detail(complaint, ctx)
+    action = None
+    if complaint.status is ComplaintStatus.RESOLVED:
+        action = "CONFIRM_FIX"
+    elif complaint.status is ComplaintStatus.NEEDS_MORE_EVIDENCE:
+        action = "PROVIDE_MORE_EVIDENCE"
+    payload["citizenActionNeeded"] = action
+    return payload
 
 
 def serialize_feed_item(complaint: Complaint, ctx: SerializationContext) -> dict[str, Any]:
@@ -29,7 +41,7 @@ def serialize_feed_item(complaint: Complaint, ctx: SerializationContext) -> dict
     IS included (the client shows a nearby-landmark hint from it); identity
     never is.
     """
-    raise NotImplementedError
+    return serialize_complaint(complaint, ctx)
 
 
 def serialize_leaderboard_entry(row: Any) -> dict[str, Any]:

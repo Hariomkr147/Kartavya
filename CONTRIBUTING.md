@@ -36,13 +36,34 @@ Pick up your task from the project board before writing any code, so no two peop
 
 ## 2. Getting the repo
 
+### Branching model
+
+The repo has two long-lived branches:
+
+- **`development`** — the integration branch. All feature/fix/etc. branches are cut from here and PR'd back into here. This is where phased backend work (see `backend/README.md`) and day-to-day frontend work land and get combined.
+- **`main`** — the release branch. It only ever receives merges from `development`, at checkpoints the repo owner decides (e.g. a phase is complete and stable). Nobody branches off `main` for day-to-day work and nobody opens feature PRs against it.
+
+Both `development` and `main` are protected: you cannot push directly to either. Every change reaches `development` through a reviewed pull request; `development` reaches `main` the same way, merged by the owner.
+
+```
+main            ← release checkpoints only (owner merges development → main)
+  ↑
+development     ← integration branch, base for all feature work
+  ↑
+feat/x, fix/y, ...
+```
+
+Everywhere below that says "branch off `main`" or "PR into `main`," read it as `development` unless a step is explicitly about syncing `main` itself.
+
+---
+
 There are two ways to contribute, depending on whether you have direct write access to the repository.
 
 ---
 
 ### Option A — direct collaborator (team members with repo access)
 
-As a direct collaborator you have push access to the repository itself. There is only one remote — `origin` points straight to `<org>/MAY2026-Team-040`. You clone it, branch off `main`, and push branches back to the same repo.
+As a direct collaborator you have push access to the repository itself. There is only one remote — `origin` points straight to `<org>/MAY2026-Team-040`. You clone it, branch off `development`, and push branches back to the same repo.
 
 Here is the full picture:
 
@@ -54,7 +75,7 @@ GitHub: <org>/MAY2026-Team-040   ←── "origin" (the real repo, you can push
       Your local machine
 ```
 
-You can push feature branches to `origin`, but you **cannot push directly to `main`** — that is protected and only accepts changes through reviewed pull requests.
+You can push feature branches to `origin`, but you **cannot push directly to `development` or `main`** — both are protected and only accept changes through reviewed pull requests. Feature branches target `development`; only the owner merges `development` into `main`.
 
 #### Step 1 — Clone the repository
 
@@ -71,26 +92,26 @@ git remote -v
 # origin  https://github.com/<org>/MAY2026-Team-040.git (push)
 ```
 
-#### Step 2 — Get the latest main
+#### Step 2 — Get the latest development
 
-Before creating any branch, make sure your local `main` is fully up to date:
+Before creating any branch, make sure your local `development` is fully up to date:
 
 ```bash
-git checkout main
-git pull origin main
+git checkout development
+git pull origin development
 ```
 
-`git pull` is shorthand for `git fetch` (download new commits) followed by `git merge` (apply them to your local branch). On `main` it is safe because you are never making local commits there.
+`git pull` is shorthand for `git fetch` (download new commits) followed by `git merge` (apply them to your local branch). On `development` it is safe because you are never making local commits there.
 
 #### Step 3 — Create your feature branch
 
-Branch off `main` with a descriptive name (see [branch naming rules](#5-branch-naming)):
+Branch off `development` with a descriptive name (see [branch naming rules](#5-branch-naming)):
 
 ```bash
 git checkout -b feat/my-feature
 ```
 
-This creates the branch locally and switches to it. Your changes will live here, not on `main`.
+This creates the branch locally and switches to it. Your changes will live here, not on `development`.
 
 #### Step 4 — Work and commit
 
@@ -116,43 +137,43 @@ The `-u` flag sets `origin/feat/my-feature` as the tracking branch, so subsequen
 
 #### Step 6 — Open a pull request
 
-Go to the repository on GitHub. You will see a yellow banner: **"feat/my-feature had recent pushes — Compare & pull request."** Click it. Set the base branch to `main`, fill in the description, and submit.
+Go to the repository on GitHub. You will see a yellow banner: **"feat/my-feature had recent pushes — Compare & pull request."** Click it. Set the base branch to `development`, fill in the description, and submit.
 
 ---
 
-### Keeping your local main up to date
+### Keeping your local development branch up to date
 
-Every time you start a new piece of work, sync `main` first:
+Every time you start a new piece of work, sync `development` first:
 
 ```bash
-git checkout main
-git pull origin main
+git checkout development
+git pull origin development
 git checkout -b feat/next-feature
 ```
 
-If you have been on a feature branch for a while and `main` has moved on, do not re-pull `main` to update your feature branch — use rebase instead (see the next section).
+If you have been on a feature branch for a while and `development` has moved on, do not re-pull `development` to update your feature branch — use rebase instead (see the next section).
 
 ---
 
-### Updating your feature branch when main has moved
+### Updating your feature branch when development has moved
 
-If new commits land on `main` while you are still working on your branch, pull them in before opening your PR to avoid conflicts and to keep history clean. Use rebase, not merge:
+If new commits land on `development` while you are still working on your branch, pull them in before opening your PR to avoid conflicts and to keep history clean. Use rebase, not merge:
 
 ```bash
 # While on your feature branch:
 git fetch origin
-git rebase origin/main
+git rebase origin/development
 ```
 
-Rebase replays your commits on top of the latest `main`. If there are conflicts, Git pauses and tells you which files to fix. For each conflicted file:
+Rebase replays your commits on top of the latest `development`. If there are conflicts, Git pauses and tells you which files to fix. For each conflicted file:
 
 1. Open the file and look for conflict markers:
    ```
    <<<<<<< HEAD
    your change
    =======
-   incoming change from main
-   >>>>>>> origin/main
+   incoming change from development
+   >>>>>>> origin/development
    ```
 2. Edit the file to the correct final state and remove the markers.
 3. Stage the resolved file: `git add <file>`
@@ -178,9 +199,9 @@ Use `--force-with-lease` rather than plain `--force` — it refuses to push if s
 Once I approve & merge your PR, clean up so your local environment stays tidy:
 
 ```bash
-# Sync local main — it now includes your work
-git checkout main
-git pull origin main
+# Sync local development — it now includes your work
+git checkout development
+git pull origin development
 
 # Delete the feature branch locally
 git branch -d feat/my-feature
@@ -189,17 +210,20 @@ git branch -d feat/my-feature
 git push origin --delete feat/my-feature
 ```
 
+`main` is not touched here — the owner merges `development` into `main` separately, at release checkpoints.
+
 ---
 
 ### Common mistakes for direct collaborators
 
 | Mistake | What goes wrong | How to avoid it |
 |---|---|---|
-| Committing directly to `main` | Push is rejected because `main` is protected; your work is stranded on local `main` | Always create a feature branch before making any changes |
-| Starting a branch off stale `main` | Your PR includes changes that are already on `main`, causing false conflicts | Run `git pull origin main` before every `git checkout -b` |
-| Using `git merge origin/main` instead of `git rebase` to update your branch | Creates an ugly "Merge branch 'main' into feat/..." commit in the PR | Always use `git rebase origin/main` on your feature branch |
+| Committing directly to `development` or `main` | Push is rejected because both are protected; your work is stranded locally | Always create a feature branch before making any changes |
+| Starting a branch off stale `development` | Your PR includes changes that are already on `development`, causing false conflicts | Run `git pull origin development` before every `git checkout -b` |
+| Using `git merge origin/development` instead of `git rebase` to update your branch | Creates an ugly "Merge branch 'development' into feat/..." commit in the PR | Always use `git rebase origin/development` on your feature branch |
 | Force-pushing with `--force` instead of `--force-with-lease` | Can silently overwrite a teammate's push to the same branch | Always use `--force-with-lease` |
-| Pushing directly to `origin/main` | Rejected if protected; or worse, succeeds and bypasses review | Only push feature branches; let the PR process land things on `main` |
+| Pushing directly to `origin/development` or `origin/main` | Rejected if protected; or worse, succeeds and bypasses review | Only push feature branches; let the PR process land things on `development` |
+| Opening a feature PR against `main` instead of `development` | Bypasses the integration branch and confuses the release checkpoint model | Always set the PR base branch to `development` |
 | Not deleting merged branches | Branch list grows unmanageable; old branches cause confusion | Delete both local and remote branch after every merge |
 
 ---
@@ -275,15 +299,15 @@ git fetch upstream
 
 This downloads all branches and commits from the original repo into your local Git, but does not change any of your files yet.
 
-#### Step 5 — Create your feature branch off upstream/main
+#### Step 5 — Create your feature branch off upstream/development
 
-**Never branch off your local `main` without syncing first.** Instead, branch directly from the freshly fetched `upstream/main`:
+**Never branch off your local `development` without syncing first.** Instead, branch directly from the freshly fetched `upstream/development`:
 
 ```bash
-git checkout -b feat/my-feature upstream/main
+git checkout -b feat/my-feature upstream/development
 ```
 
-This ensures your branch starts from the very latest code, even if your fork's `main` has fallen behind.
+This ensures your branch starts from the very latest code, even if your fork's `development` has fallen behind.
 
 #### Step 6 — Work, commit, and push to your fork
 
@@ -297,7 +321,7 @@ The `-u` flag sets `origin/feat/my-feature` as the tracking branch, so future `g
 
 #### Step 7 — Open a pull request
 
-Go to your fork on GitHub. You will see a banner saying "your branch is ahead of upstream" with a **Compare & pull request** button. Click it, make sure the base is set to `<org>/MAY2026-Team-040 : main` (not your fork's main), fill in the description, and submit.
+Go to your fork on GitHub. You will see a banner saying "your branch is ahead of upstream" with a **Compare & pull request** button. Click it, make sure the base is set to `<org>/MAY2026-Team-040 : development` (not your fork's `development`, and not `main`), fill in the description, and submit.
 
 ---
 
@@ -309,26 +333,26 @@ The original repo moves forward as other contributors merge their PRs. Your fork
 # Download the latest upstream changes (does not touch your files)
 git fetch upstream
 
-# Switch to your local main
-git checkout main
+# Switch to your local development
+git checkout development
 
-# Fast-forward your local main to match upstream/main
-# (this should always be a fast-forward since you never commit directly to main)
-git merge --ff-only upstream/main
+# Fast-forward your local development to match upstream/development
+# (this should always be a fast-forward since you never commit directly to development)
+git merge --ff-only upstream/development
 
-# Push the updated main to your fork on GitHub
-git push origin main
+# Push the updated development to your fork on GitHub
+git push origin development
 ```
 
-If `merge --ff-only` fails it means you accidentally committed to `main` locally. Undo by running:
+If `merge --ff-only` fails it means you accidentally committed to `development` locally. Undo by running:
 
 ```bash
-git checkout main
-git reset --hard upstream/main   # discards local commits on main
-git push origin main --force
+git checkout development
+git reset --hard upstream/development   # discards local commits on development
+git push origin development --force
 ```
 
-This is why the rule exists — **never commit directly to `main`**, so syncing always stays simple.
+This is why the rule exists — **never commit directly to `development`**, so syncing always stays simple.
 
 ---
 
@@ -339,7 +363,7 @@ If new commits land on upstream while you are still working on your branch, you 
 ```bash
 # While on your feature branch:
 git fetch upstream
-git rebase upstream/main
+git rebase upstream/development
 ```
 
 Rebase replays your commits on top of the latest upstream state. If there are conflicts, Git will pause and tell you which files to fix. For each conflicted file:
@@ -350,7 +374,7 @@ Rebase replays your commits on top of the latest upstream state. If there are co
    your change
    =======
    upstream change
-   >>>>>>> upstream/main
+   >>>>>>> upstream/development
    ```
 2. Edit the file to the correct final state (delete the markers too).
 3. Mark it resolved: `git add <file>`
@@ -376,11 +400,11 @@ Use `--force-with-lease` rather than plain `--force` — it is a safer version t
 Once a maintainer merges your PR, clean up:
 
 ```bash
-# Sync your local main with upstream (it now includes your work)
+# Sync your local development with upstream (it now includes your work)
 git fetch upstream
-git checkout main
-git merge --ff-only upstream/main
-git push origin main
+git checkout development
+git merge --ff-only upstream/development
+git push origin development
 
 # Delete the feature branch locally
 git branch -d feat/my-feature
@@ -389,7 +413,7 @@ git branch -d feat/my-feature
 git push origin --delete feat/my-feature
 ```
 
-Your fork's `main` is now back in sync and you are ready to start the next task.
+Your fork's `development` is now back in sync and you are ready to start the next task. `main` is not part of this cycle — only the owner merges `development` into `main`.
 
 ---
 
@@ -399,11 +423,12 @@ Your fork's `main` is now back in sync and you are ready to start the next task.
 |---|---|---|
 | Cloning the original repo instead of the fork | You cannot push your commits anywhere | Always clone `github.com/<your-username>/...` |
 | Forgetting to add the `upstream` remote | You cannot pull in others' changes | Add it immediately after cloning (Step 3) |
-| Branching off a stale local `main` | Your PR starts from old code, conflicts pile up | Always run `git fetch upstream` first, then branch off `upstream/main` |
-| Committing directly to `main` on your fork | Sync with upstream breaks | Only ever commit to feature branches, never to `main` |
-| Using `git merge` instead of `git rebase` to update your branch | Creates an ugly merge commit in your PR history | Use `git rebase upstream/main` on your branch |
+| Branching off a stale local `development` | Your PR starts from old code, conflicts pile up | Always run `git fetch upstream` first, then branch off `upstream/development` |
+| Committing directly to `development` on your fork | Sync with upstream breaks | Only ever commit to feature branches, never to `development` |
+| Using `git merge` instead of `git rebase` to update your branch | Creates an ugly merge commit in your PR history | Use `git rebase upstream/development` on your branch |
 | Force-pushing with `--force` instead of `--force-with-lease` | Can silently overwrite a teammate's push | Always use `--force-with-lease` |
-| Opening the PR against your fork's `main` instead of upstream's `main` | The PR goes nowhere and reviewers are confused | Double-check the "base repository" dropdown when creating the PR |
+| Opening the PR against your fork's `development` instead of upstream's `development` | The PR goes nowhere and reviewers are confused | Double-check the "base repository" dropdown when creating the PR |
+| Opening the PR against `main` instead of `development` | Bypasses the integration branch | Always target `development` unless you are the owner doing a release merge |
 
 ---
 
@@ -463,7 +488,7 @@ These two files are the single source of truth for the entire project:
 
 ## 5. Branch naming
 
-Use the format `<type>/<short-description>`, all lowercase, hyphens only.
+Use the format `<type>/<short-description>`, all lowercase, hyphens only. Branch from `development` (see [branching model](#2-getting-the-repo)), never from `main`.
 
 | Type | When to use | Example |
 |---|---|---|
@@ -484,7 +509,7 @@ A few rules to keep the codebase clean:
 
 - **One concern per PR.** A PR that adds an endpoint should not also rename unrelated files or fix an unrelated bug. Small, focused PRs are reviewed faster and revert cleanly if something goes wrong.
 - **Backend and frontend in separate PRs** unless a change is so tightly coupled that splitting it creates more confusion than it saves.
-- **Never commit directly to `main`.** All changes go through a pull request, regardless of how small.
+- **Never commit directly to `development` or `main`.** All changes go through a pull request into `development`, regardless of how small; `main` only moves via an owner-merged `development` → `main` PR.
 - **Do not commit secrets.** API keys, `.env` files, and database files (`*.sqlite3`, `db.sqlite3`) are already in `.gitignore`. Double-check before staging.
 - **Remove debug code** (`print()`, `console.log()`, commented-out blocks) before opening a PR.
 
@@ -535,18 +560,18 @@ docs(contributing): add setup and PR process guide
 
 ## 8. Opening a pull request
 
-1. **Sync your branch with main** before pushing, so your PR has no avoidable conflicts:
+1. **Sync your branch with development** before pushing, so your PR has no avoidable conflicts:
 
    Direct collaborators:
    ```bash
    git fetch origin
-   git rebase origin/main
+   git rebase origin/development
    ```
 
    Fork-based contributors:
    ```bash
    git fetch upstream
-   git rebase upstream/main
+   git rebase upstream/development
    # if rebase rewrote history, force-push safely:
    git push origin <your-branch> --force-with-lease
    ```
@@ -558,7 +583,7 @@ docs(contributing): add setup and PR process guide
 
 3. **Open the PR on GitHub.**
    - Fork-based: GitHub will show a "Compare & pull request" banner on your fork's page. Click it.
-   - In the PR form, confirm the **base repository** is `<org>/MAY2026-Team-040` and the **base branch** is `main`. Never target your fork's `main`.
+   - In the PR form, confirm the **base repository** is `<org>/MAY2026-Team-040` and the **base branch** is `development`. Never target `main` or your fork's `development`.
 
 4. **Fill in the PR description** — at minimum:
    - What this PR does (2–3 sentences or bullets).

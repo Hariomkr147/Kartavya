@@ -44,7 +44,7 @@ def _get_screening_provider(app: Flask) -> GuardedProvider:
 
 def submit_evidence_screening(app: Flask, evidence_ids: list[int]) -> None:
     """Queue one independent background task per new evidence row."""
-    if app.config.get("TESTING"):
+    if not app.config.get("AI_SCREENING_ENABLED", True):
         return
     provider = _get_screening_provider(app)
     for evidence_id in evidence_ids:

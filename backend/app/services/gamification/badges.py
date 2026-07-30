@@ -10,6 +10,7 @@ from app.domain.badges import BadgeCriteria, CitizenStats, is_earned
 from app.domain.enums import ComplaintStatus, UserRole
 from app.extensions import db
 from app.models import Badge, CitizenBadge, Complaint, PointsLedger, User
+from app.services.gamification.ledger import lifetime_points
 
 
 def gather_stats(*, citizen_id: int) -> CitizenStats:
@@ -32,11 +33,7 @@ def gather_stats(*, citizen_id: int) -> CitizenStats:
             )
         ).scalars()
     )
-    lifetime = db.session.execute(
-        select(func.coalesce(func.sum(PointsLedger.points_change), 0)).where(
-            PointsLedger.citizen_id == citizen_id
-        )
-    ).scalar_one()
+    lifetime = lifetime_points(citizen_id=citizen_id)
 
     is_zone_rank_one = False
     if citizen is not None and citizen.zone_id is not None:

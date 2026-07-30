@@ -105,13 +105,20 @@ def claim_cluster_reward(*, cluster_id: int) -> bool:
 def citizen_already_rewarded_in_cluster(*, cluster_id: int, citizen_id: int) -> bool:
     """Has this citizen already been paid a cluster reward here?
 
-    TODO(phase 6). Look for a points_ledger row with reason COMPLAINT_CLOSED or
-    CLUSTER_MEMBER_CLOSED whose complaint belongs to this cluster and this
-    citizen. Cluster rewards are paid at most once per citizen per cluster, so
-    filing three complaints that get clustered together cannot farm rewards.
+    A points_ledger row with reason COMPLAINT_CLOSED or CLUSTER_MEMBER_CLOSED
+    whose complaint belongs to this cluster and this citizen. Cluster rewards are
+    paid at most once per citizen per cluster, so filing three complaints that
+    get clustered together cannot farm rewards.
+
+    Call this BEFORE `claim_cluster_reward` — see `lifecycle.confirm_resolution`.
     """
-    # Serialise reward decisions for members of this cluster, including when
-    # reward_granted was already true before this transaction began.
+    # Take the cluster row first, so this read and the claim that follows it are
+    # one decision rather than two.
+    #
+    # ⚠ On SQLite this renders nothing at all — the dialect drops FOR UPDATE
+    # silently. What actually serialises concurrent confirms there is SQLite's
+    # single-writer lock, which the claim's UPDATE takes. This line is the
+    # equivalent guarantee for Postgres; it is not what is protecting us today.
     db.session.execute(
         select(ComplaintCluster.id).where(ComplaintCluster.id == cluster_id).with_for_update()
     ).scalar_one_or_none()

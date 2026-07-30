@@ -11,8 +11,8 @@ from datetime import UTC, datetime
 from flask import Blueprint, jsonify, request
 
 from app.api.citizen.serializers import serialize_own_complaint
+from app.api.shared.context import detail_context
 from app.api.shared.responses import todo
-from app.api.shared.serializers import SerializationContext
 from app.core.auth import current_user, require_auth, require_role
 from app.domain.enums import UserRole
 from app.domain.errors import NotFoundError
@@ -43,19 +43,7 @@ def _parse_complaint_id(complaint_id: str) -> int:
 
 
 def _serialize_detail(detail: ComplaintDetailData, *, now: datetime) -> dict[str, object]:
-    complaint = detail.complaint
-    first_evidence = detail.evidence[0] if detail.evidence else None
-    context = SerializationContext(
-        now=now,
-        categories={detail.category.id: detail.category},
-        zones={detail.zone.id: detail.zone},
-        upvote_counts={complaint.id: detail.upvote_count},
-        first_evidence={complaint.id: first_evidence} if first_evidence else {},
-        evidence_rows={complaint.id: detail.evidence},
-        history_rows={complaint.id: detail.history},
-        note_rows={complaint.id: detail.notes},
-    )
-    return serialize_own_complaint(complaint, context)
+    return serialize_own_complaint(detail.complaint, detail_context(detail, now=now))
 
 
 # --- Complaints ---------------------------------------------------------------
@@ -121,7 +109,6 @@ def submit_additional_evidence(complaint_id: str):
         complaint_id=_parse_complaint_id(complaint_id),
         citizen=current_user(),
         photos=[request.files.get("photo")],
-        note=None,
         now=now,
     )
     return jsonify(_serialize_detail(detail, now=now)), 201
@@ -130,7 +117,7 @@ def submit_additional_evidence(complaint_id: str):
 @bp.post("/complaints/<complaint_id>/upvote")
 @require_role(CITIZEN)
 def upvote_complaint(complaint_id: str):
-    """200 UpvoteResult {upvoteCount, severityScore}.
+    """200 UpvoteResult {complaintId, upvoteCount, severityLabel}.
 
     409 ALREADY_UPVOTED on a repeat; no self-upvotes. Credits +5
     to the REPORTER, not the voter, and recomputes severity.

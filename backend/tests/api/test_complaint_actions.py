@@ -650,7 +650,7 @@ def test_upvote_rejects_closed_complaint_without_side_effects(seeded_app, sessio
     )
 
     assert response.status_code == 409
-    assert response.get_json()["error"]["code"] == "COMPLAINT_CLOSED"
+    assert response.get_json()["error"]["code"] == "ALREADY_CLOSED"
     assert (
         session.execute(
             select(func.count(ComplaintUpvote.id)).where(
@@ -879,6 +879,161 @@ def test_concurrent_cluster_confirms_reward_cluster_and_citizen_once(tmp_path):
         assert sorted(reward.points_change for reward in rewards) == [10, 50]
         assert len({reward.citizen_id for reward in rewards}) == 2
         assert db.session.get(ComplaintCluster, cluster_id).reward_granted is True
+
+
+def test_concurrent_cluster_confirms_by_one_citizen_pay_that_citizen_once(tmp_path):
+    """The duplicate-reporter rule has to hold when both confirms land together.
+
+    The sequential version of this is covered above. This is the version that
+    would double-pay if the per-citizen check and the reward claim were allowed
+    to interleave.
+    """
+    from app.extensions import db
+
+    app = _file_backed_app(tmp_path)
+    with app.app_context():
+        zone, category, citizen, _ = _base_entities(db.session)
+        cluster = ComplaintCluster(
+            category_id=category.id,
+            zone_id=zone.id,
+            centroid_lat=12.0,
+            centroid_lng=77.0,
+            report_count=2,
+            unique_reporter_count=1,
+            reward_granted=False,
+            updated_at=_utcnow(),
+        )
+        db.session.add(cluster)
+        db.session.flush()
+        complaint_ids = [
+            _create_complaint(
+                db.session,
+                citizen_id=citizen.id,
+                zone_id=zone.id,
+                category_id=category.id,
+                cluster_id=cluster.id,
+                complaint_code=f"KTV-2026-00014{index}",
+                status=ComplaintStatus.RESOLVED,
+            ).id
+            for index in (1, 2)
+        ]
+        db.session.commit()
+        citizen_id = citizen.id
+        headers = _auth_for(app, citizen)
+
+    start = Barrier(2)
+
+    def confirm(index):
+        start.wait()
+        with app.test_client() as client:
+            return client.post(
+                f"{API_PREFIX}/complaints/{complaint_ids[index]}/confirm",
+                headers=headers,
+            ).status_code
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        statuses = list(executor.map(confirm, range(2)))
+
+    # Both complaints close — only one of them pays.
+    assert statuses == [200, 200]
+    with app.app_context():
+        rewards = list(
+            db.session.execute(
+                select(PointsLedger).where(
+                    PointsLedger.citizen_id == citizen_id,
+                    PointsLedger.reason.in_(
+                        [
+                            PointsReason.COMPLAINT_CLOSED,
+                            PointsReason.CLUSTER_MEMBER_CLOSED,
+                        ]
+                    ),
+                )
+            ).scalars()
+        )
+        assert [reward.points_change for reward in rewards] == [50]
+
+
+def test_duplicate_cluster_confirm_leaves_the_reward_for_the_next_member(
+    seeded_app, session, auth_header
+):
+    """A citizen who is already paid must not consume the cluster's one-time +50.
+
+    Confirming their second complaint credits nothing — and the next member to
+    confirm must still get the full COMPLAINT_CLOSED, not the +10 consolation.
+    """
+    client = seeded_app.test_client()
+    zone, category, citizen, other_citizen = _base_entities(session)
+    cluster = ComplaintCluster(
+        category_id=category.id,
+        zone_id=zone.id,
+        centroid_lat=12.0,
+        centroid_lng=77.0,
+        report_count=3,
+        unique_reporter_count=2,
+        reward_granted=False,
+        updated_at=_utcnow(),
+    )
+    session.add(cluster)
+    session.flush()
+    complaints = [
+        _create_complaint(
+            session,
+            citizen_id=reporter.id,
+            zone_id=zone.id,
+            category_id=category.id,
+            cluster_id=cluster.id,
+            complaint_code=f"KTV-2026-00015{index}",
+            status=ComplaintStatus.RESOLVED,
+        )
+        for index, reporter in enumerate([citizen, citizen, other_citizen], start=1)
+    ]
+    session.commit()
+
+    # This citizen was paid outside the cluster's reward flag — the situation a
+    # later cluster link can produce, where `reward_granted` is still false.
+    session.add(
+        PointsLedger(
+            citizen_id=citizen.id,
+            complaint_id=complaints[0].id,
+            points_change=50,
+            reason=PointsReason.COMPLAINT_CLOSED,
+            created_at=_utcnow(),
+        )
+    )
+    session.commit()
+
+    duplicate = client.post(
+        f"{API_PREFIX}/complaints/{complaints[1].id}/confirm",
+        headers=auth_header(citizen),
+    )
+    assert duplicate.status_code == 200
+    assert session.get(ComplaintCluster, cluster.id).reward_granted is False
+
+    next_member = client.post(
+        f"{API_PREFIX}/complaints/{complaints[2].id}/confirm",
+        headers=auth_header(other_citizen),
+    )
+    assert next_member.status_code == 200
+    reward = session.execute(
+        select(PointsLedger).where(
+            PointsLedger.citizen_id == other_citizen.id,
+            PointsLedger.complaint_id == complaints[2].id,
+            PointsLedger.reason.in_(
+                [PointsReason.COMPLAINT_CLOSED, PointsReason.CLUSTER_MEMBER_CLOSED]
+            ),
+        )
+    ).scalar_one()
+    assert reward.reason is PointsReason.COMPLAINT_CLOSED
+    assert reward.points_change == 50
+    # The duplicate confirm credited nothing.
+    assert (
+        session.execute(
+            select(func.count(PointsLedger.id)).where(
+                PointsLedger.complaint_id == complaints[1].id
+            )
+        ).scalar_one()
+        == 0
+    )
 
 
 def test_confirm_resolution_rejects_wrong_status(seeded_app, session, auth_header):

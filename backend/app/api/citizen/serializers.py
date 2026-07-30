@@ -10,7 +10,6 @@ from typing import Any
 
 from app.api.shared.serializers import (
     SerializationContext,
-    serialize_complaint,
     serialize_complaint_detail,
 )
 from app.domain.enums import ComplaintStatus
@@ -40,8 +39,14 @@ def serialize_feed_item(complaint: Complaint, ctx: SerializationContext) -> dict
     Reuses the compact shape, which structurally has no reporter field. Location
     IS included (the client shows a nearby-landmark hint from it); identity
     never is.
+
+    Note that `FeedItem` is NOT the compact `Complaint`: it REQUIRES `hasUpvoted`
+    (which needs the caller's own vote prefetched into the context), adds
+    latitude/longitude, and drops slaLabel/zoneId/zoneName/assignedOfficerId/
+    updatedAt. Returning `serialize_complaint(...)` here would be a contract
+    violation, so this stays unimplemented until /feed is built.
     """
-    return serialize_complaint(complaint, ctx)
+    raise NotImplementedError
 
 
 def serialize_leaderboard_entry(row: Any) -> dict[str, Any]:

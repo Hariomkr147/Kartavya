@@ -15,6 +15,7 @@ from flask import current_app
 from sqlalchemy import func, select
 
 from app.domain.enums import AiScreenStatus, EvidenceVerdict
+from app.domain.errors import ValidationError
 from app.extensions import db
 from app.infra.storage import remove_photo, store_photo, validate_photo
 from app.models import ComplaintEvidence, User
@@ -44,12 +45,11 @@ def attach_photos(
     check, size limit, UUID filename outside the web root) and stores only the
     relative path. Never store the client's filename, and never the bytes.
 
-    Each new row starts at ai_screen_status=PENDING and gets its own
-    fire-and-forget screening job — a 3-photo complaint spawns 3 jobs.
+    Each new row starts at ai_screen_status=PENDING. Queuing the screening job
+    is the CALLER's job, and it happens after the commit — a 3-photo complaint
+    spawns 3 of them, and none of them may block the response.
     """
     if not photos or any(photo is None for photo in photos):
-        from app.domain.errors import ValidationError
-
         raise ValidationError("A photo is required.")
 
     upload_dir = current_app.config["UPLOAD_DIR"]

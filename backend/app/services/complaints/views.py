@@ -33,6 +33,12 @@ class ComplaintDetailData:
 
 def load_complaint_detail(*, complaint_id: int) -> ComplaintDetailData:
     """Load everything a ComplaintDetail serializer needs without serializer queries."""
+    # Everything the caller has written so far must be on the wire before this
+    # runs. Two reasons: the reads below have to see the new status_history and
+    # evidence rows, and the expunge at the bottom would otherwise be capable of
+    # dropping a still-pending INSERT out of the session entirely. Autoflush
+    # would cover both today, but only by accident of statement ordering.
+    db.session.flush()
     complaint = db.session.get(Complaint, complaint_id)
     if complaint is None:
         raise NotFoundError("No such complaint.")

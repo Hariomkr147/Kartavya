@@ -98,3 +98,43 @@ def test_officer_cannot_read_another_zone(
         headers=auth_header(officer_user),
     )
     assert response.status_code == 403
+
+
+def test_current_user_is_not_cached_across_requests(seeded_app, session, auth_header):
+    """Two callers, one app context — the second must not inherit the first.
+
+    `flask.g` is bound to the APPLICATION context, and Flask reuses an
+    already-pushed one rather than nesting. Caching the resolved caller there
+    made request N+1 authorize as request N's user: an identity mix-up, not a
+    caching quirk. Regression test for `core.auth.load_current_user`.
+    """
+    from sqlalchemy import select
+
+    from app.core.auth import load_current_user
+    from app.domain.enums import UserRole
+    from app.extensions import db
+    from app.models import User, Zone
+    from app.services.accounts.auth import hash_password
+
+    zone = session.execute(select(Zone).where(Zone.is_catch_all.is_(True))).scalar_one()
+    users = []
+    for name in ("first", "second"):
+        user = User(
+            full_name=name.title(),
+            display_name=None,
+            email=f"{name}@example.com",
+            password_hash=hash_password("password123"),
+            role=UserRole.CITIZEN,
+            zone_id=zone.id,
+            is_active=True,
+        )
+        db.session.add(user)
+        users.append(user)
+    session.commit()
+
+    seen = []
+    for user in users:
+        with seeded_app.test_request_context(headers=auth_header(user)):
+            seen.append(load_current_user().id)
+
+    assert seen == [users[0].id, users[1].id]

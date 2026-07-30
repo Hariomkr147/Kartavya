@@ -38,7 +38,6 @@ from app.domain.points import close_reward, earns_on_time_bonus
 from app.domain.sla import label as sla_label
 from app.extensions import db
 from app.infra.storage import remove_photo
-from app.jobs.screening import submit_evidence_screening
 from app.models import Complaint, StatusHistory, User
 from app.services.complaints.clusters import (
     citizen_already_rewarded_in_cluster,
@@ -321,10 +320,20 @@ def confirm_resolution(*, complaint_id: int, citizen: User, now: datetime) -> Co
                 citizen_already_rewarded_in_cluster=False,
             )
         else:
-            won_cluster_reward = claim_cluster_reward(cluster_id=complaint.cluster_id)
+            # Order matters. The per-citizen check runs FIRST so that a citizen
+            # who has already been paid in this cluster cannot consume the
+            # one-time +50 on their way to earning nothing — which would silently
+            # demote the next member's confirm from +50 to +10. Do not lean on
+            # "already paid implies reward_granted": once cluster linking lands,
+            # an already-rewarded CLOSED complaint can join a fresh cluster whose
+            # flag is still false. `frontend/src/mocks/handlers/complaints.ts`
+            # orders it the same way.
             already_rewarded = citizen_already_rewarded_in_cluster(
                 cluster_id=complaint.cluster_id,
                 citizen_id=citizen.id,
+            )
+            won_cluster_reward = not already_rewarded and claim_cluster_reward(
+                cluster_id=complaint.cluster_id
             )
             reward_reason = close_reward(
                 is_clustered=True,
@@ -353,6 +362,9 @@ def confirm_resolution(*, complaint_id: int, citizen: User, now: datetime) -> Co
                 reason=PointsReason.ON_TIME_BONUS,
                 now=now,
             )
+        # Not redundant with the evaluation `award()` already does: a duplicate
+        # confirm inside one cluster credits ZERO points, so nothing above may
+        # have run — and COMPLAINTS_CLOSED still moved.
         evaluate_and_award(citizen_id=citizen.id, now=now)
         return load_complaint_detail(complaint_id=complaint.id)
 
@@ -408,6 +420,10 @@ def dispute_resolution(
                 upload_dir=current_app.config["UPLOAD_DIR"],
             )
         raise
+
+    # Imported here, not at module scope — see the note in submission.py: this
+    # module is the one `jobs/auto_close.py` must import back.
+    from app.jobs.screening import submit_evidence_screening
 
     submit_evidence_screening(
         current_app._get_current_object(),

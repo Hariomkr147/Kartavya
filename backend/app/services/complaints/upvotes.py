@@ -22,7 +22,7 @@ from app.services.gamification.ledger import award
 
 
 def upvote(*, complaint_id: int, citizen: User, now: datetime) -> dict[str, object]:
-    """POST /complaints/{id}/upvote -> UpvoteResult {upvoteCount, severityScore}.
+    """POST /complaints/{id}/upvote -> UpvoteResult {complaintId, upvoteCount, severityLabel}.
 
     One transaction:
       1. 409 ALREADY_UPVOTED if this citizen already upvoted it. Check first
@@ -47,9 +47,12 @@ def upvote(*, complaint_id: int, citizen: User, now: datetime) -> dict[str, obje
         if complaint.zone_id != citizen.zone_id:
             raise ForbiddenError("You cannot upvote a complaint outside your zone.")
         if complaint.status is ComplaintStatus.CLOSED:
+            # ALREADY_CLOSED, not COMPLAINT_CLOSED — the latter is a
+            # PointsReason value, and an error code that collides with a points
+            # reason is a trap for anyone reading logs.
             raise ConflictError(
-                "COMPLAINT_CLOSED",
-                "A closed complaint cannot be upvoted.",
+                "ALREADY_CLOSED",
+                "This complaint is already closed.",
             )
         existing = db.session.execute(
             select(ComplaintUpvote.id).where(

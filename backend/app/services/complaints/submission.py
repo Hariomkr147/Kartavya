@@ -18,7 +18,6 @@ from app.domain.lifecycle import validate_evidence_resubmission
 from app.domain.sla import resume
 from app.extensions import db
 from app.infra.storage import remove_photo
-from app.jobs.screening import submit_evidence_screening
 from app.models import Complaint, User
 from app.services.complaints.evidence import attach_photos
 from app.services.complaints.lifecycle import apply_transition
@@ -61,7 +60,7 @@ def create_complaint(
 
 
 def resubmit_evidence(
-    *, complaint_id: int, citizen: User, photos: list[Any], note: str | None, now: datetime
+    *, complaint_id: int, citizen: User, photos: list[Any], now: datetime
 ) -> ComplaintDetailData:
     """POST /complaints/{id}/evidence — the citizen answers NEEDS_MORE_EVIDENCE.
 
@@ -117,6 +116,11 @@ def resubmit_evidence(
                 upload_dir=current_app.config["UPLOAD_DIR"],
             )
         raise
+
+    # Imported here, not at module scope: `jobs/auto_close.py` has to import this
+    # package back (every SYSTEM status change goes through lifecycle.py too), so
+    # a module-level edge in this direction would close the loop.
+    from app.jobs.screening import submit_evidence_screening
 
     submit_evidence_screening(
         current_app._get_current_object(),

@@ -1,14 +1,35 @@
 """Request models for /users/me*.
 
-TODO(phase 2) — the models this package needs:
-
-  * UpdateProfileRequest   — name, displayName. Not email, not role, not zone:
-                             a user cannot promote themselves or move zones.
-  * ChangePasswordRequest  — currentPassword, newPassword (min 8). The current
-                             password is required even though the caller is
-                             already authenticated.
-
-Use `model_config = ConfigDict(extra="forbid")` on each.
+Mirrored from openapi.yaml UpdateProfileRequest and ChangePasswordRequest.
+`extra="forbid"` so an unexpected key is a clean 400 rather than being silently
+dropped.
 """
 
 from __future__ import annotations
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+
+class UpdateProfileRequest(BaseModel):
+    """openapi.yaml: UpdateProfileRequest.
+
+    All fields are optional — send only what changes.
+    ``zoneId`` is CITIZEN-only; the route enforces the 403.
+    ``email`` uniqueness (409) is enforced by the service.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    displayName: str | None = Field(default=None, min_length=1, max_length=60)
+    email: EmailStr | None = Field(default=None)
+    zoneId: str | None = Field(default=None)
+
+
+class ChangePasswordRequest(BaseModel):
+    """openapi.yaml: ChangePasswordRequest."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    currentPassword: str
+    newPassword: str = Field(min_length=8)

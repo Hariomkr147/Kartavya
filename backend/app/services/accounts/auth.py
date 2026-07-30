@@ -32,40 +32,47 @@ def register_citizen(
     display_name: str | None,
     now: datetime,
 ) -> User:
-    """POST /auth/register — public.
+    """POST /auth/register — public."""
+    from app.extensions import db
+    from app.domain.errors import ConflictError
+    from app.domain.enums import UserRole
 
-    TODO(phase 2).
-      * 409 EMAIL_TAKEN if the email exists in ANY role. That single uniqueness
-        rule is what stops someone self-registering into an officer's address.
-      * Role is forced to CITIZEN. `zone_id` is the citizen's home zone and is
-        required by the registration form — which is why GET /zones is public.
-      * Store only the hash.
-    """
-    raise NotImplementedError
+    existing = db.session.scalar(db.select(User).filter_by(email=email))
+    if existing:
+        raise ConflictError("EMAIL_TAKEN", "This email is already registered.")
+
+    user = User(
+        full_name=full_name,
+        email=email,
+        password_hash=hash_password(password),
+        role=UserRole.CITIZEN,
+        zone_id=zone_id,
+        display_name=display_name,
+        created_at=now
+    )
+    db.session.add(user)
+    db.session.commit()
+    return user
 
 
 def authenticate(*, email: str, password: str) -> User:
-    """POST /auth/login — any role.
+    """POST /auth/login — any role."""
+    from app.extensions import db
+    from app.domain.errors import AuthError
 
-    TODO(phase 2). Answer 401 with the SAME message for "no such email", "wrong
-    password" and "deactivated account". Distinguishing them turns the login
-    form into an account-enumeration oracle.
-
-    On success the route mints the token via `core.auth.issue_token` and returns
-    AuthResponse{token, expiresAt, user}.
-    """
-    raise NotImplementedError
+    user = db.session.scalar(db.select(User).filter_by(email=email))
+    if not user or not user.is_active or not verify_password(user, password):
+        raise AuthError("Invalid email or password.")
+    return user
 
 
 def change_password(*, user: User, current_password: str, new_password: str) -> None:
-    """POST /users/me/change-password — any authenticated role.
+    """POST /users/me/change-password — any authenticated role."""
+    from app.extensions import db
+    from app.domain.errors import AuthError
 
-    TODO(phase 2). Verify the current password before setting the new one, even
-    though the caller is already authenticated: a walked-up-to unlocked laptop
-    must not be enough to take an account over.
+    if not verify_password(user, current_password):
+        raise AuthError("Incorrect current password.")
 
-    There is no token revocation in this system — tokens are 24 h and there is
-    no refresh — so a changed password does not invalidate outstanding tokens.
-    Say so if it ever becomes a requirement.
-    """
-    raise NotImplementedError
+    user.password_hash = hash_password(new_password)
+    db.session.commit()

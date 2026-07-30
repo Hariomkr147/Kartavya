@@ -7,14 +7,46 @@ from app.models import User
 
 
 def update_own_profile(
-    *, user: User, full_name: str | None, display_name: str | None
+    *,
+    user: User,
+    full_name: str | None = None,
+    display_name: str | None = None,
+    email: str | None = None,
+    zone_id: str | None = None,
 ) -> User:
-    """PATCH /users/me. TODO(phase 2).
+    """PATCH /users/me — self-service profile edit.
 
-    A citizen may change their own `display_name` — the only handle other
-    citizens ever see. `full_name` stays private to them and to admins.
+    Raises ConflictError if the new email is already taken.
+    Raises ValidationError if the zone_id does not exist.
+    The 403 for non-citizen zoneId is enforced by the route, not here.
     """
-    raise NotImplementedError
+    from app.extensions import db
+    from app.models import Zone
+    from app.domain.errors import ConflictError, ValidationError
+
+    if full_name is not None:
+        user.full_name = full_name
+    if display_name is not None:
+        user.display_name = display_name
+
+    if email is not None and email != user.email:
+        existing = db.session.scalar(db.select(User).filter_by(email=email))
+        if existing:
+            raise ConflictError("EMAIL_TAKEN", "This email is already registered.")
+        user.email = email
+
+    if zone_id is not None:
+        try:
+            zid = int(zone_id)
+        except (TypeError, ValueError):
+            raise ValidationError("zoneId must be a valid zone identifier.")
+        zone = db.session.get(Zone, zid)
+        if zone is None:
+            raise ValidationError("Zone not found.")
+        user.zone_id = zid
+
+    db.session.commit()
+    return user
 
 
 def create_user(

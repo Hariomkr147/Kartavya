@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy import ForeignKey, Index, Integer, String, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.enums import ComplaintStatus, StatusActor
 from app.models.base import TimestampMixin, db, enum_column
@@ -25,6 +25,7 @@ class StatusHistory(TimestampMixin, db.Model):
     complaint_id: Mapped[int] = mapped_column(
         ForeignKey("complaints.id", ondelete="CASCADE"), nullable=False
     )
+    complaint: Mapped["Complaint"] = relationship(back_populates="status_history")
 
     #: Null for the very first entry.
     from_status: Mapped[ComplaintStatus | None] = mapped_column(enum_column(ComplaintStatus))
@@ -62,6 +63,7 @@ class ComplaintNote(TimestampMixin, db.Model):
     complaint_id: Mapped[int] = mapped_column(
         ForeignKey("complaints.id", ondelete="CASCADE"), nullable=False
     )
+    complaint: Mapped["Complaint"] = relationship(back_populates="notes")
     officer_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )

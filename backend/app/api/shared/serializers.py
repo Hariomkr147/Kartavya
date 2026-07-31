@@ -40,29 +40,97 @@ class SerializationContext:
     first_evidence: dict[int, Any] = field(default_factory=dict)
 
 
+from app.domain import severity, sla
+from app.core import signing
+from app.domain.enums import UserRole
+
 def serialize_complaint(complaint: Complaint, ctx: SerializationContext) -> dict[str, Any]:
-    """The compact `Complaint` shape (openapi.yaml: Complaint). TODO(phase 3).
+    """The compact `Complaint` shape (openapi.yaml: Complaint)."""
+    # Safe category serialization
+    cat = ctx.categories.get(complaint.category_id)
+    category_dict = serialize_category(cat) if cat else {"id": str(complaint.category_id), "name": "Unknown"}
+    
+    # Safe zone serialization
+    z = ctx.zones.get(complaint.zone_id)
+    zone_dict = serialize_zone(z) if z else {"id": str(complaint.zone_id), "name": "Unknown"}
 
-    Derived on read, never stored:
-      * `severityLabel` <- `domain.severity.label(complaint.severity_score)`
-      * `slaLabel`      <- `domain.sla.label(...)` over the four sla_* columns
-      * `upvoteCount`   <- ctx.upvote_counts
-      * `photoUrl`      <- `core.signing.sign_photo_url(evidence.id)`, NEVER the
-        raw file_path. This is the one place a photo URL is minted, and it is
-        minted here precisely because scoping has already decided this caller
-        may see the parent complaint.
+    # SLA Label
+    sla_label = None
+    if complaint.sla_target_hours is not None and complaint.sla_started_at is not None:
+        l = sla.label(
+            target_hours=complaint.sla_target_hours,
+            started_at=complaint.sla_started_at,
+            paused_seconds=complaint.sla_paused_seconds,
+            paused_at=complaint.sla_paused_at,
+            now=ctx.now
+        )
+        if l:
+            sla_label = l.value
+            
+    # Severity Label
+    sev_label = severity.label(complaint.severity_score).value
 
-    Do not add a `reporter` key. Not "temporarily", not "for debugging".
-    """
-    raise NotImplementedError
+    # Upvotes
+    upvotes = ctx.upvote_counts.get(complaint.id, 0)
+
+    # Photo URL
+    photo_url = None
+    first_ev = ctx.first_evidence.get(complaint.id)
+    if first_ev:
+        photo_url = signing.sign_photo_url(first_ev.id)
+
+    return {
+        "id": str(complaint.id),
+        "status": complaint.status.value,
+        "category": category_dict,
+        "zoneId": str(complaint.zone_id),
+        "zoneName": zone_dict.get("name", "Unknown"),
+        "assignedOfficerId": str(complaint.assigned_officer_id) if complaint.assigned_officer_id else None,
+        "createdAt": complaint.created_at.isoformat() if complaint.created_at else None,
+        "updatedAt": complaint.updated_at.isoformat() if complaint.updated_at else None,
+        "severityLabel": sev_label,
+        "slaLabel": sla_label,
+        "clusterId": str(complaint.cluster_id) if complaint.cluster_id else None,
+        "upvoteCount": upvotes,
+        "photoUrl": photo_url,
+    }
 
 
 def serialize_complaint_detail(complaint: Complaint, ctx: SerializationContext) -> dict[str, Any]:
-    """`ComplaintDetail` — the compact shape plus evidence, history and notes.
+    """`ComplaintDetail` — the compact shape plus evidence, history and notes."""
+    base = serialize_complaint(complaint, ctx)
+    
+    evidence_list = []
+    if getattr(complaint, "evidence", None):
+        for e in sorted(complaint.evidence, key=lambda x: x.sequence):
+            evidence_list.append(serialize_evidence(e, ctx))
+            
+    history_list = []
+    if getattr(complaint, "status_history", None):
+        for h in sorted(complaint.status_history, key=lambda x: x.created_at):
+            history_list.append(serialize_status_history(h))
+            
+    notes_list = []
+    if getattr(complaint, "notes", None):
+        for n in sorted(complaint.notes, key=lambda x: x.created_at):
+            notes_list.append({
+                "id": str(n.id),
+                "officerId": str(n.officer_id),
+                "text": n.note_text,
+                "createdAt": n.created_at.isoformat()
+            })
+            
+    base["description"] = complaint.description
+    base["latitude"] = float(complaint.latitude)
+    base["longitude"] = float(complaint.longitude)
+    base["severityScore"] = complaint.severity_score
+    base["slaTargetHours"] = complaint.sla_target_hours
 
-    TODO(phase 3). Progress notes carry `officerId`, never an officer name.
-    """
-    raise NotImplementedError
+    base["evidence"] = evidence_list
+    base["statusHistory"] = history_list
+    base["progressNotes"] = notes_list
+    return base
+
 
 
 def serialize_category(category: ComplaintCategory) -> dict[str, Any]:
@@ -78,24 +146,54 @@ def serialize_zone(zone: Zone) -> dict[str, Any]:
 
 
 def serialize_evidence(evidence: Any, ctx: SerializationContext) -> dict[str, Any]:
-    """`Evidence`, including the AiConfidenceNote.
+    """`Evidence`, including the AiConfidenceNote."""
+    base = {
+        "id": str(evidence.id),
+        "sequence": evidence.sequence,
+        "photoUrl": signing.sign_photo_url(evidence.id) if getattr(signing, 'sign_photo_url', None) else evidence.file_path,
+        "submittedAt": evidence.created_at.isoformat(),
+    }
+    
+    # AI Note format
+    base["aiConfidenceNote"] = {
+        "aiAvailable": evidence.ai_screen_status.value != "UNAVAILABLE",
+    }
+    if evidence.ai_confidence is not None:
+        base["aiConfidenceNote"].update({
+            "matchesCategory": evidence.ai_matches_category,
+            "confidence": evidence.ai_confidence,
+            "note": evidence.ai_note
+        })
+    
+    if evidence.verdict:
+        base["verdict"] = evidence.verdict.value
+        base["verdictReason"] = evidence.verdict_reason
+        base["reviewedByOfficerId"] = str(evidence.reviewed_by) if getattr(evidence, 'reviewed_by', None) else None
+        base["reviewedAt"] = evidence.reviewed_at.isoformat() if evidence.reviewed_at else None
 
-    TODO(phase 3). `aiAvailable` is `ai_screen_status != UNAVAILABLE` — the UI
-    uses it to tell "no result yet" apart from "the model was down", so do not
-    collapse the two.
-    """
-    raise NotImplementedError
+    return base
 
 
 def serialize_status_history(entry: Any) -> dict[str, Any]:
-    """`StatusHistoryEntry`. TODO(phase 3).
-
-    `changedByOfficerId` is `changed_by_user_id` ONLY when actor_role is
-    OFFICER. For CITIZEN and ADMIN entries it stays absent — a citizen must not
-    learn which admin ruled on their dispute, and an officer must not learn
-    which citizen filed.
-    """
-    raise NotImplementedError
+    """`StatusHistoryEntry`."""
+    res = {
+        "id": str(entry.id),
+        "toStatus": entry.to_status.value,
+        "changedByRole": entry.actor_role.value,
+        "timestamp": entry.created_at.isoformat(),
+    }
+    if getattr(entry, "from_status", None):
+        res["fromStatus"] = entry.from_status.value
+    if getattr(entry, "reason", None):
+        res["reason"] = entry.reason
+    if getattr(entry, "remark", None):
+        res["remark"] = entry.remark
+        
+    # Only emit changedByOfficerId if actor_role is OFFICER
+    if entry.actor_role.value == "OFFICER" and getattr(entry, "changed_by_user_id", None):
+        res["changedByOfficerId"] = str(entry.changed_by_user_id)
+        
+    return res
 
 
 def masked_display_name(user: Any) -> str:

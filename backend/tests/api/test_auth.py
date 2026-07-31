@@ -197,3 +197,74 @@ class TestLoginContract:
             "password": "password",
         })
         assert res.status_code == 401
+
+
+class TestRegisterBadZoneId:
+    """A non-existent zoneId must produce 400, never 500."""
+    URL = f"{API_PREFIX}/auth/register"
+
+    def test_nonexistent_zone_returns_400(self, client, test_zone):
+        res = client.post(self.URL, json={
+            "name": "Bad Zone",
+            "email": "badzone@test.com",
+            "password": "password123",
+            "zoneId": "99999",
+        })
+        assert res.status_code == 400
+
+    def test_non_numeric_zone_returns_400(self, client, test_zone):
+        res = client.post(self.URL, json={
+            "name": "Bad Zone",
+            "email": "badzone2@test.com",
+            "password": "password123",
+            "zoneId": "not-a-number",
+        })
+        assert res.status_code == 400
+
+
+class TestEmailCaseInsensitiveAuth:
+    """Email normalization."""
+    URL_REG = f"{API_PREFIX}/auth/register"
+    URL_LOGIN = f"{API_PREFIX}/auth/login"
+
+    def test_register_normalises_email(self, client, test_zone):
+        res = client.post(self.URL_REG, json={
+            "name": "Normalised",
+            "email": "  Upper@TEST.com  ",
+            "password": "password123",
+            "zoneId": str(test_zone.id),
+        })
+        assert res.status_code == 201
+        assert res.get_json()["user"]["email"] == "upper@test.com"
+
+    def test_login_case_insensitive(self, client, test_zone):
+        # Register with lowercase.
+        client.post(self.URL_REG, json={
+            "name": "CaseLogin",
+            "email": "caselogin@test.com",
+            "password": "password123",
+            "zoneId": str(test_zone.id),
+        })
+        # Login with uppercase.
+        res = client.post(self.URL_LOGIN, json={
+            "email": "CASELOGIN@TEST.COM",
+            "password": "password123",
+        })
+        assert res.status_code == 200
+
+
+class TestTimestampFormat:
+    """Timestamps must include a UTC offset, never naive."""
+    URL = f"{API_PREFIX}/auth/register"
+
+    def test_created_at_has_utc_marker(self, client, test_zone):
+        res = client.post(self.URL, json={
+            "name": "UTC Check",
+            "email": "utccheck@test.com",
+            "password": "password123",
+            "zoneId": str(test_zone.id),
+        })
+        assert res.status_code == 201
+        ts = res.get_json()["user"]["createdAt"]
+        # Must have a timezone marker: +00:00, Z, etc.
+        assert "+" in ts or "Z" in ts, f"Timestamp lacks UTC marker: {ts}"

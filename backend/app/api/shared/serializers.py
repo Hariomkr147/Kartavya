@@ -18,26 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from app.models import Complaint, ComplaintCategory, User, Zone
-
-def serialize_user(user: User) -> dict[str, Any]:
-    """Canonical User → JSON dict (openapi.yaml: User).
-
-    Used by auth and account blueprints. Field names match the API contract
-    exactly: ``name`` (not ``fullName``), ``active`` (not ``isActive``).
-    """
-    return {
-        "id": str(user.id),
-        "role": str(user.role.value) if hasattr(user.role, "value") else str(user.role),
-        "name": user.full_name,
-        "email": user.email,
-        "displayName": user.display_name,
-        "zoneId": str(user.zone_id) if user.zone_id is not None else None,
-        "zoneName": user.zone.zone_name if user.zone else None,
-        "active": user.is_active,
-        "createdAt": user.created_at.isoformat() if user.created_at else None,
-    }
-
+from app.models import Complaint, ComplaintCategory, Zone
 
 @dataclass
 class SerializationContext:

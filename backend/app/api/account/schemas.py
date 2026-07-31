@@ -7,8 +7,12 @@ dropped.
 
 from __future__ import annotations
 
+from datetime import timezone
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+from app.models import User
 
 class UpdateProfileRequest(BaseModel):
     """openapi.yaml: UpdateProfileRequest.
@@ -33,3 +37,43 @@ class ChangePasswordRequest(BaseModel):
 
     currentPassword: str
     newPassword: str = Field(min_length=8)
+
+
+def serialize_user(user: User) -> dict[str, Any]:
+    """Canonical User → JSON dict  (openapi.yaml ``User``).
+
+    Field-name mapping::
+
+        model attr     →  JSON key
+        ─────────────     ────────
+        full_name      →  name       (NOT fullName)
+        is_active      →  active     (NOT isActive)
+        zone_id        →  zoneId
+
+    ``zoneName`` is deliberately absent — it is not in the contract and would
+    trigger an extra query per row.
+
+    Timestamps include an explicit UTC offset so that JavaScript's
+    ``new Date(...)`` never misinterprets them as local time.
+    """
+    created_at = user.created_at
+    if created_at is not None:
+        # SQLite strips tzinfo on round-trip; restore UTC if missing.
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        created_at_str = created_at.isoformat()
+    else:
+        created_at_str = None
+
+    return {
+        "id": str(user.id),
+        "role": (
+            str(user.role.value) if hasattr(user.role, "value") else str(user.role)
+        ),
+        "name": user.full_name,
+        "email": user.email,
+        "displayName": user.display_name,
+        "zoneId": str(user.zone_id) if user.zone_id is not None else None,
+        "active": user.is_active,
+        "createdAt": created_at_str,
+    }

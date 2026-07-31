@@ -5,7 +5,7 @@ from __future__ import annotations
 from flask import Blueprint
 
 from app.api.account.schemas import ChangePasswordRequest, UpdateProfileRequest
-from app.api.shared.serializers import serialize_user
+from app.api.account.schemas import serialize_user
 from app.core.auth import require_auth
 from app.core.validation import validate_body
 
@@ -28,29 +28,26 @@ def update_my_profile(body: UpdateProfileRequest):
     """200 User.
 
     The contract allows updating name, displayName, email, and zoneId.
-    zoneId is CITIZEN-only — an OFFICER or ADMIN sending it gets 403.
-    email uniqueness violations produce 409.
+    Business rules (403 for non-citizen zoneId, 409 for duplicate email)
+    are enforced by the service, not here.
+
+    ``model_fields_set`` distinguishes "field not sent" from "field sent as
+    null" — important for displayName, where null means *clear it*.
     """
     from app.core.auth import current_user
-    from app.domain.enums import UserRole
-    from app.domain.errors import ForbiddenError
     from app.services.accounts import users
+    from app.services.accounts.users import _UNSET
 
     user = current_user()
-
-    # 403: non-citizen cannot change their own zone.
-    if body.zoneId is not None and user.role != UserRole.CITIZEN:
-        raise ForbiddenError(
-            "Only citizens can change their own zone. "
-            "Officer zone assignment is managed by an admin."
-        )
+    sent = body.model_fields_set
 
     updated_user = users.update_own_profile(
         user=user,
-        full_name=body.name,
-        display_name=body.displayName,
-        email=body.email,
-        zone_id=body.zoneId,
+        caller_role=user.role,
+        full_name=body.name if "name" in sent else _UNSET,
+        display_name=body.displayName if "displayName" in sent else _UNSET,
+        email=body.email if "email" in sent else _UNSET,
+        zone_id=body.zoneId if "zoneId" in sent else _UNSET,
     )
     return serialize_user(updated_user)
 

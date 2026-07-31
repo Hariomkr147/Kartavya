@@ -6,11 +6,9 @@ which is the security foundation for every authenticated endpoint.
 
 from __future__ import annotations
 
-import time
 from datetime import UTC, datetime, timedelta
 
 import jwt
-import pytest
 
 from app.settings import API_PREFIX
 

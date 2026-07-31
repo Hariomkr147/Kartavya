@@ -1,6 +1,6 @@
 """Public: registration and login. The only two doors without a token.
 
-Officers are created by admins (`POST /admin/users`), never here. Admins are
+Officers are created by admins (``POST /admin/users``), never here. Admins are
 seeded directly into the database and have no creation endpoint at all.
 """
 
@@ -10,7 +10,7 @@ from flask import Blueprint
 
 from app.api.auth.schemas import LoginRequest, RegisterRequest
 from app.api.shared.responses import todo  # noqa: F401 — used by other stubs
-from app.api.shared.serializers import serialize_user
+from app.api.account.schemas import serialize_user
 from app.core.validation import validate_body
 
 bp = Blueprint("auth", __name__)
@@ -19,23 +19,17 @@ bp = Blueprint("auth", __name__)
 @bp.post("/auth/register")
 @validate_body(RegisterRequest)
 def register_citizen(body: RegisterRequest):
-    """201 AuthResponse. Public (`security: []`)."""
-    from datetime import datetime, UTC
-    from app.services.accounts import auth
-    from app.core.auth import issue_token
-    from app.domain.errors import ValidationError
+    """201 AuthResponse. Public (``security: []``)."""
+    from datetime import UTC, datetime
 
-    # The contract sends zoneId as a string; the service expects int.
-    try:
-        zone_id = int(body.zoneId)
-    except (TypeError, ValueError):
-        raise ValidationError("zoneId must be a valid zone identifier.")
+    from app.core.auth import issue_token
+    from app.services.accounts import auth
 
     user = auth.register_citizen(
         full_name=body.name,
         email=body.email,
         password=body.password,
-        zone_id=zone_id,
+        zone_id=body.zoneId,
         display_name=None,
         now=datetime.now(UTC),
     )
@@ -52,9 +46,9 @@ def register_citizen(body: RegisterRequest):
 @bp.post("/auth/login")
 @validate_body(LoginRequest)
 def login_user(body: LoginRequest):
-    """200 AuthResponse {token, tokenType, expiresAt, user}. Public (`security: []`)."""
-    from app.services.accounts import auth
+    """200 AuthResponse {token, tokenType, expiresAt, user}. Public (``security: []``)."""
     from app.core.auth import issue_token
+    from app.services.accounts import auth
 
     user = auth.authenticate(email=body.email, password=body.password)
     token, expires_at = issue_token(user)

@@ -18,11 +18,7 @@ from app.models import Complaint, ComplaintCluster, User
 def visible_complaints(user: User) -> Select[tuple[Complaint]]:
     """The only legitimate starting point for a complaint query.
 
-    An officer sees their CURRENT zone — the value on the row just re-read from
-    the database, never the one baked into their token. An officer moved to a
-    new zone loses access to their old zone's complaints immediately, including
-    ones they personally worked. status_history preserves the audit trail and
-    admins retain full access.
+    Current zone is re-read on every request so reassignments take effect immediately.
     """
     query = select(Complaint)
     if user.role is UserRole.CITIZEN:

@@ -27,7 +27,7 @@ __version__ = "0.1.0"
 # pure-domain design is buying.
 
 
-def create_app(config: BaseConfig | None = None) -> "Flask":
+def create_app(config: BaseConfig | None = None) -> Flask:
     """Build a configured Flask app.
 
     Everything is wired here and nowhere else, so a test can build an app with
@@ -54,21 +54,21 @@ def create_app(config: BaseConfig | None = None) -> "Flask":
     return app
 
 
-def _init_extensions(app: "Flask") -> None:
+def _init_extensions(app: Flask) -> None:
     from app.extensions import db
 
     db.init_app(app)
 
     # Importing the models package registers every mapper. Alembic autogenerate
     # and db.create_all() both depend on that having happened.
-    import app.models  # noqa: F401
+    import app.models as _models  # noqa: F401
 
     # The upload directory must exist before the first photo arrives; creating
     # it lazily on the first POST is a race between concurrent uploads.
     app.config["UPLOAD_DIR"].mkdir(parents=True, exist_ok=True)
 
 
-def _register_api(app: "Flask") -> None:
+def _register_api(app: Flask) -> None:
     from app.api import register_blueprints
     from app.core.errors import register_error_handlers
 
@@ -95,7 +95,7 @@ def _register_api(app: "Flask") -> None:
         return response
 
 
-def _register_health(app: "Flask") -> None:
+def _register_health(app: Flask) -> None:
     from flask import jsonify
 
     @app.get("/health")
@@ -117,13 +117,13 @@ def _register_health(app: "Flask") -> None:
         )
 
 
-def _register_cli(app: "Flask") -> None:
+def _register_cli(app: Flask) -> None:
     from app.seed import seed_command
 
     app.cli.add_command(seed_command)
 
 
-def _init_jobs(app: "Flask") -> None:
+def _init_jobs(app: Flask) -> None:
     from app.jobs.scheduler import init_scheduler
 
     init_scheduler(app)

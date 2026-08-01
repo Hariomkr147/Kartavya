@@ -10,22 +10,29 @@ from __future__ import annotations
 from datetime import datetime
 
 from app.domain.enums import PointsReason
+from app.domain.points import amount as get_amount
+from app.extensions import db
 from app.models import PointsLedger
 
 
 def award(
     *, citizen_id: int, complaint_id: int | None, reason: PointsReason, now: datetime
 ) -> PointsLedger:
-    """Append one ledger row, with the amount `domain.points` fixes for the reason.
+    """Append one ledger row, with the amount domain.points fixes for the reason."""
+    pts = get_amount(reason)
+    ledger_entry = PointsLedger(
+        citizen_id=citizen_id,
+        complaint_id=complaint_id,
+        points_change=pts,
+        reason=reason,
+        created_at=now,
+    )
+    db.session.add(ledger_entry)
+    db.session.flush()
 
-    TODO(phase 6). Callers never pass an amount — that would let two call sites
-    disagree about what a COMPLAINT_CLOSED is worth.
-
-    After awarding, re-evaluate badges (`gamification/badges.py`) in the same
-    transaction: crossing 100 lifetime points and earning CENTURY_REFORMER must
-    not be separable by a crash.
-    """
-    raise NotImplementedError
+    # TODO(phase 6): evaluate_and_award(citizen_id=citizen_id, now=now)
+    # when gamification/badges.py lands.
+    return ledger_entry
 
 
 def lifetime_points(*, citizen_id: int) -> int:

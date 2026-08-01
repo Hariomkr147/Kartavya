@@ -29,36 +29,92 @@ def detect_mime_type(head: bytes) -> str | None:
 def validate_photo(*, stream: Any, declared_mime: str | None, max_bytes: int) -> str:
     """Validate one upload. Returns the detected MIME type.
 
-    TODO(phase 3). Checks, in this order:
-      1. MAGIC BYTES, not the `Content-Type` header. A client controls that
-         header; a `.php` renamed to `.jpg` with an `image/jpeg` header is the
-         attack this closes.
-      2. Size <= MAX_UPLOAD_BYTES (5 MB). Check the actual stream length, not
-         the declared `Content-Length`.
-
-    Raises ValidationError with a useful message on either failure.
+    Checks:
+      1. MAGIC BYTES, not the Content-Type header.
+      2. Size <= max_bytes.
     """
-    raise NotImplementedError
+    from app.domain.errors import ValidationError
+
+    if stream is None:
+        raise ValidationError("Photo file is required.")
+
+    # Reset position if possible
+    if hasattr(stream, "seek"):
+        stream.seek(0)
+
+    # Read head for magic bytes
+    head = stream.read(16)
+    mime_type = detect_mime_type(head) if head else None
+
+    if not mime_type:
+        raise ValidationError("Invalid photo format. Only JPEG and PNG images are allowed.")
+
+    # Read total content length
+    if hasattr(stream, "seek"):
+        stream.seek(0, 2)
+        total_size = stream.tell()
+        stream.seek(0)
+    else:
+        # If not seekable, length is length of head if no more or read all
+        rest = stream.read()
+        total_size = len(head) + len(rest)
+
+    if total_size <= 0:
+        raise ValidationError("Photo file is empty.")
+
+    if total_size > max_bytes:
+        raise ValidationError(f"Photo file exceeds maximum size of {max_bytes // (1024 * 1024)}MB.")
+
+    return mime_type
 
 
 def store_photo(*, complaint_id: int, stream: Any, mime_type: str, upload_dir: Path) -> str:
-    """Write the file and return the RELATIVE path for `complaint_evidence.file_path`.
+    """Write the file and return the RELATIVE path for complaint_evidence.file_path."""
+    import uuid
 
-    TODO(phase 3). Layout: `UPLOAD_DIR/<complaint_id>/<uuid>.<ext>`.
+    ext = ".jpg" if mime_type == "image/jpeg" else ".png"
+    filename = f"{uuid.uuid4()}{ext}"
 
-    Never store the client's filename — that is the path-traversal hole
-    (`../../etc/...`), and a UUID also stops one upload overwriting another.
-    Never store image bytes in SQLite.
-    """
-    raise NotImplementedError
+    complaint_dir = upload_dir / str(complaint_id)
+    complaint_dir.mkdir(parents=True, exist_ok=True)
+
+    file_path = complaint_dir / filename
+
+    if hasattr(stream, "seek"):
+        stream.seek(0)
+
+    if hasattr(stream, "save"):
+        stream.save(str(file_path))
+    else:
+        content = stream.read()
+        with open(file_path, "wb") as f:
+            f.write(content)
+
+    return f"{complaint_id}/{filename}"
 
 
 def open_photo(*, file_path: str, upload_dir: Path) -> Path:
-    """Resolve a stored path for serving, refusing anything outside UPLOAD_DIR.
+    """Resolve a stored path for serving, refusing anything outside UPLOAD_DIR."""
+    from app.domain.errors import ForbiddenError, NotFoundError
 
-    TODO(phase 3). Resolve both paths and confirm the result is genuinely under
-    `upload_dir` before opening it. Even though `file_path` comes from our own
-    database, a traversal bug elsewhere should not become a file-read primitive
-    here.
-    """
-    raise NotImplementedError
+    resolved_upload_dir = upload_dir.resolve()
+    target_path = (upload_dir / file_path).resolve()
+
+    try:
+        target_path.relative_to(resolved_upload_dir)
+    except ValueError as err:
+        raise ForbiddenError("Invalid file path.") from err
+
+    if not target_path.exists() or not target_path.is_file():
+        raise NotFoundError("Photo file not found.")
+
+    return target_path
+
+
+def get_evidence_file_path(evidence_id: int) -> str | None:
+    """Retrieve relative file path for evidence row without DB access in route handlers."""
+    from app.extensions import db
+    from app.models import ComplaintEvidence
+
+    ev = db.session.get(ComplaintEvidence, evidence_id)
+    return ev.file_path if ev else None

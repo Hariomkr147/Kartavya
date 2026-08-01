@@ -15,9 +15,13 @@ Only `app/api/admin/serializers.py` may ever emit reporter identity.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
+from app.core.signing import sign_photo_url
+from app.domain.enums import AiScreenStatus, StatusActor
+from app.domain.severity import label as severity_label
+from app.domain.sla import label as sla_label
 from app.models import Complaint, ComplaintCategory, Zone
 
 
@@ -34,10 +38,21 @@ class SerializationContext:
     now: datetime
     categories: dict[int, ComplaintCategory] = field(default_factory=dict)
     zones: dict[int, Zone] = field(default_factory=dict)
+    #: Optional preloaded users. Only the admin serializer reads reporter rows.
+    users: dict[int, Any] = field(default_factory=dict)
     #: complaint_id -> COUNT(*), from ONE GROUP BY.
     upvote_counts: dict[int, int] = field(default_factory=dict)
     #: complaint_id -> first evidence row, for `photoUrl`.
     first_evidence: dict[int, Any] = field(default_factory=dict)
+    evidence_rows: dict[int, list[Any]] = field(default_factory=dict)
+    history_rows: dict[int, list[Any]] = field(default_factory=dict)
+    note_rows: dict[int, list[Any]] = field(default_factory=dict)
+
+
+def _iso(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return value.replace(tzinfo=UTC).isoformat().replace("+00:00", "Z")
 
 
 def serialize_complaint(complaint: Complaint, ctx: SerializationContext) -> dict[str, Any]:
@@ -54,7 +69,35 @@ def serialize_complaint(complaint: Complaint, ctx: SerializationContext) -> dict
 
     Do not add a `reporter` key. Not "temporarily", not "for debugging".
     """
-    raise NotImplementedError
+    category = ctx.categories[complaint.category_id]
+    zone = ctx.zones[complaint.zone_id]
+    evidence = ctx.first_evidence.get(complaint.id)
+    current_sla = sla_label(
+        complaint.sla_target_hours,
+        complaint.sla_started_at,
+        complaint.sla_paused_seconds,
+        complaint.sla_paused_at,
+        ctx.now,
+    )
+    return {
+        "id": str(complaint.id),
+        "category": serialize_category(category),
+        "status": complaint.status.value,
+        "severityLabel": severity_label(complaint.severity_score).value,
+        "slaLabel": current_sla.value if current_sla else None,
+        "upvoteCount": ctx.upvote_counts.get(complaint.id, 0),
+        "photoUrl": sign_photo_url(evidence.id) if evidence else None,
+        "zoneId": str(zone.id),
+        "zoneName": zone.zone_name,
+        "assignedOfficerId": (
+            str(complaint.assigned_officer_id)
+            if complaint.assigned_officer_id is not None
+            else None
+        ),
+        "createdAt": _iso(complaint.created_at),
+        "updatedAt": _iso(complaint.updated_at),
+        "citizenActionNeeded": None,
+    }
 
 
 def serialize_complaint_detail(complaint: Complaint, ctx: SerializationContext) -> dict[str, Any]:
@@ -62,19 +105,57 @@ def serialize_complaint_detail(complaint: Complaint, ctx: SerializationContext) 
 
     TODO(phase 3). Progress notes carry `officerId`, never an officer name.
     """
-    raise NotImplementedError
+    payload = serialize_complaint(complaint, ctx)
+    payload.update(
+        {
+            "description": complaint.description,
+            "latitude": complaint.latitude,
+            "longitude": complaint.longitude,
+            "severityScore": complaint.severity_score,
+            "slaTargetHours": complaint.sla_target_hours,
+            "clusterId": str(complaint.cluster_id) if complaint.cluster_id else None,
+            "evidence": [
+                serialize_evidence(row, ctx) for row in ctx.evidence_rows.get(complaint.id, [])
+            ],
+            "statusHistory": [
+                serialize_status_history(row) for row in ctx.history_rows.get(complaint.id, [])
+            ],
+            "progressNotes": [
+                {
+                    "id": str(row.id),
+                    "officerId": str(row.officer_id),
+                    "text": row.note_text,
+                    "createdAt": _iso(row.created_at),
+                }
+                for row in ctx.note_rows.get(complaint.id, [])
+            ],
+        }
+    )
+    return payload
 
 
 def serialize_category(category: ComplaintCategory) -> dict[str, Any]:
     """`Category`. Note the field renames: category_code -> `code`,
     sla_hours -> `slaTargetHours`. TODO(phase 2).
     """
-    raise NotImplementedError
+    return {
+        "id": str(category.id),
+        "code": category.category_code,
+        "name": category.category_name,
+        "description": category.description,
+        "slaTargetHours": category.sla_hours,
+    }
 
 
 def serialize_zone(zone: Zone) -> dict[str, Any]:
     """`Zone`. TODO(phase 2)."""
-    raise NotImplementedError
+    return {
+        "id": str(zone.id),
+        "code": zone.zone_code,
+        "name": zone.zone_name,
+        "isCatchAll": zone.is_catch_all,
+        "isActive": zone.is_active,
+    }
 
 
 def serialize_evidence(evidence: Any, ctx: SerializationContext) -> dict[str, Any]:
@@ -84,7 +165,24 @@ def serialize_evidence(evidence: Any, ctx: SerializationContext) -> dict[str, An
     uses it to tell "no result yet" apart from "the model was down", so do not
     collapse the two.
     """
-    raise NotImplementedError
+    return {
+        "id": str(evidence.id),
+        "photoUrl": sign_photo_url(evidence.id),
+        "sequence": evidence.sequence,
+        "aiConfidenceNote": {
+            "aiAvailable": evidence.ai_screen_status is not AiScreenStatus.UNAVAILABLE,
+            "matchesCategory": evidence.ai_matches_category,
+            "confidence": evidence.ai_confidence,
+            "note": evidence.ai_note,
+        },
+        "verdict": evidence.verdict.value if evidence.verdict else None,
+        "verdictReason": evidence.verdict_reason,
+        "reviewedByOfficerId": (
+            str(evidence.reviewed_by) if evidence.reviewed_by is not None else None
+        ),
+        "reviewedAt": _iso(evidence.reviewed_at),
+        "submittedAt": _iso(evidence.created_at),
+    }
 
 
 def serialize_status_history(entry: Any) -> dict[str, Any]:
@@ -95,7 +193,18 @@ def serialize_status_history(entry: Any) -> dict[str, Any]:
     learn which admin ruled on their dispute, and an officer must not learn
     which citizen filed.
     """
-    raise NotImplementedError
+    payload = {
+        "id": str(entry.id),
+        "fromStatus": entry.from_status.value if entry.from_status else None,
+        "toStatus": entry.to_status.value,
+        "changedByRole": entry.actor_role.value,
+        "reason": entry.reason,
+        "remark": entry.remark,
+        "timestamp": _iso(entry.created_at),
+    }
+    if entry.actor_role is StatusActor.OFFICER and entry.changed_by_user_id is not None:
+        payload["changedByOfficerId"] = str(entry.changed_by_user_id)
+    return payload
 
 
 def masked_display_name(user: Any) -> str:
@@ -104,4 +213,4 @@ def masked_display_name(user: Any) -> str:
     TODO(phase 2). The fallback is NEVER `full_name`. That column is visible
     only on GET /users/me (self) and in admin views.
     """
-    raise NotImplementedError
+    return user.display_name or f"Citizen #{user.id}"

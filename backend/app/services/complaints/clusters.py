@@ -9,10 +9,64 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import update
+from sqlalchemy import func, select, update
 
+from app.domain.enums import ComplaintStatus
+from app.domain.geo import haversine_meters
+from app.domain.severity import score as severity_score
 from app.extensions import db
-from app.models import Complaint, ComplaintCluster
+from app.models import Complaint, ComplaintCluster, ComplaintUpvote
+
+
+def detach_for_admin_reclassification(*, complaint: Complaint, now: datetime) -> None:
+    """Remove a category/zone-edited complaint without leaving a corrupt cluster.
+
+    Reclassification cannot preserve membership because clusters are strictly
+    same-category and same-zone. Existing members are recomputed; a one-member
+    remainder is dissolved because clusters represent duplicates.
+    """
+    old_cluster_id = complaint.cluster_id
+    if old_cluster_id is None:
+        return
+    complaint.cluster_id = None
+    remaining = list(
+        db.session.scalars(
+            select(Complaint).where(
+                Complaint.cluster_id == old_cluster_id,
+                Complaint.id != complaint.id,
+            )
+        )
+    )
+    if len(remaining) < 2:
+        for member in remaining:
+            member.cluster_id = None
+        cluster = db.session.get(ComplaintCluster, old_cluster_id)
+        if cluster is not None:
+            db.session.delete(cluster)
+            db.session.flush()
+        affected = [complaint, *remaining]
+        unique_reporters = 1
+    else:
+        cluster = db.session.get(ComplaintCluster, old_cluster_id)
+        assert cluster is not None
+        cluster.report_count = len(remaining)
+        cluster.unique_reporter_count = len({row.citizen_id for row in remaining})
+        cluster.centroid_lat = sum(row.latitude for row in remaining) / len(remaining)
+        cluster.centroid_lng = sum(row.longitude for row in remaining) / len(remaining)
+        cluster.updated_at = now
+        affected = [complaint, *remaining]
+        unique_reporters = cluster.unique_reporter_count
+    counts = {
+        complaint_id: int(count)
+        for complaint_id, count in db.session.execute(
+            select(ComplaintUpvote.complaint_id, func.count(ComplaintUpvote.id))
+            .where(ComplaintUpvote.complaint_id.in_([row.id for row in affected]))
+            .group_by(ComplaintUpvote.complaint_id)
+        )
+    }
+    for member in affected:
+        reporters = unique_reporters if member.cluster_id is not None else 1
+        member.severity_score = severity_score(reporters, counts.get(member.id, 0))
 
 
 def link_new_complaint(*, complaint: Complaint, radius_meters: float, now: datetime) -> None:
@@ -30,7 +84,82 @@ def link_new_complaint(*, complaint: Complaint, radius_meters: float, now: datet
     call `recompute_severity_for_cluster` for EVERY member — not just the new
     one. A membership change moves everyone's score.
     """
-    raise NotImplementedError
+    clusters = list(
+        db.session.scalars(
+            select(ComplaintCluster).where(
+                ComplaintCluster.category_id == complaint.category_id,
+                ComplaintCluster.zone_id == complaint.zone_id,
+            )
+        )
+    )
+    nearby_clusters = [
+        (
+            haversine_meters(
+                complaint.latitude,
+                complaint.longitude,
+                cluster.centroid_lat,
+                cluster.centroid_lng,
+            ),
+            cluster,
+        )
+        for cluster in clusters
+    ]
+    nearby_clusters = [item for item in nearby_clusters if item[0] <= radius_meters]
+    if nearby_clusters:
+        _, cluster = min(nearby_clusters, key=lambda item: (item[0], item[1].id))
+        complaint.cluster_id = cluster.id
+        db.session.flush()
+        recompute_cluster_aggregates(cluster_id=cluster.id, now=now)
+        recompute_severity_for_cluster(cluster_id=cluster.id, complaint_id=complaint.id)
+        return
+
+    standalone = list(
+        db.session.scalars(
+            select(Complaint).where(
+                Complaint.id != complaint.id,
+                Complaint.cluster_id.is_(None),
+                Complaint.category_id == complaint.category_id,
+                Complaint.zone_id == complaint.zone_id,
+                Complaint.status != ComplaintStatus.REJECTED,
+            )
+        )
+    )
+    nearby_standalone = [
+        (
+            haversine_meters(
+                complaint.latitude,
+                complaint.longitude,
+                candidate.latitude,
+                candidate.longitude,
+            ),
+            candidate,
+        )
+        for candidate in standalone
+    ]
+    nearby_standalone = [item for item in nearby_standalone if item[0] <= radius_meters]
+    if nearby_standalone:
+        _, candidate = min(nearby_standalone, key=lambda item: (item[0], item[1].id))
+        cluster = ComplaintCluster(
+            category_id=complaint.category_id,
+            zone_id=complaint.zone_id,
+            centroid_lat=(complaint.latitude + candidate.latitude) / 2,
+            centroid_lng=(complaint.longitude + candidate.longitude) / 2,
+            report_count=2,
+            unique_reporter_count=len({complaint.citizen_id, candidate.citizen_id}),
+            reward_granted=False,
+            created_at=now,
+            updated_at=now,
+        )
+        db.session.add(cluster)
+        db.session.flush()
+        complaint.cluster_id = cluster.id
+        candidate.cluster_id = cluster.id
+        db.session.flush()
+        recompute_cluster_aggregates(cluster_id=cluster.id, now=now)
+        recompute_severity_for_cluster(cluster_id=cluster.id, complaint_id=complaint.id)
+        return
+
+    recompute_severity_for_cluster(cluster_id=None, complaint_id=complaint.id)
 
 
 def recompute_cluster_aggregates(*, cluster_id: int, now: datetime) -> None:
@@ -39,7 +168,20 @@ def recompute_cluster_aggregates(*, cluster_id: int, now: datetime) -> None:
     TODO(phase 5). `unique_reporter_count` is COUNT(DISTINCT citizen_id) — the
     anti-gaming measure. `report_count` is the raw row count.
     """
-    raise NotImplementedError
+    cluster = db.session.get(ComplaintCluster, cluster_id)
+    if cluster is None:
+        return
+    members = list(
+        db.session.scalars(select(Complaint).where(Complaint.cluster_id == cluster_id))
+    )
+    if not members:
+        db.session.delete(cluster)
+        return
+    cluster.report_count = len(members)
+    cluster.unique_reporter_count = len({row.citizen_id for row in members})
+    cluster.centroid_lat = sum(row.latitude for row in members) / len(members)
+    cluster.centroid_lng = sum(row.longitude for row in members) / len(members)
+    cluster.updated_at = now
 
 
 def recompute_severity_for_cluster(*, cluster_id: int | None, complaint_id: int) -> None:
@@ -54,7 +196,32 @@ def recompute_severity_for_cluster(*, cluster_id: int | None, complaint_id: int)
 
     Call this on: complaint creation, cluster join, and every upvote.
     """
-    raise NotImplementedError
+    if cluster_id is None:
+        complaint = db.session.get(Complaint, complaint_id)
+        rows = [complaint] if complaint is not None else []
+        unique_reporters = 1
+    else:
+        cluster = db.session.get(ComplaintCluster, cluster_id)
+        if cluster is None:
+            return
+        rows = list(
+            db.session.scalars(select(Complaint).where(Complaint.cluster_id == cluster_id))
+        )
+        unique_reporters = cluster.unique_reporter_count
+
+    if not rows:
+        return
+    ids = [row.id for row in rows]
+    counts = {
+        row_id: int(count)
+        for row_id, count in db.session.execute(
+            select(ComplaintUpvote.complaint_id, func.count(ComplaintUpvote.id))
+            .where(ComplaintUpvote.complaint_id.in_(ids))
+            .group_by(ComplaintUpvote.complaint_id)
+        )
+    }
+    for row in rows:
+        row.severity_score = severity_score(unique_reporters, counts.get(row.id, 0))
 
 
 def claim_cluster_reward(*, cluster_id: int) -> bool:

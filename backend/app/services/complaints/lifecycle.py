@@ -22,6 +22,7 @@ from typing import Any
 
 from sqlalchemy import select, update
 
+from app.core.session import transaction
 from app.domain.enums import (
     ComplaintStatus,
     DisputeVerdict,
@@ -29,9 +30,20 @@ from app.domain.enums import (
     OfficerTargetStatus,
     StatusActor,
 )
-from app.domain.errors import ConflictError, NotFoundError
+from app.domain.errors import ConflictError, NotFoundError, ValidationError, raise_for
+from app.domain.lifecycle import (
+    AT_OR_PAST_UNDER_REVIEW,
+    TERMINAL,
+    validate_admin_override,
+    validate_dispute_review,
+)
+from app.domain.sla import needs_backfill, start
 from app.extensions import db
-from app.models import Complaint, StatusHistory, User
+from app.models import Complaint, ComplaintCategory, StatusHistory, User, Zone
+from app.services.complaints.clusters import (
+    detach_for_admin_reclassification,
+    link_new_complaint,
+)
 
 
 @dataclass
@@ -320,7 +332,27 @@ def review_dispute(
         must not be able to use a losing dispute to manufacture a second shot at
         the reward they gave up by disputing instead of confirming.
     """
-    raise NotImplementedError
+    with transaction():
+        complaint = db.session.get(Complaint, complaint_id)
+        if complaint is None:
+            raise NotFoundError("No such complaint.")
+        raise_for(validate_dispute_review(complaint.status))
+        target = (
+            ComplaintStatus.IN_PROGRESS
+            if verdict is DisputeVerdict.UPHELD
+            else ComplaintStatus.CLOSED
+        )
+        extra_values = {"closed_at": now} if target is ComplaintStatus.CLOSED else None
+        return apply_transition(
+            complaint_id=complaint.id,
+            expected_status=ComplaintStatus.REOPENED,
+            new_status=target,
+            actor_role=StatusActor.ADMIN,
+            changed_by_user_id=admin.id,
+            now=now,
+            reason=reason,
+            extra_values=extra_values,
+        )
 
 
 # --- Door 8: PATCH /admin/complaints/{id} -------------------------------------
@@ -332,8 +364,10 @@ def override(
     admin: User,
     new_status: ComplaintStatus | None,
     new_zone_id: int | None,
-    reason: str,
+    new_category_id: int | None,
+    reason: str | None,
     now: datetime,
+    cluster_radius_meters: float,
 ) -> Complaint:
     """An admin may set any status — but the bookkeeping still happens.
 
@@ -346,7 +380,72 @@ def override(
     An override still writes its history row, with actor_role=ADMIN and the
     admin's reason.
     """
-    raise NotImplementedError
+    with transaction():
+        complaint = db.session.get(Complaint, complaint_id)
+        if complaint is None:
+            raise NotFoundError("No such complaint.")
+
+        category = (
+            db.session.get(ComplaintCategory, new_category_id)
+            if new_category_id is not None
+            else db.session.get(ComplaintCategory, complaint.category_id)
+        )
+        if category is None:
+            raise ValidationError("categoryId does not refer to a known category.")
+        if new_zone_id is not None and db.session.get(Zone, new_zone_id) is None:
+            raise ValidationError("zoneId does not refer to a known zone.")
+
+        classification_changed = (
+            new_category_id is not None and new_category_id != complaint.category_id
+        ) or (new_zone_id is not None and new_zone_id != complaint.zone_id)
+        status_changed = new_status is not None and new_status != complaint.status
+        if not classification_changed and not status_changed:
+            raise ValidationError("At least one complaint field must actually change.")
+
+        if classification_changed:
+            detach_for_admin_reclassification(complaint=complaint, now=now)
+        if new_category_id is not None:
+            complaint.category_id = new_category_id
+        if new_zone_id is not None:
+            complaint.zone_id = new_zone_id
+        if classification_changed:
+            db.session.flush()
+            link_new_complaint(
+                complaint=complaint,
+                radius_meters=cluster_radius_meters,
+                now=now,
+            )
+
+        target_status = new_status or complaint.status
+        raise_for(validate_admin_override(target_status))
+        extra_values: dict[str, Any] = {}
+        if new_status in AT_OR_PAST_UNDER_REVIEW and needs_backfill(
+            complaint.sla_target_hours, complaint.sla_started_at
+        ):
+            target_hours, started_at = start(now, category.sla_hours)
+            extra_values.update({"sla_target_hours": target_hours, "sla_started_at": started_at})
+        if status_changed and target_status is ComplaintStatus.RESOLVED:
+            extra_values["resolved_at"] = now
+        if status_changed and target_status is ComplaintStatus.CLOSED:
+            extra_values["closed_at"] = now
+        if (
+            new_zone_id is not None
+            and target_status not in TERMINAL
+            and complaint.assigned_officer_id is not None
+        ):
+            assigned = db.session.get(User, complaint.assigned_officer_id)
+            if assigned is None or assigned.zone_id != complaint.zone_id:
+                extra_values["assigned_officer_id"] = None
+        return apply_transition(
+            complaint_id=complaint.id,
+            expected_status=complaint.status,
+            new_status=target_status,
+            actor_role=StatusActor.ADMIN,
+            changed_by_user_id=admin.id,
+            now=now,
+            reason=reason,
+            extra_values=extra_values,
+        )
 
 
 # --- Door 10: the auto-close sweeper (SYSTEM) --------------------------------

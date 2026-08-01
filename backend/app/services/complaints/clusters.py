@@ -9,52 +9,153 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import update
+from sqlalchemy import update, select, func
 
 from app.extensions import db
-from app.models import Complaint, ComplaintCluster
+from app.models import Complaint, ComplaintCluster, ComplaintUpvote
+from app.domain import geo, severity
+from app.domain.enums import ComplaintStatus, StatusActor, PointsReason
+from app.domain.errors import ConflictError
+from app.domain.lifecycle import CASCADE_ELIGIBLE
+from app.services.complaints import lifecycle
 
 
 def link_new_complaint(*, complaint: Complaint, radius_meters: float, now: datetime) -> None:
-    """Attach a freshly created complaint to a cluster, if there is one.
-
-    TODO(phase 5). Three-step search, all within `radius_meters` and requiring
-    the SAME category and SAME zone:
-      1. An existing cluster whose centroid is nearest -> join it.
-      2. Else the nearest matching STANDALONE complaint -> form a new cluster
-         from the two. A REJECTED complaint is excluded as a seed: a debunked
-         fake report must not anchor a new cluster.
-      3. Else stay standalone.
-
-    Then recompute the centroid, report_count and unique_reporter_count, and
-    call `recompute_severity_for_cluster` for EVERY member — not just the new
-    one. A membership change moves everyone's score.
-    """
-    raise NotImplementedError
+    """Attach a freshly created complaint to a cluster, if there is one within radius."""
+    # Find same-category, same-zone, non-rejected complaints within radius
+    candidates = db.session.execute(
+        select(Complaint)
+        .where(
+            Complaint.category_id == complaint.category_id,
+            Complaint.zone_id == complaint.zone_id,
+            Complaint.id != complaint.id,
+            Complaint.status != ComplaintStatus.REJECTED,
+        )
+    ).scalars().all()
+    
+    # Filter by radius
+    nearby = [
+        c for c in candidates
+        if geo.within_radius(
+            float(complaint.latitude), float(complaint.longitude),
+            float(c.latitude), float(c.longitude),
+            radius_meters
+        )
+    ]
+    if not nearby:
+        return
+    
+    # Separate into cluster members and standalone complaints
+    cluster_ids = {c.cluster_id for c in nearby if c.cluster_id is not None}
+    standalone = [c for c in nearby if c.cluster_id is None]
+    
+    chosen_cluster_id = None
+    
+    # Prefer existing clusters
+    if cluster_ids:
+        # Find the cluster whose centroid is nearest AND within radius
+        clusters = db.session.execute(
+            select(ComplaintCluster).where(ComplaintCluster.id.in_(cluster_ids))
+        ).scalars().all()
+        
+        nearest = None
+        nearest_dist = float('inf')
+        for cl in clusters:
+            dist = geo.haversine_meters(
+                float(complaint.latitude), float(complaint.longitude),
+                float(cl.centroid_lat), float(cl.centroid_lng)
+            )
+            if dist < nearest_dist and dist <= radius_meters:
+                nearest_dist = dist
+                nearest = cl
+        
+        if nearest is not None:
+            chosen_cluster_id = nearest.id
+            complaint.cluster_id = chosen_cluster_id
+    
+    # No nearby cluster found — try to form a new one with a standalone
+    if chosen_cluster_id is None and standalone:
+        nearest = min(
+            standalone,
+            key=lambda c: geo.haversine_meters(
+                float(complaint.latitude), float(complaint.longitude),
+                float(c.latitude), float(c.longitude)
+            )
+        )
+        # Create new cluster
+        new_cluster = ComplaintCluster(
+            category_id=complaint.category_id,
+            zone_id=complaint.zone_id,
+            centroid_lat=float(complaint.latitude),
+            centroid_lng=float(complaint.longitude),
+            report_count=2,
+            unique_reporter_count=2,
+            reward_granted=False,
+            created_at=now,
+            updated_at=now,
+        )
+        db.session.add(new_cluster)
+        db.session.flush()
+        
+        complaint.cluster_id = new_cluster.id
+        nearest.cluster_id = new_cluster.id
+        chosen_cluster_id = new_cluster.id
+    
+    if chosen_cluster_id:
+        recompute_cluster_aggregates(cluster_id=chosen_cluster_id, now=now)
+        # recompute_severity_for_cluster is called by recompute_cluster_aggregates for all members
 
 
 def recompute_cluster_aggregates(*, cluster_id: int, now: datetime) -> None:
-    """Recompute centroid, report_count and unique_reporter_count from members.
-
-    TODO(phase 5). `unique_reporter_count` is COUNT(DISTINCT citizen_id) — the
-    anti-gaming measure. `report_count` is the raw row count.
-    """
-    raise NotImplementedError
+    """Recompute centroid, report_count and unique_reporter_count from members."""
+    cluster = db.session.get(ComplaintCluster, cluster_id)
+    if not cluster:
+        return
+        
+    members = db.session.execute(
+        select(Complaint).where(Complaint.cluster_id == cluster_id)
+    ).scalars().all()
+    
+    if not members:
+        return
+        
+    cluster.report_count = len(members)
+    unique_citizens = {m.citizen_id for m in members}
+    cluster.unique_reporter_count = len(unique_citizens)
+    
+    c_lat, c_lng = geo.centroid([(float(m.latitude), float(m.longitude)) for m in members])
+    cluster.centroid_lat = c_lat
+    cluster.centroid_lng = c_lng
+    cluster.updated_at = now
+    
+    # Batch recompute severity for all members
+    unique_count = cluster.unique_reporter_count
+    for member in members:
+        upvotes = db.session.execute(
+            select(func.count(ComplaintUpvote.id))
+            .where(ComplaintUpvote.complaint_id == member.id)
+        ).scalar() or 0
+        member.severity_score = severity.score(unique_count, upvotes)
 
 
 def recompute_severity_for_cluster(*, cluster_id: int | None, complaint_id: int) -> None:
-    """Refresh `complaints.severity_score` for a complaint or a whole cluster.
-
-    TODO(phase 5). Per member: `domain.severity.score(cluster
-    unique_reporter_count or 1, that member's OWN upvote count)`.
-
-    Careful: a complaint's score uses only its own upvotes, while the API's
-    Cluster.severityScore uses the total across all members. Same function,
-    different arguments — passing the wrong upvote total is invisible.
-
-    Call this on: complaint creation, cluster join, and every upvote.
-    """
-    raise NotImplementedError
+    """Refresh `complaints.severity_score` for a complaint or a whole cluster."""
+    complaint = db.session.get(Complaint, complaint_id)
+    if not complaint:
+        return
+        
+    unique_reporter_count = 1
+    if cluster_id:
+        cluster = db.session.get(ComplaintCluster, cluster_id)
+        if cluster:
+            unique_reporter_count = cluster.unique_reporter_count
+            
+    upvotes = db.session.execute(
+        select(func.count(ComplaintUpvote.id))
+        .where(ComplaintUpvote.complaint_id == complaint_id)
+    ).scalar() or 0
+    
+    complaint.severity_score = severity.score(unique_reporter_count, upvotes)
 
 
 def claim_cluster_reward(*, cluster_id: int) -> bool:
@@ -79,34 +180,61 @@ def claim_cluster_reward(*, cluster_id: int) -> bool:
 
 
 def citizen_already_rewarded_in_cluster(*, cluster_id: int, citizen_id: int) -> bool:
-    """Has this citizen already been paid a cluster reward here?
-
-    TODO(phase 6). Look for a points_ledger row with reason COMPLAINT_CLOSED or
-    CLUSTER_MEMBER_CLOSED whose complaint belongs to this cluster and this
-    citizen. Cluster rewards are paid at most once per citizen per cluster, so
-    filing three complaints that get clustered together cannot farm rewards.
+    """Has this citizen already been paid a cluster reward in this cluster?
+    
+    Cluster rewards are paid at most once per citizen per cluster.
+    Check for COMPLAINT_CLOSED or CLUSTER_MEMBER_CLOSED on any complaint
+    belonging to this citizen AND this cluster.
     """
-    raise NotImplementedError
+    from sqlalchemy import exists
+    from app.models import PointsLedger
+    return db.session.execute(
+        select(
+            exists().where(
+                PointsLedger.citizen_id == citizen_id,
+                PointsLedger.reason.in_([
+                    PointsReason.COMPLAINT_CLOSED,
+                    PointsReason.CLUSTER_MEMBER_CLOSED,
+                ]),
+                PointsLedger.complaint_id.in_(
+                    select(Complaint.id).where(Complaint.cluster_id == cluster_id)
+                ),
+            )
+        )
+    ).scalar() or False
 
 
 def cascade_resolution(*, resolved: Complaint, now: datetime) -> list[dict[str, Any]]:
-    """Sweep the rest of the cluster to RESOLVED when the shared issue is fixed.
-
-    TODO(phase 5). For every OTHER member:
-      * UNDER_REVIEW / IN_PROGRESS / UNDER_RESOLUTION -> RESOLVED, with its own
-        `status_history` row at actor_role=SYSTEM  -> "CASCADED"
-      * anything else -> untouched -> "SKIPPED"
-
-    What must be SKIPPED, and why:
-      * terminal and already-RESOLVED members — nothing to do;
-      * evidence-phase members (SUBMITTED / EVIDENCE_UNDER_REVIEW /
-        NEEDS_MORE_EVIDENCE) — the evidence gate is never bypassed by riding a
-        cluster resolution;
-      * REOPENED members — a pending dispute always waits for its admin verdict.
-        A sibling's fix must never sweep it aside first.
-
-    Every move still goes through `lifecycle.apply_transition`, so the SYSTEM
-    transitions get proper history rows like everything else. Returns the
-    per-member outcome list the contract puts in `StatusUpdateResult.cascade`.
-    """
-    raise NotImplementedError
+    """Sweep the rest of the cluster to RESOLVED when the shared issue is fixed."""
+    if not resolved.cluster_id:
+        return []
+    
+    cluster_members = db.session.execute(
+        select(Complaint)
+        .where(
+            Complaint.cluster_id == resolved.cluster_id,
+            Complaint.id != resolved.id,
+        )
+    ).scalars().all()
+    
+    results = []
+    for member in cluster_members:
+        if member.status in CASCADE_ELIGIBLE:
+            try:
+                lifecycle.apply_transition(
+                    complaint_id=member.id,
+                    expected_status=member.status,
+                    new_status=ComplaintStatus.RESOLVED,
+                    actor_role=StatusActor.SYSTEM,
+                    changed_by_user_id=None,
+                    now=now,
+                    extra_values={"resolved_at": now},
+                )
+                results.append({"complaintId": str(member.id), "outcome": "CASCADED", "previousStatus": member.status.value})
+            except ConflictError:
+                # Race: another thread moved it between SELECT and UPDATE
+                results.append({"complaintId": str(member.id), "outcome": "SKIPPED", "previousStatus": member.status.value})
+        else:
+            results.append({"complaintId": str(member.id), "outcome": "SKIPPED", "previousStatus": member.status.value})
+    
+    return results

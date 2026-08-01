@@ -38,6 +38,7 @@ class SerializationContext:
     upvote_counts: dict[int, int] = field(default_factory=dict)
     #: complaint_id -> first evidence row, for `photoUrl`.
     first_evidence: dict[int, Any] = field(default_factory=dict)
+    cluster_members: dict[int, list[Complaint]] = field(default_factory=dict)
 
 
 def serialize_complaint(complaint: Complaint, ctx: SerializationContext) -> dict[str, Any]:
@@ -105,3 +106,35 @@ def masked_display_name(user: Any) -> str:
     only on GET /users/me (self) and in admin views.
     """
     raise NotImplementedError
+
+def serialize_cluster(cluster, ctx: SerializationContext) -> dict[str, Any]:
+    from app.domain import severity, sla
+    
+    score = cluster.severity_score if cluster.severity_score is not None else 0
+    sev_label = severity.label(score)
+    
+    return {
+        "id": str(cluster.id),
+        "centroid": {
+            "lat": float(cluster.centroid_lat),
+            "lng": float(cluster.centroid_lng)
+        },
+        "radiusMeters": float(cluster.radius_meters) if cluster.radius_meters else 50.0,
+        "reportCount": cluster.report_count,
+        "uniqueReporterCount": cluster.unique_reporter_count,
+        "severityScore": score,
+        "severityLabel": sev_label.value,
+        "statusSummary": {
+            "resolved": cluster.resolved_count,
+            "inProgress": cluster.in_progress_count,
+            "underReview": cluster.under_review_count
+        }
+    }
+
+def serialize_cluster_detail(cluster, ctx: SerializationContext) -> dict[str, Any]:
+    base = serialize_cluster(cluster, ctx)
+    
+    members = ctx.cluster_members.get(cluster.id, [])
+    base["members"] = [serialize_complaint(c, ctx) for c in members]
+    
+    return base

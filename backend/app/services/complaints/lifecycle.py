@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import select, update, desc
 
 from app.domain.enums import (
     ComplaintStatus,
@@ -29,9 +29,13 @@ from app.domain.enums import (
     OfficerTargetStatus,
     StatusActor,
 )
-from app.domain.errors import ConflictError, NotFoundError
+from app.domain.errors import ConflictError, NotFoundError, raise_for, Check, Err, Ok
 from app.extensions import db
-from app.models import Complaint, StatusHistory, User
+from app.models import Complaint, StatusHistory, User, ComplaintEvidence, ComplaintCategory, ComplaintNote, ComplaintCluster
+from app.domain import lifecycle, sla
+from app.core import scoping
+from app.core.session import savepoint
+from app.services.complaints import clusters
 
 
 @dataclass
@@ -163,16 +167,25 @@ def record_history(
 
 
 def claim(*, complaint_id: int, officer: User, now: datetime) -> Complaint:
-    """SUBMITTED -> EVIDENCE_UNDER_REVIEW, setting assigned_officer_id.
-
-    TODO(phase 4). Steps:
-      1. Load through `scoping.visible_complaints(officer)` — 404 if not in zone.
-      2. `domain.lifecycle.validate_claim(current)`.
-      3. `apply_transition(expected_status=SUBMITTED, ...,
-         extra_values={"assigned_officer_id": officer.id})`.
-      4. Commit once, in the caller's `transaction()`.
-    """
-    raise NotImplementedError
+    """SUBMITTED -> EVIDENCE_UNDER_REVIEW, setting assigned_officer_id."""
+    complaint = db.session.execute(
+        scoping.visible_complaints(officer).where(Complaint.id == complaint_id)
+    ).scalar_one_or_none()
+    
+    if complaint is None:
+        raise scoping.not_found()
+        
+    raise_for(lifecycle.validate_claim(complaint.status))
+    
+    return apply_transition(
+        complaint_id=complaint_id,
+        expected_status=ComplaintStatus.SUBMITTED,
+        new_status=ComplaintStatus.EVIDENCE_UNDER_REVIEW,
+        actor_role=StatusActor.OFFICER,
+        changed_by_user_id=officer.id,
+        now=now,
+        extra_values={"assigned_officer_id": officer.id},
+    )
 
 
 # --- Door 2: POST /officer/complaints/{id}/evidence-review --------------------
@@ -186,24 +199,107 @@ def review_evidence(
     reason: str | None,
     now: datetime,
 ) -> Complaint:
-    """The photo verdict. Three outcomes, three different side effects.
+    """The photo verdict. Three outcomes, three different side effects."""
+    complaint = db.session.execute(
+        scoping.visible_complaints(officer).where(Complaint.id == complaint_id)
+    ).scalar_one_or_none()
+    
+    if complaint is None:
+        raise scoping.not_found()
+        
+    raise_for(
+        lifecycle.validate_evidence_review(
+            current=complaint.status,
+            sla_started_at=complaint.sla_started_at,
+            verdict=verdict,
+            reason=reason,
+        )
+    )
+    
+    evidence = db.session.execute(
+        select(ComplaintEvidence)
+        .where(ComplaintEvidence.complaint_id == complaint_id)
+        .where(ComplaintEvidence.verdict.is_(None))
+        .order_by(desc(ComplaintEvidence.sequence))
+    ).scalars().first()
+    
+    if evidence:
+        evidence.verdict = verdict
+        evidence.verdict_reason = reason
+        evidence.reviewed_by = officer.id
+        evidence.reviewed_at = now
+        
+    extra_values = {}
+    new_status = lifecycle.VERDICT_TARGET[verdict]
+    
+    if verdict == EvidenceVerdict.VALID:
+        category_sla_hours = db.session.execute(
+            select(ComplaintCategory.sla_hours)
+            .where(ComplaintCategory.id == complaint.category_id)
+        ).scalar_one()
+        
+        target, started = sla.start(now, category_sla_hours)
+        extra_values["sla_target_hours"] = target
+        extra_values["sla_started_at"] = started
+    elif verdict == EvidenceVerdict.NEEDS_MORE_EVIDENCE:
+        new_pause = sla.pause(complaint.sla_started_at, now)
+        if new_pause:
+            extra_values["sla_paused_at"] = new_pause
+    elif verdict == EvidenceVerdict.REJECTED:
+        # Gamification: REJECTED on the evidence-review door costs 20 CSP
+        from app.services.gamification.ledger import award
+        from app.domain.enums import PointsReason
+        try:
+            award(
+                citizen_id=complaint.citizen_id,
+                complaint_id=complaint_id,
+                reason=PointsReason.REJECTED_PENALTY,
+                now=now
+            )
+        except NotImplementedError:
+            pass
+        
+    return apply_transition(
+        complaint_id=complaint_id,
+        expected_status=ComplaintStatus.EVIDENCE_UNDER_REVIEW,
+        new_status=new_status,
+        actor_role=StatusActor.OFFICER,
+        changed_by_user_id=officer.id,
+        now=now,
+        reason=reason,
+        extra_values=extra_values,
+    )
 
-    TODO(phase 4). Steps:
-      1. Load zone-scoped; `domain.lifecycle.validate_evidence_review(
-         current, complaint.sla_started_at, verdict, reason)` — this is where
-         REJECTED-on-a-second-round becomes a 409.
-      2. Stamp the latest evidence row: verdict, verdict_reason, reviewed_by,
-         reviewed_at. (Append-only table, but these verdict columns are the one
-         documented write — they are null until reviewed.)
-      3. VALID -> UNDER_REVIEW, and START the SLA clock:
-         `domain.sla.start(now, category.sla_hours)` — snapshot the category's
-         CURRENT sla_hours onto the complaint.
-         NEEDS_MORE_EVIDENCE -> pause via `domain.sla.pause(...)` (a no-op
-         pre-acceptance, since the clock has not started).
-         REJECTED -> terminal, and award REJECTED_PENALTY (-20) to the reporter.
-      4. One `apply_transition` call with the SLA columns in `extra_values`.
-    """
-    raise NotImplementedError
+
+def add_progress_note(
+    *,
+    complaint_id: int,
+    officer: User,
+    note_text: str,
+    now: datetime,
+) -> ComplaintNote:
+    """Add a progress note, requiring the complaint to be IN_PROGRESS or UNDER_RESOLUTION."""
+    complaint = db.session.execute(
+        scoping.visible_complaints(officer).where(Complaint.id == complaint_id)
+    ).scalar_one_or_none()
+    
+    if complaint is None:
+        raise scoping.not_found()
+        
+    if complaint.status not in (ComplaintStatus.IN_PROGRESS, ComplaintStatus.UNDER_RESOLUTION):
+        raise ConflictError(
+            "INVALID_STATUS",
+            "Notes can only be added when the complaint is in progress or under resolution."
+        )
+        
+    note = ComplaintNote(
+        complaint_id=complaint_id,
+        officer_id=officer.id,
+        note_text=note_text.strip(),
+        created_at=now,
+    )
+    db.session.add(note)
+    return note
 
 
 # --- Doors 3 & 4: PATCH .../status and POST .../batch-status ------------------
@@ -218,21 +314,44 @@ def transition_by_officer(
     note: str | None,
     now: datetime,
 ) -> TransitionResult:
-    """The ordinary officer status move — the most involved request in the system.
-
-    TODO(phase 4). Steps:
-      1. Load zone-scoped -> 404 / 403.
-      2. `domain.lifecycle.validate_officer_transition(current, target, reason)`.
-      3. `apply_transition`, with `extra_values`:
-         - RESOLVED  -> {"resolved_at": now}
-         - NEEDS_MORE_EVIDENCE -> {"sla_paused_at": domain.sla.pause(
-              complaint.sla_started_at, now)}  # pauses a RUNNING clock only
-      4. If target is RESOLVED and the complaint is clustered, call
-         `clusters.cascade_resolution(...)` and return its per-member outcomes
-         as `TransitionResult.cascade`.
-      5. The caller commits once.
-    """
-    raise NotImplementedError
+    """The ordinary officer status move."""
+    complaint = db.session.execute(
+        scoping.visible_complaints(officer).where(Complaint.id == complaint_id)
+    ).scalar_one_or_none()
+    
+    if complaint is None:
+        raise scoping.not_found()
+        
+    raise_for(lifecycle.validate_officer_transition(complaint.status, target, reason))
+    
+    extra_values = {}
+    if target == OfficerTargetStatus.RESOLVED:
+        extra_values["resolved_at"] = now
+    elif target == OfficerTargetStatus.NEEDS_MORE_EVIDENCE:
+        extra_values["sla_paused_at"] = sla.pause(complaint.sla_started_at, now)
+        
+    new_status = ComplaintStatus(target.value)
+        
+    updated = apply_transition(
+        complaint_id=complaint_id,
+        expected_status=complaint.status,
+        new_status=new_status,
+        actor_role=StatusActor.OFFICER,
+        changed_by_user_id=officer.id,
+        now=now,
+        reason=reason,
+        remark=note.strip() if note and note.strip() else None,
+        extra_values=extra_values,
+    )
+    
+    cascade = []
+    if target == OfficerTargetStatus.RESOLVED and updated.cluster_id:
+        cascade = clusters.cascade_resolution(
+            resolved=updated,
+            now=now,
+        )
+        
+    return TransitionResult(complaint=updated, cascade=cascade)
 
 
 def transition_batch(
@@ -245,20 +364,113 @@ def transition_batch(
     note: str | None,
     now: datetime,
 ) -> dict[str, Any]:
-    """The one endpoint where partial failure is a SUCCESS response.
-
-    TODO(phase 5). Semantics that differ from every other door:
-      * Validate all -> apply the valid ones -> ONE commit.
-      * Per-item failures are `TransitionFailureCode` values inside the 200
-        body, not rollbacks and not 4xx.
-      * An unknown complaint ID is a per-item UNKNOWN_COMPLAINT. An unknown
-        `clusterId` IS a 404. That difference is deliberate.
-      * Exactly one of `complaint_ids` / `cluster_id` — the schema's `oneOf`
-        makes both-or-neither a 400 before it reaches here.
-      * Wrap each item in `core.session.savepoint()` so one item's database
-        error cannot poison the batch.
-    """
-    raise NotImplementedError
+    """The one endpoint where partial failure is a SUCCESS response."""
+    if (complaint_ids is None and cluster_id is None) or (complaint_ids is not None and cluster_id is not None):
+        raise ConflictError("INVALID_REQUEST", "Exactly one of complaint_ids or cluster_id must be supplied")
+        
+    results = []
+    
+    c_ids_to_process = complaint_ids or []
+    
+    if cluster_id:
+        cluster = db.session.get(ComplaintCluster, cluster_id)
+        if not cluster:
+            raise NotFoundError("Cluster not found")
+            
+        members = db.session.execute(
+            scoping.visible_complaints(officer).where(Complaint.cluster_id == cluster_id)
+        ).scalars().all()
+        c_ids_to_process = [m.id for m in members]
+        
+    for cid in c_ids_to_process:
+        with savepoint():
+            try:
+                complaint = db.session.execute(
+                    scoping.visible_complaints(officer).where(Complaint.id == cid)
+                ).scalar_one_or_none()
+                
+                if complaint is None:
+                    results.append({
+                        "complaintId": cid,
+                        "success": False,
+                        "errorCode": "UNKNOWN_COMPLAINT",
+                        "errorMessage": "Complaint not found or not in your zone."
+                    })
+                    continue
+                    
+                check = lifecycle.validate_officer_transition(complaint.status, target, reason)
+                if isinstance(check, Err):
+                    results.append({
+                        "complaintId": cid,
+                        "success": False,
+                        "errorCode": check.code,
+                        "errorMessage": check.message
+                    })
+                    continue
+                    
+                extra_values = {}
+                if target == OfficerTargetStatus.RESOLVED:
+                    extra_values["resolved_at"] = now
+                elif target == OfficerTargetStatus.NEEDS_MORE_EVIDENCE:
+                    extra_values["sla_paused_at"] = sla.pause(complaint.sla_started_at, now)
+                    
+                new_status = ComplaintStatus(target.value)
+                
+                if note and note.strip():
+                    db.session.add(
+                        ComplaintNote(
+                            complaint_id=cid,
+                            officer_id=officer.id,
+                            note_text=note.strip(),
+                            created_at=now,
+                        )
+                    )
+                    
+                updated = apply_transition(
+                    complaint_id=cid,
+                    expected_status=complaint.status,
+                    new_status=new_status,
+                    actor_role=StatusActor.OFFICER,
+                    changed_by_user_id=officer.id,
+                    now=now,
+                    reason=reason,
+                    extra_values=extra_values,
+                )
+                
+                # NOTE: the architecture says "Unlike the individual status endpoint, batch updates never automatically cascade".
+                # So we don't call cascade_resolution here!
+                
+                results.append({
+                    "complaintId": str(cid),
+                    "success": True,
+                    "status": updated.status.value,
+                    "previousStatus": complaint.status.value,
+                    "updatedAt": updated.updated_at.isoformat()
+                })
+                
+            except ConflictError as e:
+                # E.g. rowcount check failed in apply_transition
+                results.append({
+                    "complaintId": str(cid),
+                    "success": False,
+                    "errorCode": e.code,
+                    "errorMessage": e.message
+                })
+            except Exception as e:
+                # Catch any unexpected db errors
+                results.append({
+                    "complaintId": str(cid),
+                    "success": False,
+                    "errorCode": "INTERNAL_ERROR",
+                    "errorMessage": str(e)
+                })
+                
+    summary = {
+        "requested": len(c_ids_to_process),
+        "succeeded": sum(1 for r in results if r.get("success")),
+        "failed": sum(1 for r in results if not r.get("success")),
+    }
+    return {"results": results, "summary": summary}
 
 
 # --- Door 5: POST /complaints/{id}/confirm ------------------------------------

@@ -6,10 +6,14 @@ may expose another citizen's identity, and nothing here may cross a zone.
 
 from __future__ import annotations
 
-from flask import Blueprint
+from datetime import UTC, datetime
 
+from flask import Blueprint, jsonify
+
+from app.api.citizen.schemas import FeedQuery, LeaderboardQuery
 from app.api.shared.responses import todo
-from app.core.auth import require_auth, require_role
+from app.core.auth import current_user, require_auth, require_role
+from app.core.validation import validate_query
 from app.domain.enums import UserRole
 
 bp = Blueprint("citizen", __name__)
@@ -116,17 +120,23 @@ def dispute_resolution(complaint_id: str):
 
 @bp.get("/feed")
 @require_role(CITIZEN)
-def get_public_feed():
-    """200 FeedListResponse — the anonymized zone feed.
+@validate_query(FeedQuery)
+def get_public_feed(query: FeedQuery):
+    """200 FeedListResponse — the anonymized zone feed."""
+    from app.api.citizen.serializers import serialize_feed_item
+    from app.services.complaints.feed import get_public_feed as get_public_feed_service
 
-    TODO(phase 3). Citizens only, and only their OWN zone: a citizen asking for
-    another zone gets 403, not an empty page.
+    now = datetime.now(UTC)
+    items, pagination, ctx, upvoted_ids = get_public_feed_service(
+        citizen=current_user(),
+        query_params=query,
+        now=now,
+    )
 
-    The feed reuses the compact Complaint shape, which structurally has no
-    reporter field. Location IS exposed (that is the point — the client shows a
-    nearby-landmark hint); identity never is.
-    """
-    todo("Public feed")
+    serialized_items = [
+        serialize_feed_item(c, ctx, citizen_upvoted_ids=upvoted_ids) for c in items
+    ]
+    return jsonify({"data": serialized_items, "pagination": pagination.to_dict()}), 200
 
 
 # --- Gamification -------------------------------------------------------------
@@ -155,11 +165,36 @@ def get_my_badges():
 
 @bp.get("/leaderboard")
 @require_role(CITIZEN)
-def get_leaderboard():
+@validate_query(LeaderboardQuery)
+def get_leaderboard(query: LeaderboardQuery):
     """200 LeaderboardResponse.
 
     TODO(phase 6). Sequential ranks, a total order (points, then account age,
     then id), DEACTIVATED citizens excluded, zero-point citizens included.
     Handles are `display_name` or a masked fallback — never `full_name`.
     """
-    todo("Leaderboard")
+    from app.services.gamification.leaderboard import get_leaderboard_service
+
+    now = datetime.now(UTC)
+    current_user_entry, page_entries, pagination = get_leaderboard_service(
+        caller=current_user(),
+        scope=query.scope,
+        period=query.period,
+        page=query.page,
+        page_size=query.pageSize,
+        now=now,
+    )
+
+    return (
+        jsonify(
+            {
+                "scope": query.scope,
+                "period": query.period,
+                "generatedAt": now.isoformat().replace("+00:00", "Z"),
+                "currentUser": current_user_entry,
+                "data": page_entries,
+                "pagination": pagination.to_dict(),
+            }
+        ),
+        200,
+    )

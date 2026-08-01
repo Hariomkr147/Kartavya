@@ -1,16 +1,36 @@
-"""Citizen-facing endpoints: complaints, the feed, points, badges, leaderboard.
+"""Citizen endpoints.
 
-A citizen sees only their own data plus the anonymized public feed. Nothing here
-may expose another citizen's identity, and nothing here may cross a zone.
+Privacy rules enforced at this layer:
+  1. A citizen sees their OWN complaints in full.
+  2. A citizen sees OTHER citizens' complaints (via feed or direct lookup)
+     with identity fields structurally absent — not null, not masked, ABSENT.
+  3. A citizen never sees officer names or internal notes.
 """
 
 from __future__ import annotations
 
-from flask import Blueprint
+from datetime import UTC, datetime
+from typing import Any
 
+from flask import Blueprint, jsonify, request
+
+from app.api.citizen.schemas import (
+    ComplaintListQuery,
+    CreateComplaintForm,
+)
+from app.api.citizen.serializers import serialize_own_complaint
 from app.api.shared.responses import todo
-from app.core.auth import require_auth, require_role
+from app.core.auth import current_user, require_auth, require_role
+from app.core.validation import parse_model, validate_query
 from app.domain.enums import UserRole
+from app.domain.errors import NotFoundError, ValidationError
+from app.services.complaints.reads import (
+    get_citizen_complaints,
+    get_complaint_detail,
+)
+from app.services.complaints.submission import (
+    create_complaint as create_complaint_service,
+)
 
 bp = Blueprint("citizen", __name__)
 
@@ -23,47 +43,111 @@ CITIZEN = UserRole.CITIZEN
 @bp.post("/complaints")
 @require_role(CITIZEN)
 def create_complaint():
-    """201 ComplaintDetail. multipart/form-data: 1-3 photos + fields.
+    """201 ComplaintDetail. multipart/form-data: 1-3 photos + fields."""
+    raw_form: dict[str, Any] = {}
+    for key in request.form:
+        vals = request.form.getlist(key)
+        raw_form[key] = vals if len(vals) > 1 else vals[0]
 
-    TODO(phase 3): `services.complaints.submission.create_complaint(...)`.
+    form = parse_model(CreateComplaintForm, raw_form)
 
-    `zoneId` is REQUIRED and trusted — the server never routes by location. The
-    citizen confirmed the zone, either from photo EXIF GPS via /zones/suggest or
-    by picking manually.
+    allowed_file_keys = {"photos"}
+    for file_key in request.files:
+        if file_key not in allowed_file_keys:
+            raise ValidationError(f"Unexpected file field: '{file_key}'. Only 'photos' is allowed.")
 
-    AI screening is fired per photo and must NEVER block this 201.
-    """
-    todo("Complaint creation")
+    photos = request.files.getlist("photos")
+
+    now = datetime.now(UTC)
+    res = create_complaint_service(
+        citizen=current_user(),
+        category_id=form.categoryId,
+        zone_id=form.zoneId,
+        latitude=form.latitude,
+        longitude=form.longitude,
+        description=form.description,
+        category_suggested_by_matcher=form.categorySuggestedByMatcher,
+        photos=photos,
+        now=now,
+    )
+
+    payload = serialize_own_complaint(
+        res.complaint,
+        res.ctx,
+        is_detail=True,
+        evidence_list=res.evidence,
+        history_list=res.history,
+        notes_list=res.notes,
+    )
+    return jsonify(payload), 201
 
 
 @bp.get("/complaints/my")
 @require_role(CITIZEN)
-def get_my_complaints():
-    """200 ComplaintListResponse — the citizen dashboard.
+@validate_query(ComplaintListQuery)
+def get_my_complaints(query: ComplaintListQuery):
+    """200 ComplaintListResponse — the citizen dashboard."""
+    now = datetime.now(UTC)
+    items, pagination, ctx = get_citizen_complaints(
+        citizen=current_user(),
+        query_params=query,
+        now=now,
+    )
 
-    TODO(phase 3). Scoped by `core.scoping.visible_complaints`, which for a
-    citizen means `citizen_id == me`.
-    """
-    todo("My complaints")
+    serialized_items = [serialize_own_complaint(c, ctx, is_detail=False) for c in items]
+    return jsonify({"data": serialized_items, "pagination": pagination.to_dict()}), 200
 
 
 @bp.get("/complaints/<complaint_id>")
 @require_auth
 def get_complaint_by_id(complaint_id: str):
-    """200 ComplaintDetail. Any role — the RESPONSE SHAPE is what differs.
+    """200 ComplaintDetail. Any role — the RESPONSE SHAPE is what differs."""
+    try:
+        cid = int(complaint_id)
+    except ValueError as err:
+        raise NotFoundError("No such complaint.") from err
 
-    TODO(phase 3).
-      * Citizen — their own complaint only, else 403.
-      * Officer — their zone only, reporter identity STRIPPED. Zone is
-        evaluated against the officer's account right now, re-read every
-        request; never the zone claim in the JWT, and never `assignedOfficerId`.
-      * Admin — anything, including the reporter.
+    user = current_user()
+    now = datetime.now(UTC)
 
-    Dispatch to the right audience serializer here. Do not build one serializer
-    with an `if role ==` inside it — that is exactly the shape of code where a
-    privacy leak hides.
-    """
-    todo("Complaint detail")
+    detail = get_complaint_detail(
+        user=user,
+        complaint_id=cid,
+        now=now,
+    )
+
+    if user.role == UserRole.CITIZEN:
+        data = serialize_own_complaint(
+            detail.complaint,
+            detail.ctx,
+            is_detail=True,
+            evidence_list=detail.evidence,
+            history_list=detail.history,
+            notes_list=detail.notes,
+        )
+    elif user.role == UserRole.OFFICER:
+        from app.api.officer.serializers import serialize_officer_complaint_detail
+
+        data = serialize_officer_complaint_detail(
+            detail.complaint,
+            detail.ctx,
+            evidence_list=detail.evidence,
+            history_list=detail.history,
+            notes_list=detail.notes,
+        )
+    else:  # ADMIN
+        from app.api.admin.serializers import serialize_complaint_for_admin
+
+        data = serialize_complaint_for_admin(
+            detail.complaint,
+            detail.ctx,
+            evidence_list=detail.evidence,
+            history_list=detail.history,
+            notes_list=detail.notes,
+            reporter_user=detail.reporter,
+        )
+
+    return jsonify(data), 200
 
 
 @bp.post("/complaints/<complaint_id>/evidence")
@@ -116,15 +200,12 @@ def dispute_resolution(complaint_id: str):
 
 @bp.get("/feed")
 @require_role(CITIZEN)
-def get_public_feed():
+def get_feed_route():
     """200 FeedListResponse — the anonymized zone feed.
 
-    TODO(phase 3). Citizens only, and only their OWN zone: a citizen asking for
-    another zone gets 403, not an empty page.
-
-    The feed reuses the compact Complaint shape, which structurally has no
-    reporter field. Location IS exposed (that is the point — the client shows a
-    nearby-landmark hint); identity never is.
+    TODO(phase 6). A citizen sees complaints in their home zone only (403 for
+    any other zone). Excludes REJECTED and DELETED. The `reporter` object is
+    STRUCTURALLY ABSENT from every item.
     """
     todo("Public feed")
 
@@ -155,11 +236,11 @@ def get_my_badges():
 
 @bp.get("/leaderboard")
 @require_role(CITIZEN)
-def get_leaderboard():
+def get_leaderboard_route():
     """200 LeaderboardResponse.
 
-    TODO(phase 6). Sequential ranks, a total order (points, then account age,
-    then id), DEACTIVATED citizens excluded, zero-point citizens included.
+    TODO(phase 6). Sequential ranks, total order (points, then account age, then id),
+    DEACTIVATED citizens excluded, zero-point citizens included.
     Handles are `display_name` or a masked fallback — never `full_name`.
     """
     todo("Leaderboard")

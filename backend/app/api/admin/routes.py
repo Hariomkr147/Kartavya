@@ -7,10 +7,14 @@ shortcuts. Anything both roles need lives in `app/api/shared/`.
 
 from __future__ import annotations
 
-from flask import Blueprint
+from datetime import UTC, datetime
 
+from flask import Blueprint, Response, stream_with_context
+
+from app.api.admin.schemas import ExportComplaintsQuery
 from app.api.shared.responses import todo
 from app.core.auth import require_role
+from app.core.validation import validate_query
 from app.domain.enums import UserRole
 
 bp = Blueprint("admin", __name__)
@@ -204,13 +208,27 @@ def get_officer_performance(officer_id: str):
 
 @bp.get("/admin/export/complaints")
 @require_role(ADMIN)
-def export_complaints_csv():
-    """200 text/csv.
+@validate_query(ExportComplaintsQuery)
+def export_complaints_csv(query: ExportComplaintsQuery):
+    """200 text/csv — streaming CSV of complaints matching query filters."""
+    from app.services.analytics.export import generate_complaints_csv_service
 
-    TODO(phase 7). The one surface where reporter identity legitimately leaves
-    the system. Stream it rather than building the whole file in memory.
-    """
-    todo("CSV export")
+    now = datetime.now(UTC)
+    generator = generate_complaints_csv_service(
+        zone_id=query.zoneId,
+        category_id=query.categoryId,
+        statuses=query.status,
+        sla_label=query.slaLabel,
+        date_from=query.dateFrom,
+        date_to=query.dateTo,
+        now=now,
+    )
+
+    return Response(
+        stream_with_context(generator),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=complaints.csv"},
+    )
 
 
 # --- AI zone reports ----------------------------------------------------------

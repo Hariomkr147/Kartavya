@@ -1,26 +1,28 @@
-"""Request models for the admin endpoints.
-
-TODO(phase 7) — the models this package needs:
-
-  * CreateUserRequest        — role restricted to CITIZEN | OFFICER. There is no
-                               way to create an ADMIN through the API, and this
-                               model is where that becomes structural rather
-                               than a check someone can forget.
-  * UpdateUserRequest        — name, displayName, zoneId, isActive.
-  * AssignOfficerRequest     — officerId.
-  * CreateZoneRequest        — zoneCode, zoneName, centerLat, centerLng.
-  * UpdateZoneRequest        — zoneName, centerLat, centerLng, isActive. NOT
-                               zoneCode: it is immutable once created.
-  * ComplaintOverrideRequest — status, zoneId, and a REQUIRED reason. An
-                               override without a recorded reason is an
-                               unexplained edit to an audit trail.
-  * DisputeReviewRequest     — verdict (DisputeVerdict: UPHELD | REJECTED) and
-                               a reason.
-  * SlaUpdateRequest         — slaTargetHours, minimum 1.
-  * SettingsRequest          — autoCloseTimeoutHours.
-  * ExportQuery              — the standard filter set, no pagination.
-
-Use `model_config = ConfigDict(extra="forbid")` on each.
-"""
+"""Admin request validation schemas."""
 
 from __future__ import annotations
+
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.domain.enums import ComplaintStatus, SlaLabel
+
+
+class ExportComplaintsQuery(BaseModel):
+    """Query validation model for CSV export.
+
+    NOTE (Phase 7 / OpenAPI Alignment):
+    `status` accepts `list[ComplaintStatus] | ComplaintStatus | None` as an intentional
+    superset of the OpenAPI query array definition, supporting both repeated parameters
+    (`?status=SUBMITTED&status=IN_PROGRESS`) and single parameter strings (`?status=SUBMITTED`).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    dateFrom: datetime | None = Field(default=None)
+    dateTo: datetime | None = Field(default=None)
+    status: list[ComplaintStatus] | ComplaintStatus | None = Field(default=None)
+    slaLabel: SlaLabel | None = Field(default=None)
+    zoneId: int | None = Field(default=None, gt=0)
+    categoryId: int | None = Field(default=None, gt=0)

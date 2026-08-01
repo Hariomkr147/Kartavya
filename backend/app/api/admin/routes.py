@@ -7,11 +7,14 @@ shortcuts. Anything both roles need lives in `app/api/shared/`.
 
 from __future__ import annotations
 
-from flask import Blueprint
+from datetime import UTC, datetime
+
+from flask import Blueprint, jsonify
 
 from app.api.shared.responses import todo
-from app.core.auth import require_role
+from app.core.auth import current_user, require_role
 from app.domain.enums import UserRole
+from app.domain.errors import NotFoundError
 
 bp = Blueprint("admin", __name__)
 
@@ -219,20 +222,38 @@ def export_complaints_csv():
 @bp.post("/admin/zones/<zone_id>/ai-report")
 @require_role(ADMIN)
 def generate_ai_zone_report(zone_id: str):
-    """202 AiZoneReport at PENDING, returned IMMEDIATELY.
+    """202 AiZoneReport at PENDING, returned IMMEDIATELY."""
+    try:
+        zid = int(zone_id)
+    except ValueError as err:
+        raise NotFoundError("No such zone.") from err
 
-    TODO(phase 8). Fire-and-forget: the request never waits on the model. The
-    matching GET is a poll.
-    """
-    todo("AI zone report generation")
+    from app.api.admin.serializers import serialize_ai_zone_report
+    from app.services.analytics.zone import request_ai_zone_report
+
+    admin_user = current_user()
+    now = datetime.now(UTC)
+
+    report = request_ai_zone_report(
+        zone_id=zid,
+        admin_user=admin_user,
+        now=now,
+    )
+
+    return jsonify(serialize_ai_zone_report(report)), 202
 
 
 @bp.get("/admin/zones/<zone_id>/ai-report")
 @require_role(ADMIN)
 def get_ai_zone_report(zone_id: str):
-    """200 AiZoneReport — the latest row for the zone.
+    """200 AiZoneReport — the latest row for the zone."""
+    try:
+        zid = int(zone_id)
+    except ValueError as err:
+        raise NotFoundError("No such zone.") from err
 
-    TODO(phase 8). When the model was down this returns FAILED with
-    `aiAvailable: false`. It does NOT error — AI never breaks a flow.
-    """
-    todo("AI zone report")
+    from app.api.admin.serializers import serialize_ai_zone_report
+    from app.services.analytics.zone import get_latest_ai_zone_report
+
+    report = get_latest_ai_zone_report(zone_id=zid)
+    return jsonify(serialize_ai_zone_report(report)), 200

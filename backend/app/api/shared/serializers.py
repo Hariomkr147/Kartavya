@@ -20,7 +20,6 @@ from typing import Any
 
 from app.models import Complaint, ComplaintCategory, Zone
 
-
 @dataclass
 class SerializationContext:
     """Everything the serializers need, gathered once by the caller.
@@ -66,15 +65,25 @@ def serialize_complaint_detail(complaint: Complaint, ctx: SerializationContext) 
 
 
 def serialize_category(category: ComplaintCategory) -> dict[str, Any]:
-    """`Category`. Note the field renames: category_code -> `code`,
-    sla_hours -> `slaTargetHours`. TODO(phase 2).
-    """
-    raise NotImplementedError
+    """`Category`."""
+    return {
+        "id": str(category.id),
+        "code": category.category_code,
+        "name": category.category_name,
+        "description": category.description,
+        "slaTargetHours": category.sla_hours,
+    }
 
 
 def serialize_zone(zone: Zone) -> dict[str, Any]:
-    """`Zone`. TODO(phase 2)."""
-    raise NotImplementedError
+    """``Zone`` (openapi.yaml: Zone)."""
+    return {
+        "id": str(zone.id),
+        "code": zone.zone_code,
+        "name": zone.zone_name,
+        "isCatchAll": zone.is_catch_all,
+        "isActive": zone.is_active,
+    }
 
 
 def serialize_evidence(evidence: Any, ctx: SerializationContext) -> dict[str, Any]:
@@ -99,9 +108,7 @@ def serialize_status_history(entry: Any) -> dict[str, Any]:
 
 
 def masked_display_name(user: Any) -> str:
-    """`display_name`, or a masked fallback like "Citizen #1042".
-
-    TODO(phase 2). The fallback is NEVER `full_name`. That column is visible
-    only on GET /users/me (self) and in admin views.
-    """
-    raise NotImplementedError
+    """`display_name`, or a masked fallback like "Citizen #1042"."""
+    if getattr(user, "display_name", None):
+        return user.display_name
+    return f"Citizen #{user.id}"

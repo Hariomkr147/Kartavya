@@ -355,9 +355,14 @@ def override(
 def auto_close(*, complaint_id: int, now: datetime) -> Complaint:
     """RESOLVED -> CLOSED by the sweeper. ZERO points, actor_role=SYSTEM,
     changed_by_user_id=NULL.
-
-    TODO(phase 8). Called by `app/jobs/auto_close.py`, which opens its own
-    session. Rewards flow only through an explicit citizen confirm — do not call
-    the gamification services from here.
     """
-    raise NotImplementedError
+    return apply_transition(
+        complaint_id=complaint_id,
+        expected_status=ComplaintStatus.RESOLVED,
+        new_status=ComplaintStatus.CLOSED,
+        actor_role=StatusActor.SYSTEM,
+        changed_by_user_id=None,
+        now=now,
+        remark="Auto-closed by system after confirmation window expired.",
+        extra_values={"closed_at": now},
+    )

@@ -54,18 +54,18 @@ def create_app(config: BaseConfig | None = None) -> "Flask":
     return app
 
 
-def _init_extensions(app: "Flask") -> None:
+def _init_extensions(flask_app: "Flask") -> None:
     from app.extensions import db
 
-    db.init_app(app)
+    db.init_app(flask_app)
 
     # Importing the models package registers every mapper. Alembic autogenerate
     # and db.create_all() both depend on that having happened.
-    import app.models  # noqa: F401
+    from app import models  # noqa: F401
 
     # The upload directory must exist before the first photo arrives; creating
     # it lazily on the first POST is a race between concurrent uploads.
-    app.config["UPLOAD_DIR"].mkdir(parents=True, exist_ok=True)
+    flask_app.config["UPLOAD_DIR"].mkdir(parents=True, exist_ok=True)
 
 
 def _register_api(app: "Flask") -> None:

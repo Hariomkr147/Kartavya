@@ -14,9 +14,13 @@ import pytest
 from app.domain import lifecycle
 from app.domain.enums import (
     ComplaintStatus as S,
+)
+from app.domain.enums import (
     EvidenceVerdict,
-    OfficerTargetStatus as T,
     TransitionFailureCode,
+)
+from app.domain.enums import (
+    OfficerTargetStatus as T,
 )
 from app.domain.errors import Err, Ok
 
@@ -171,4 +175,4 @@ class TestCascadeEligibility:
 
 
 def test_terminal_set_is_exactly_three():
-    assert lifecycle.TERMINAL == {S.REJECTED, S.CLOSED, S.UNRESOLVABLE}
+    assert {S.REJECTED, S.CLOSED, S.UNRESOLVABLE} == lifecycle.TERMINAL

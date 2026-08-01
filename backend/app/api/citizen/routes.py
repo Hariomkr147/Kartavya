@@ -81,34 +81,62 @@ def submit_additional_evidence(complaint_id: str):
 @bp.post("/complaints/<complaint_id>/upvote")
 @require_role(CITIZEN)
 def upvote_complaint(complaint_id: str):
-    """200 UpvoteResult {upvoteCount, severityScore}.
-
-    TODO(phase 6). 409 ALREADY_UPVOTED on a repeat; no self-upvotes. Credits +5
-    to the REPORTER, not the voter, and recomputes severity.
-    """
-    todo("Upvote")
+    """200 UpvoteResult {upvoteCount, severityScore}."""
+    from app.services.complaints.upvotes import upvote
+    from datetime import datetime, UTC
+    from flask import jsonify
+    
+    res = upvote(complaint_id=int(complaint_id), citizen=current_user(), now=datetime.now(UTC))
+    return jsonify(res), 200
 
 
 @bp.post("/complaints/<complaint_id>/confirm")
 @require_role(CITIZEN)
 def confirm_resolution(complaint_id: str):
-    """200 ComplaintDetail — RESOLVED -> CLOSED.
+    """200 ComplaintDetail - RESOLVED -> CLOSED."""
+    from app.services.complaints.lifecycle import confirm_resolution as do_confirm
+    from app.services.complaints.reads import get_complaint_detail
+    from app.api.citizen.serializers import serialize_own_complaint
+    from datetime import datetime, UTC
+    from flask import jsonify
 
-    TODO(phase 6). The ONLY path that credits confirm rewards. Auto-close and an
-    admin-rejected dispute both close a complaint with zero points.
-    """
-    todo("Confirm fix")
+    now = datetime.now(UTC)
+    do_confirm(complaint_id=int(complaint_id), citizen=current_user(), now=now)
+    
+    detail = get_complaint_detail(user=current_user(), complaint_id=int(complaint_id), now=now)
+    return jsonify(serialize_own_complaint(detail.complaint, detail.ctx)), 200
 
 
 @bp.post("/complaints/<complaint_id>/dispute")
 @require_role(CITIZEN)
 def dispute_resolution(complaint_id: str):
-    """200 ComplaintDetail — RESOLVED -> REOPENED. multipart: reason + a photo.
+    """200 ComplaintDetail - RESOLVED -> REOPENED. multipart: reason + a photo."""
+    from app.services.complaints.lifecycle import dispute_resolution as do_dispute
+    from app.services.complaints.reads import get_complaint_detail
+    from app.api.citizen.serializers import serialize_own_complaint
+    from datetime import datetime, UTC
+    from flask import jsonify, request
+    from app.domain.errors import ValidationError
 
-    TODO(phase 6). Both are required — the citizen carries the burden of proof.
-    An ADMIN then rules on it, never the officer who did the work.
-    """
-    todo("Dispute fix")
+    reason = request.form.get("reason")
+    if not reason:
+        raise ValidationError("Reason is required to dispute.")
+    if "photo" not in request.files:
+        raise ValidationError("A fresh photo is required to dispute.")
+    
+    photo = request.files["photo"]
+
+    now = datetime.now(UTC)
+    do_dispute(
+        complaint_id=int(complaint_id), 
+        citizen=current_user(), 
+        reason=reason, 
+        photo=photo, 
+        now=now
+    )
+    
+    detail = get_complaint_detail(user=current_user(), complaint_id=int(complaint_id), now=now)
+    return jsonify(serialize_own_complaint(detail.complaint, detail.ctx)), 200
 
 
 # --- Feed ---------------------------------------------------------------------
@@ -135,22 +163,73 @@ def get_public_feed():
 @bp.get("/gamification/points")
 @require_role(CITIZEN)
 def get_my_points():
-    """200 PointsSummary + ledger page.
+    """200 PointsSummary + ledger page."""
+    from app.services.gamification.ledger import lifetime_points, monthly_points, history
+    from datetime import datetime, UTC
+    from flask import jsonify, request
 
-    TODO(phase 6). Lifetime and monthly totals are SUMs over points_ledger.
-    There is no stored total anywhere.
-    """
-    todo("Points summary")
+    user = current_user()
+    now = datetime.now(UTC)
+    page = request.args.get("page", 1, type=int)
+    page_size = request.args.get("pageSize", 20, type=int)
+
+    lifetime = lifetime_points(citizen_id=user.id)
+    monthly = monthly_points(citizen_id=user.id, year=now.year, month=now.month)
+    rows, total_items = history(citizen_id=user.id, page=page, page_size=page_size)
+
+    from app.services.queries import Pagination
+    pagination = Pagination(page=page, page_size=page_size, total_items=total_items)
+
+    ledger_data = [
+        {
+            "id": str(r.id),
+            "complaintId": str(r.complaint_id) if r.complaint_id else None,
+            "reason": r.reason.value,
+            "pointsChange": r.points_change,
+            "createdAt": r.created_at.isoformat() + "Z" if r.created_at else None
+        } for r in rows
+    ]
+
+    return jsonify({
+        "lifetimePoints": lifetime,
+        "monthlyPoints": monthly,
+        "ledger": ledger_data,
+        "pagination": pagination.to_dict()
+    }), 200
 
 
 @bp.get("/gamification/badges")
 @require_role(CITIZEN)
 def get_my_badges():
-    """200 Badge[] — earned and unearned, so the UI can show what is left.
+    """200 Badge[] - earned and unearned, so the UI can show what is left."""
+    from app.models.gamification import Badge, CitizenBadge
+    from app.extensions import db
+    from sqlalchemy import select
+    from flask import jsonify
+    
+    user = current_user()
+    all_badges = list(db.session.scalars(select(Badge)).all())
+    earned = {cb.badge_id: cb.awarded_at for cb in db.session.scalars(
+        select(CitizenBadge).where(CitizenBadge.citizen_id == user.id)
+    ).all()}
 
-    TODO(phase 6).
-    """
-    todo("Badges")
+    result = []
+    for b in all_badges:
+        is_earned = b.id in earned
+        awarded_at = earned[b.id].isoformat() + "Z" if is_earned else None
+        result.append({
+            "id": str(b.id),
+            "name": b.name,
+            "description": b.description,
+            "iconUrl": b.icon_url,
+            "criteriaType": b.criteria_type.value,
+            "criteriaValue": b.criteria_value,
+            "criteriaCount": b.criteria_count,
+            "isEarned": is_earned,
+            "awardedAt": awarded_at
+        })
+
+    return jsonify(result), 200
 
 
 @bp.get("/leaderboard")

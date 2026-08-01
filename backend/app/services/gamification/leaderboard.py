@@ -30,8 +30,14 @@ def leaderboard(
 
 
 def zone_rank(*, citizen_id: int) -> int | None:
-    """This citizen's position within their own zone. TODO(phase 6).
+    """This citizen's position within their own zone."""
+    citizen = db.session.get(User, citizen_id)
+    if not citizen or citizen.zone_id is None:
+        return None
+    from datetime import datetime, UTC
+    _, entries, _ = get_leaderboard_service(caller=citizen, scope='zone', period='all_time', page=1, page_size=1000, now=datetime.now(UTC))
+    for e in entries:
+        if e['citizenId'] == str(citizen_id):
+            return e['rank']
+    return None
 
-    Feeds both the gamification page and the ZONE_RANK_ONE badge criterion.
-    """
-    raise NotImplementedError

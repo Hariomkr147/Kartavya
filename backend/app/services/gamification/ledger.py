@@ -1,46 +1,72 @@
-"""The append-only points ledger.
-
-INSERT only. There is no stored total anywhere in the system: lifetime CSP is
-`SUM(points_change)`, monthly is the same sum filtered by month. That is
-deliberate — a stored total can silently disagree with its rows.
-"""
+"""The append-only points ledger."""
 
 from __future__ import annotations
 
 from datetime import datetime
+from sqlalchemy import select, func
 
 from app.domain.enums import PointsReason
 from app.models import PointsLedger
-
+from app.extensions import db
+from app.domain.points import amount
 
 def award(
     *, citizen_id: int, complaint_id: int | None, reason: PointsReason, now: datetime
 ) -> PointsLedger:
-    """Append one ledger row, with the amount `domain.points` fixes for the reason.
+    """Append one ledger row, with the amount domain.points fixes for the reason."""
+    amt = amount(reason)
+    ledger_row = PointsLedger(
+        citizen_id=citizen_id,
+        complaint_id=complaint_id,
+        points_change=amt,
+        reason=reason,
+        created_at=now
+    )
+    db.session.add(ledger_row)
+    db.session.flush()
 
-    TODO(phase 6). Callers never pass an amount — that would let two call sites
-    disagree about what a COMPLAINT_CLOSED is worth.
+    from app.services.gamification.badges import evaluate_and_award
+    evaluate_and_award(citizen_id=citizen_id, now=now)
 
-    After awarding, re-evaluate badges (`gamification/badges.py`) in the same
-    transaction: crossing 100 lifetime points and earning CENTURY_REFORMER must
-    not be separable by a crash.
-    """
-    raise NotImplementedError
-
+    return ledger_row
 
 def lifetime_points(*, citizen_id: int) -> int:
-    """SUM over the whole ledger. TODO(phase 6)."""
-    raise NotImplementedError
-
+    return db.session.scalar(
+        select(func.sum(PointsLedger.points_change)).where(
+            PointsLedger.citizen_id == citizen_id
+        )
+    ) or 0
 
 def monthly_points(*, citizen_id: int, year: int, month: int) -> int:
-    """SUM over one calendar month. TODO(phase 6)."""
-    raise NotImplementedError
-
+    # SQLITE compatibility: use python datetime or string compare depending on dialect
+    start = datetime(year, month, 1)
+    if month == 12:
+        end = datetime(year + 1, 1, 1)
+    else:
+        end = datetime(year, month + 1, 1)
+    
+    return db.session.scalar(
+        select(func.sum(PointsLedger.points_change)).where(
+            PointsLedger.citizen_id == citizen_id,
+            PointsLedger.created_at >= start,
+            PointsLedger.created_at < end
+        )
+    ) or 0
 
 def history(*, citizen_id: int, page: int, page_size: int) -> tuple[list[PointsLedger], int]:
-    """GET /gamification/points — the ledger, paginated, newest first.
+    from app.services.queries import clamp_page_args
+    page, page_size = clamp_page_args(page, page_size, max_page_size=100)
+    
+    total_items = db.session.scalar(
+        select(func.count(PointsLedger.id)).where(PointsLedger.citizen_id == citizen_id)
+    ) or 0
 
-    TODO(phase 6). Returns (rows, total_items) for the PaginationMeta envelope.
-    """
-    raise NotImplementedError
+    rows = list(db.session.scalars(
+        select(PointsLedger)
+        .where(PointsLedger.citizen_id == citizen_id)
+        .order_by(PointsLedger.created_at.desc())
+        .limit(page_size)
+        .offset((page - 1) * page_size)
+    ).all())
+
+    return rows, total_items

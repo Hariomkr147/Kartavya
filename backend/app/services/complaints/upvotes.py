@@ -1,42 +1,65 @@
-"""Upvotes — one per citizen per complaint, never on your own.
-
-An upvote has two effects: +1 to the complaint's severity score, and +5 CSP to
-the REPORTER (not the voter).
-"""
+"""Upvotes - one per citizen per complaint, never on your own."""
 
 from __future__ import annotations
 
 from datetime import datetime
+from sqlalchemy import select, func
 
-from app.models import User
-
+from app.models import User, Complaint, ComplaintUpvote
+from app.domain.enums import PointsReason
+from app.domain.errors import ConflictError, ValidationError
+from app.extensions import db
 
 def upvote(*, complaint_id: int, citizen: User, now: datetime) -> dict[str, int]:
-    """POST /complaints/{id}/upvote -> UpvoteResult {upvoteCount, severityScore}.
+    """POST /complaints/{id}/upvote -> UpvoteResult {upvoteCount, severityScore}."""
+    complaint = db.session.get(Complaint, complaint_id)
+    if not complaint:
+        raise ValidationError("Complaint not found")
+        
+    if complaint.citizen_id == citizen.id:
+        raise ConflictError("SELF_UPVOTE", "You cannot upvote your own complaint.")
 
-    TODO(phase 6). One transaction:
-      1. 409 ALREADY_UPVOTED if this citizen already upvoted it. Check first
-         rather than catching the unique-index IntegrityError, so the response
-         is a clean contract error rather than a 500.
-      2. 409 (or 400) if `citizen.id == complaint.citizen_id` — no self-upvotes.
-      3. Insert the `complaint_upvotes` row.
-      4. Credit UPVOTE_RECEIVED (+5) to the complaint's REPORTER.
-      5. `clusters.recompute_severity_for_cluster(...)` — an upvote changes only
-         this complaint's own score, but the cluster's API-level severity is
-         computed from the members' totals, so recompute through the same path.
-      6. Re-evaluate the reporter's badges.
+    # Check for existing upvote
+    existing = db.session.scalar(
+        select(ComplaintUpvote.id).where(
+            ComplaintUpvote.complaint_id == complaint_id,
+            ComplaintUpvote.citizen_id == citizen.id
+        )
+    )
+    if existing:
+        raise ConflictError("ALREADY_UPVOTED", "You have already upvoted this complaint.")
 
-    Returns the new count and score for the response body.
-    """
-    raise NotImplementedError
+    # Insert upvote
+    new_upvote = ComplaintUpvote(
+        complaint_id=complaint_id,
+        citizen_id=citizen.id,
+        created_at=now
+    )
+    db.session.add(new_upvote)
+    db.session.flush()
 
+    # Reward the reporter
+    from app.services.gamification.ledger import award
+    award(citizen_id=complaint.citizen_id, complaint_id=complaint_id, reason=PointsReason.UPVOTE_RECEIVED, now=now)
+
+    # Recompute severity for the cluster
+    from app.services.complaints.clusters import recompute_severity_for_cluster
+    recompute_severity_for_cluster(cluster_id=complaint.cluster_id or complaint.id, is_standalone=complaint.cluster_id is None)
+    
+    db.session.flush()
+
+    # Fetch new values
+    upvote_cnt = db.session.scalar(
+        select(func.count(ComplaintUpvote.id)).where(ComplaintUpvote.complaint_id == complaint_id)
+    ) or 0
+
+    return {
+        "upvoteCount": upvote_cnt,
+        "severityScore": complaint.severity_score
+    }
 
 def upvote_counts(*, complaint_ids: list[int]) -> dict[int, int]:
-    """COUNT(*) per complaint, in ONE GROUP BY.
-
-    TODO(phase 3). Serializers must not query, so list endpoints prefetch this
-    and hand it to the serializer. Without it a 20-item page becomes 20 extra
-    queries — and `GET /feed` and the officer queue serialize a full page on
-    every call.
-    """
-    raise NotImplementedError
+    if not complaint_ids:
+        return {}
+    stmt = select(ComplaintUpvote.complaint_id, func.count(ComplaintUpvote.id)).where(ComplaintUpvote.complaint_id.in_(complaint_ids)).group_by(ComplaintUpvote.complaint_id)
+    return dict(db.session.execute(stmt).all())

@@ -265,21 +265,86 @@ def transition_batch(
 
 
 def confirm_resolution(*, complaint_id: int, citizen: User, now: datetime) -> Complaint:
-    """RESOLVED -> CLOSED, and the ONLY path that credits confirm rewards.
+    """RESOLVED -> CLOSED, and the ONLY path that credits confirm rewards."""
+    from app.domain import lifecycle as lifecycle_domain
+    from app.domain import points as points_domain
+    from app.domain.enums import ComplaintStatus, StatusActor, PointsReason
+    from app.domain.sla import label as sla_label_func
+    from app.services.gamification.ledger import award
+    from app.services.complaints.clusters import claim_cluster_reward
 
-    TODO(phase 6). Steps, all in one transaction:
-      1. Ownership check (a citizen confirms their own complaint only).
-      2. `domain.lifecycle.validate_confirm(current)`.
-      3. `apply_transition(expected_status=RESOLVED, new_status=CLOSED,
-         extra_values={"closed_at": now})` — the guard is what makes a
-         double-clicked confirm idempotent instead of double-paying.
-      4. Cluster reward: atomic test-and-set on `reward_granted`
-         (see clusters.claim_cluster_reward), then
-         `domain.points.close_reward(...)` decides +50 / +10 / nothing.
-      5. ON_TIME_BONUS independently, per this complaint's own SLA snapshot.
-      6. Re-evaluate badges.
-    """
-    raise NotImplementedError
+    complaint = db.session.get(Complaint, complaint_id)
+    if not complaint:
+        raise NotFoundError("Complaint not found.")
+    
+    if complaint.citizen_id != citizen.id:
+        raise ForbiddenError("You may only confirm your own complaints.")
+
+    # Validate transition
+    from app.domain.errors import raise_for
+    raise_for(lifecycle_domain.validate_confirm(complaint.status))
+
+    # Apply transition
+    apply_transition(
+        complaint=complaint,
+        expected_status=ComplaintStatus.RESOLVED,
+        new_status=ComplaintStatus.CLOSED,
+        extra_values={"closed_at": now},
+        now=now,
+    )
+
+    record_history(
+        complaint_id=complaint.id,
+        from_status=ComplaintStatus.RESOLVED,
+        to_status=ComplaintStatus.CLOSED,
+        actor_role=StatusActor.CITIZEN,
+        changed_by=citizen.id,
+        now=now,
+    )
+
+    # 4. Cluster reward logic
+    is_clustered = complaint.cluster_id is not None
+    reward_granted = False
+    citizen_rewarded = False
+    if is_clustered:
+        # We need to know if the citizen was already rewarded in this cluster
+        from app.models.gamification import PointsLedger
+        # A citizen is already rewarded if they received COMPLAINT_CLOSED or CLUSTER_MEMBER_CLOSED for ANY complaint in this cluster
+        member_ids_stmt = select(Complaint.id).where(Complaint.cluster_id == complaint.cluster_id)
+        already_rewarded_stmt = select(PointsLedger.id).where(
+            PointsLedger.citizen_id == citizen.id,
+            PointsLedger.complaint_id.in_(member_ids_stmt),
+            PointsLedger.reason.in_([PointsReason.COMPLAINT_CLOSED, PointsReason.CLUSTER_MEMBER_CLOSED])
+        )
+        citizen_rewarded = db.session.scalar(already_rewarded_stmt) is not None
+
+        # Claim the cluster reward (+50) if available
+        reward_granted = not claim_cluster_reward(cluster_id=complaint.cluster_id)
+        # claim_cluster_reward returns True if it won, so if it didn't win, reward was already granted
+
+    reward_reason = points_domain.close_reward(
+        is_clustered=is_clustered,
+        cluster_reward_already_granted=reward_granted,
+        citizen_already_rewarded_in_cluster=citizen_rewarded,
+    )
+
+    if reward_reason:
+        award(citizen_id=citizen.id, complaint_id=complaint.id, reason=reward_reason, now=now)
+
+    # ON_TIME_BONUS
+    sla_lbl_obj = sla_label_func(
+        target_hours=complaint.sla_target_hours,
+        started_at=complaint.sla_started_at,
+        paused_seconds=complaint.sla_paused_seconds,
+        paused_at=complaint.sla_paused_at,
+        now=now,
+    )
+    sla_lbl = sla_lbl_obj.value if sla_lbl_obj else None
+    if points_domain.earns_on_time_bonus(sla_lbl):
+        award(citizen_id=citizen.id, complaint_id=complaint.id, reason=PointsReason.ON_TIME_BONUS, now=now)
+
+    db.session.flush()
+    return complaint
 
 
 # --- Door 6: POST /complaints/{id}/dispute ------------------------------------
@@ -288,17 +353,63 @@ def confirm_resolution(*, complaint_id: int, citizen: User, now: datetime) -> Co
 def dispute_resolution(
     *, complaint_id: int, citizen: User, reason: str, photo: Any, now: datetime
 ) -> Complaint:
-    """RESOLVED -> REOPENED. Reason AND a fresh photo both required.
+    """RESOLVED -> REOPENED. Reason AND a fresh photo both required."""
+    from app.domain import lifecycle as lifecycle_domain
+    from app.domain.enums import ComplaintStatus, StatusActor
+    from app.models.complaints import ComplaintEvidence
+    from app.infra.storage import validate_photo, store_photo
+    from flask import current_app
+    from pathlib import Path
+    from sqlalchemy import select, func
 
-    TODO(phase 6). The dispute photo is appended to `complaint_evidence` with
-    the next sequence, and its `verdict` stays permanently null — it is never
-    routed through an officer's evidence review. The admin judges it directly
-    when ruling, and that ruling lives on status_history.
+    complaint = db.session.get(Complaint, complaint_id)
+    if not complaint:
+        raise NotFoundError("Complaint not found.")
+    
+    if complaint.citizen_id != citizen.id:
+        raise ForbiddenError("You may only dispute your own complaints.")
 
-    The complaint STAYS in its cluster: `cluster_id` is never cleared, which is
-    what stops a disputed-and-refixed member masquerading as a standalone +50.
-    """
-    raise NotImplementedError
+    # Validate transition
+    from app.domain.errors import raise_for
+    raise_for(lifecycle_domain.validate_dispute(complaint.status))
+
+    # Save photo and create evidence
+    mime_type = validate_photo(stream=photo.stream, declared_mime=photo.mimetype, max_bytes=5 * 1024 * 1024)
+    upload_dir = Path(current_app.config["UPLOAD_DIR"])
+    file_path = store_photo(complaint_id=complaint.id, stream=photo.stream, mime_type=mime_type, upload_dir=upload_dir)
+    next_seq = db.session.scalar(
+        select(func.max(ComplaintEvidence.sequence)).where(ComplaintEvidence.complaint_id == complaint.id)
+    ) or 0
+    next_seq += 1
+
+    evidence = ComplaintEvidence(
+        complaint_id=complaint.id,
+        sequence=next_seq,
+        file_path=file_path,
+        created_at=now,
+    )
+    db.session.add(evidence)
+
+    # Apply transition
+    apply_transition(
+        complaint=complaint,
+        expected_status=ComplaintStatus.RESOLVED,
+        new_status=ComplaintStatus.REOPENED,
+        now=now,
+    )
+
+    record_history(
+        complaint_id=complaint.id,
+        from_status=ComplaintStatus.RESOLVED,
+        to_status=ComplaintStatus.REOPENED,
+        actor_role=StatusActor.CITIZEN,
+        changed_by=citizen.id,
+        reason=reason,
+        now=now,
+    )
+
+    db.session.flush()
+    return complaint
 
 
 # --- Door 7: POST /admin/complaints/{id}/dispute-review -----------------------
@@ -361,3 +472,5 @@ def auto_close(*, complaint_id: int, now: datetime) -> Complaint:
     the gamification services from here.
     """
     raise NotImplementedError
+
+

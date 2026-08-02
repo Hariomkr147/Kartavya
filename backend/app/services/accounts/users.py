@@ -45,9 +45,9 @@ def update_own_profile(
       * 400 if zone_id doesn't exist.
       * Explicit ``None`` for display_name clears it (vs. _UNSET = not sent).
     """
+    from app.domain.errors import ConflictError, ForbiddenError, ValidationError
     from app.extensions import db
     from app.models import Zone
-    from app.domain.errors import ConflictError, ForbiddenError, ValidationError
 
     if full_name is not _UNSET and full_name is not None:
         user.full_name = full_name

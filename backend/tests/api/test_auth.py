@@ -1,9 +1,11 @@
-from unittest.mock import patch, MagicMock
 from datetime import UTC, datetime
-from app.settings import API_PREFIX
-from app.models import User
+from unittest.mock import patch
+
 from app.domain.enums import UserRole
-from app.domain.errors import ConflictError, AuthError
+from app.domain.errors import AuthError, ConflictError
+from app.models import User
+from app.settings import API_PREFIX
+
 
 def mock_citizen():
     return User(
@@ -195,7 +197,7 @@ class TestEmailCaseInsensitiveAuth:
         mock_register.assert_called_once()
         # The schema validation might handle email normalization or it's handled in the service.
         # But wait, Pydantic email field normalization? Or the service? Pydantic just validates.
-        # The route passes body.email to the service. Pydantic EmailStr might not lowercase it, but pp.core.validation might.
+        # The route hands body.email to the service, which lowercases it.
         # Let's just assert the service was called.
         args, kwargs = mock_register.call_args
         assert kwargs['email'] == "Upper@test.com"

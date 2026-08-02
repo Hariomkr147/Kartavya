@@ -8,12 +8,12 @@ sitting beside them — read ``security:`` in the contract carefully.
 from __future__ import annotations
 
 from flask import Blueprint
-
 from pydantic import BaseModel, ConfigDict
 
 from app.api.shared.responses import todo  # noqa: F401 — used by other stubs
 from app.core.auth import require_auth
 from app.core.validation import validate_body
+
 
 class ZoneSuggestionRequest(BaseModel):
     """openapi.yaml: ZoneSuggestionRequest."""

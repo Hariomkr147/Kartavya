@@ -42,9 +42,9 @@ def register_citizen(
     Validates zone existence before inserting, so a stale zone list on the
     client produces a clean 400 instead of a 500 FK violation.
     """
-    from app.extensions import db
     from app.domain.enums import UserRole
     from app.domain.errors import ConflictError, ValidationError
+    from app.extensions import db
     from app.models import Zone
 
     email = email.strip().lower()
@@ -85,8 +85,8 @@ def authenticate(*, email: str, password: str) -> User:
     so that an attacker cannot probe which emails exist.  A dummy hash-check
     equalises timing between the miss and hit paths.
     """
-    from app.extensions import db
     from app.domain.errors import AuthError
+    from app.extensions import db
 
     email = email.strip().lower()
 
@@ -102,8 +102,8 @@ def authenticate(*, email: str, password: str) -> User:
 
 def change_password(*, user: User, current_password: str, new_password: str) -> None:
     """POST /users/me/change-password — any authenticated role."""
-    from app.extensions import db
     from app.domain.errors import AuthError
+    from app.extensions import db
 
     if not verify_password(user, current_password):
         raise AuthError("Incorrect current password.")

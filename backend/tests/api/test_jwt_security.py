@@ -17,10 +17,11 @@ class TestExpiredToken:
     """An expired token must return 401."""
 
     def test_expired_token_returns_401(self, client, seeded_app, session):
-        from app.models import User
-        from app.domain.enums import UserRole
         from werkzeug.security import generate_password_hash
+
+        from app.domain.enums import UserRole
         from app.extensions import db
+        from app.models import User
 
         user = User(
             full_name="Expired",
@@ -71,10 +72,11 @@ class TestWrongSecret:
     """A token signed with the wrong key must be rejected."""
 
     def test_wrong_secret_returns_401(self, client, seeded_app, session):
-        from app.models import User
-        from app.domain.enums import UserRole
         from werkzeug.security import generate_password_hash
+
+        from app.domain.enums import UserRole
         from app.extensions import db
+        from app.models import User
 
         user = User(
             full_name="Wrong",
@@ -106,10 +108,11 @@ class TestDeactivatedUser:
     """Rule 5: a deactivated user is blocked even with a valid token."""
 
     def test_deactivated_user_returns_401(self, client, seeded_app, auth_header, session):
-        from app.models import User
-        from app.domain.enums import UserRole
         from werkzeug.security import generate_password_hash
+
+        from app.domain.enums import UserRole
         from app.extensions import db
+        from app.models import User
 
         user = User(
             full_name="Deactivated",

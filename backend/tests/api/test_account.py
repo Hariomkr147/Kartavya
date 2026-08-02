@@ -1,10 +1,13 @@
-from unittest.mock import patch, MagicMock
 from datetime import UTC, datetime
-from app.settings import API_PREFIX
-from app.models import User
-from app.domain.enums import UserRole
-from app.domain.errors import ConflictError, ForbiddenError
+from unittest.mock import patch
+
 import jwt
+
+from app.domain.enums import UserRole
+from app.domain.errors import ForbiddenError
+from app.models import User
+from app.settings import API_PREFIX
+
 
 def mock_citizen():
     return User(
@@ -17,13 +20,22 @@ def mock_citizen():
         created_at=datetime.now(UTC),
     )
 
+def app_token(app, *, user_id="1", role="CITIZEN", zone_id=1):
+    """A token signed with the app's own secret, for the mocked-session tests."""
+    return jwt.encode(
+        {"sub": user_id, "role": role, "zone_id": zone_id, "iat": 0, "exp": 9999999999},
+        app.config["JWT_SECRET"],
+        algorithm="HS256",
+    )
+
+
 def generate_token(user_id="1", role="CITIZEN", zone_id=1):
     payload = {
         "sub": user_id,
         "role": role,
         "zone_id": zone_id,
         "iat": int(datetime.now(UTC).timestamp()),
-        "exp": int((datetime.now(UTC) + datetime.timedelta(hours=1)).timestamp()) if hasattr(datetime, "timedelta") else int(datetime.now(UTC).timestamp() + 3600),
+        "exp": int(datetime.now(UTC).timestamp() + 3600),
     }
     return jwt.encode(payload, "test-secret", algorithm="HS256")
 
@@ -33,7 +45,7 @@ class TestProfileContract:
     @patch('app.core.auth.db.session')
     def test_profile_has_name_not_fullname(self, mock_session, client, seeded_app):
         mock_session.get.return_value = mock_citizen()
-        token = jwt.encode({"sub": "1", "role": "CITIZEN", "zone_id": 1, "iat": 0, "exp": 9999999999}, seeded_app.config["JWT_SECRET"], algorithm="HS256")
+        token = app_token(seeded_app)
         res = client.get(self.URL, headers={"Authorization": f"Bearer {token}"})
         assert res.status_code == 200
         data = res.get_json()
@@ -43,7 +55,7 @@ class TestProfileContract:
     @patch('app.core.auth.db.session')
     def test_profile_has_active_field(self, mock_session, client, seeded_app):
         mock_session.get.return_value = mock_citizen()
-        token = jwt.encode({"sub": "1", "role": "CITIZEN", "zone_id": 1, "iat": 0, "exp": 9999999999}, seeded_app.config["JWT_SECRET"], algorithm="HS256")
+        token = app_token(seeded_app)
         res = client.get(self.URL, headers={"Authorization": f"Bearer {token}"})
         assert "active" in res.get_json()
         assert res.get_json()["active"] is True
@@ -51,7 +63,7 @@ class TestProfileContract:
     @patch('app.core.auth.db.session')
     def test_profile_has_created_at(self, mock_session, client, seeded_app):
         mock_session.get.return_value = mock_citizen()
-        token = jwt.encode({"sub": "1", "role": "CITIZEN", "zone_id": 1, "iat": 0, "exp": 9999999999}, seeded_app.config["JWT_SECRET"], algorithm="HS256")
+        token = app_token(seeded_app)
         res = client.get(self.URL, headers={"Authorization": f"Bearer {token}"})
         assert "createdAt" in res.get_json()
 
@@ -74,13 +86,25 @@ class TestPatchProfileZoneRestriction:
     @patch('app.services.accounts.users.update_own_profile')
     @patch('app.core.auth.db.session')
     def test_officer_cannot_change_zone(self, mock_session, mock_update, client, seeded_app):
-        officer = User(id=2, full_name="Officer", email="officer@test.com", role=UserRole.OFFICER, zone_id=1, is_active=True, created_at=datetime.now(UTC))
+        officer = User(
+            id=2,
+            full_name="Officer",
+            email="officer@test.com",
+            role=UserRole.OFFICER,
+            zone_id=1,
+            is_active=True,
+            created_at=datetime.now(UTC),
+        )
         mock_session.get.return_value = officer
-        token = jwt.encode({"sub": "2", "role": "OFFICER", "zone_id": 1, "iat": 0, "exp": 9999999999}, seeded_app.config["JWT_SECRET"], algorithm="HS256")
+        token = app_token(seeded_app, user_id="2", role="OFFICER")
         
         mock_update.side_effect = ForbiddenError("Only citizens can change their zone.")
         
-        res = client.patch(self.URL, headers={"Authorization": f"Bearer {token}"}, json={"zoneId": "2"})
+        res = client.patch(
+            self.URL,
+            headers={"Authorization": f"Bearer {token}"},
+            json={"zoneId": "2"},
+        )
         assert res.status_code == 403
 
 
@@ -93,36 +117,41 @@ class TestDisplayNameNullClear:
         user = mock_citizen()
         user.display_name = "CustomName"
         mock_session.get.return_value = user
-        token = jwt.encode({"sub": "1", "role": "CITIZEN", "zone_id": 1, "iat": 0, "exp": 9999999999}, seeded_app.config["JWT_SECRET"], algorithm="HS256")
+        token = app_token(seeded_app)
         
         # When update_profile is called, simulate the effect
         def mock_update_func(*args, **kwargs):
-            display_name = kwargs.get('display_name') or (args[3] if len(args) > 3 else None)
-            name = kwargs.get('full_name') or (args[2] if len(args) > 2 else None)
             user.display_name = None
             return user
         mock_update.side_effect = mock_update_func
         
-        res = client.patch(self.URL, headers={"Authorization": f"Bearer {token}"}, json={"displayName": None})
+        res = client.patch(
+            self.URL,
+            headers={"Authorization": f"Bearer {token}"},
+            json={"displayName": None},
+        )
         assert res.status_code == 200
         assert res.get_json()["displayName"] is None
 
     @patch('app.services.accounts.users.update_own_profile')
     @patch('app.core.auth.db.session')
-    def test_omitting_display_name_preserves_it(self, mock_session, mock_update, client, seeded_app):
+    def test_omitting_display_name_preserves_it(
+        self, mock_session, mock_update, client, seeded_app
+    ):
         user = mock_citizen()
         user.display_name = "KeepThis"
         mock_session.get.return_value = user
-        token = jwt.encode({"sub": "1", "role": "CITIZEN", "zone_id": 1, "iat": 0, "exp": 9999999999}, seeded_app.config["JWT_SECRET"], algorithm="HS256")
+        token = app_token(seeded_app)
         
         def mock_update_func(*args, **kwargs):
-            display_name = kwargs.get('display_name') or (args[3] if len(args) > 3 else None)
-            name = kwargs.get('full_name') or (args[2] if len(args) > 2 else None)
-            user.full_name = name
             return user
         mock_update.side_effect = mock_update_func
         
-        res = client.patch(self.URL, headers={"Authorization": f"Bearer {token}"}, json={"name": "NewFull"})
+        res = client.patch(
+            self.URL,
+            headers={"Authorization": f"Bearer {token}"},
+            json={"name": "NewFull"},
+        )
         assert res.status_code == 200
         assert res.get_json()["displayName"] == "KeepThis"
 
@@ -133,7 +162,7 @@ class TestNoZoneNameInResponse:
     @patch('app.core.auth.db.session')
     def test_no_zone_name_in_profile(self, mock_session, client, seeded_app):
         mock_session.get.return_value = mock_citizen()
-        token = jwt.encode({"sub": "1", "role": "CITIZEN", "zone_id": 1, "iat": 0, "exp": 9999999999}, seeded_app.config["JWT_SECRET"], algorithm="HS256")
+        token = app_token(seeded_app)
         res = client.get(self.URL, headers={"Authorization": f"Bearer {token}"})
         data = res.get_json()
         assert "zoneName" not in data

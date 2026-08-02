@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from app.settings import API_PREFIX
+
 
 def test_get_categories(client, seeded_app):
     res = client.get(f"{API_PREFIX}/categories")
@@ -12,11 +14,13 @@ def test_get_zones(client, seeded_app):
     assert len(res.get_json()) >= 1  # at least the catch-all zone is seeded
 
 def test_suggest_zone(client, seeded_app, auth_header):
-    from app.models import User
-    from app.domain.enums import UserRole
+    from datetime import UTC, datetime
+
     from werkzeug.security import generate_password_hash
-    from datetime import datetime, UTC
+
+    from app.domain.enums import UserRole
     from app.extensions import db
+    from app.models import User
 
     user = User(
         full_name="User",
@@ -64,11 +68,13 @@ class TestSuggestZoneContract:
     URL = f"{API_PREFIX}/zones/suggest"
 
     def test_suggest_zone_missing_coordinates(self, client, seeded_app, auth_header):
-        from app.models import User
-        from app.domain.enums import UserRole
+        from datetime import UTC, datetime
+
         from werkzeug.security import generate_password_hash
-        from datetime import datetime, UTC
+
+        from app.domain.enums import UserRole
         from app.extensions import db
+        from app.models import User
 
         user = User(
             full_name="SuggestUser",
@@ -91,11 +97,13 @@ class TestSuggestZoneValidation:
     URL = f"{API_PREFIX}/zones/suggest"
 
     def _auth_user(self, db_session):
-        from app.models import User
-        from app.domain.enums import UserRole
+        from datetime import UTC, datetime
+
         from werkzeug.security import generate_password_hash
-        from datetime import datetime, UTC
+
+        from app.domain.enums import UserRole
         from app.extensions import db
+        from app.models import User
 
         user = User(
             full_name="ValidUser",

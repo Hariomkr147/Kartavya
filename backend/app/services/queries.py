@@ -20,6 +20,13 @@ T = TypeVar("T")
 #: openapi.yaml: Sort. A leading '-' means descending.
 SORTABLE_FIELDS = ("createdAt", "updatedAt", "severity", "sla", "upvotes")
 
+#: The officer queue's documented default order — "most urgent first (Critical
+#: severity and Overdue SLA at the top)". Not a client-supplied sort key: it is
+#: composite, so it cannot be expressed in the contract's single-field `sort`
+#: grammar. Pass it as `apply_sort(..., default=URGENCY)` so an unrecognised
+#: client sort still falls back to the documented order rather than erroring.
+URGENCY = "__urgency__"
+
 
 @dataclass(frozen=True)
 class Pagination:
@@ -55,6 +62,36 @@ def apply_pagination(query: Select[Any], page: int, page_size: int) -> Select[An
     return query.limit(page_size).offset((page - 1) * page_size)
 
 
+def sla_ratio_expression(now: datetime | None = None):
+    """Fraction of a complaint's SLA target consumed, computed in SQL.
+
+    The same arithmetic as `domain.sla.percent_consumed`, expressed so the
+    database can ORDER BY it — sorting a page in Python would only order that
+    page. Complaints with no clock yet sort as 0 (never accepted, so never
+    overdue) rather than NULL, which SQLite would sort unpredictably.
+    """
+    from app.models import Complaint
+
+    ref_time = now if now is not None else datetime.now()
+    now_jd = func.julianday(ref_time.isoformat())
+    paused_jd = func.julianday(Complaint.sla_paused_at)
+    started_jd = func.julianday(Complaint.sla_started_at)
+    ongoing_pause = case(
+        (Complaint.sla_paused_at.isnot(None), (now_jd - paused_jd) * 86400.0),
+        else_=0.0,
+    )
+    total_paused = Complaint.sla_paused_seconds + ongoing_pause
+    elapsed_secs = (now_jd - started_jd) * 86400.0 - total_paused
+    target_secs = Complaint.sla_target_hours * 3600.0
+    return case(
+        (
+            Complaint.sla_started_at.isnot(None) & (Complaint.sla_target_hours > 0),
+            elapsed_secs / target_secs,
+        ),
+        else_=0.0,
+    )
+
+
 def apply_sort(
     query: Select[Any], sort: str | None, default: str, now: datetime | None = None
 ) -> Select[Any]:
@@ -68,10 +105,20 @@ def apply_sort(
     descending = key.startswith("-")
     field_name = key.lstrip("-")
 
-    if field_name not in SORTABLE_FIELDS:
+    if field_name not in SORTABLE_FIELDS and field_name != URGENCY:
         key = default
         descending = key.startswith("-")
         field_name = key.lstrip("-")
+
+    if field_name == URGENCY:
+        # "Most urgent first": worst severity, then worst SLA, then oldest-filed
+        # as a stable final key so pagination never interleaves rows.
+        return query.order_by(
+            Complaint.severity_score.desc(),
+            sla_ratio_expression(now).desc(),
+            Complaint.created_at.desc(),
+            Complaint.id.desc(),
+        )
 
     if field_name == "createdAt":
         col = Complaint.created_at
@@ -96,24 +143,7 @@ def apply_sort(
         return query.order_by(upvote_cnt.desc() if descending else upvote_cnt.asc())
 
     if field_name == "sla":
-        ref_time = now if now is not None else datetime.now()
-        now_jd = func.julianday(ref_time.isoformat())
-        paused_jd = func.julianday(Complaint.sla_paused_at)
-        started_jd = func.julianday(Complaint.sla_started_at)
-        ongoing_pause = case(
-            (Complaint.sla_paused_at.isnot(None), (now_jd - paused_jd) * 86400.0),
-            else_=0.0,
-        )
-        total_paused = Complaint.sla_paused_seconds + ongoing_pause
-        elapsed_secs = (now_jd - started_jd) * 86400.0 - total_paused
-        target_secs = Complaint.sla_target_hours * 3600.0
-        sla_ratio = case(
-            (
-                Complaint.sla_started_at.isnot(None) & (Complaint.sla_target_hours > 0),
-                elapsed_secs / target_secs,
-            ),
-            else_=0.0,
-        )
+        sla_ratio = sla_ratio_expression(now)
         return query.order_by(sla_ratio.desc() if descending else sla_ratio.asc())
 
     return query

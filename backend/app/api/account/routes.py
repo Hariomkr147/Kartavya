@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from flask import Blueprint
 
-from app.api.account.schemas import ChangePasswordRequest, UpdateProfileRequest
-from app.api.account.schemas import serialize_user
+from app.api.account.schemas import ChangePasswordRequest, UpdateProfileRequest, serialize_user
 from app.core.auth import require_auth
 from app.core.validation import validate_body
 

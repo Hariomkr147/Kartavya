@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from flask import Blueprint
 
+from app.api.account.schemas import serialize_user
 from app.api.auth.schemas import LoginRequest, RegisterRequest
 from app.api.shared.responses import todo  # noqa: F401 — used by other stubs
-from app.api.account.schemas import serialize_user
 from app.core.validation import validate_body
 
 bp = Blueprint("auth", __name__)

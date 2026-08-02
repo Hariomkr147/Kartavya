@@ -1,9 +1,10 @@
+from datetime import UTC, datetime
 from unittest import mock
-import pytest
-from datetime import datetime, timezone
-from app.models import ComplaintCluster, Complaint, ComplaintUpvote
+
 from app.domain.enums import ComplaintStatus
+from app.models import Complaint, ComplaintCluster
 from app.services.complaints import clusters
+
 
 @mock.patch("app.services.complaints.clusters.db")
 @mock.patch("app.services.complaints.clusters.recompute_cluster_aggregates")
@@ -21,7 +22,7 @@ def test_link_new_complaint_creates_cluster(mock_recompute, mock_db):
         severity_score=0,
         cluster_id=None
     )
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     
     # Mock nearby candidate
     c2 = Complaint(
@@ -68,7 +69,7 @@ def test_link_new_complaint_joins_existing_cluster(mock_recompute, mock_db):
         severity_score=0,
         cluster_id=None
     )
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     
     c2 = Complaint(
         id=2, latitude=51.5072, longitude=-0.1276, cluster_id=99
@@ -127,7 +128,7 @@ def test_recompute_cluster_aggregates(mock_db):
 
     mock_db.session.execute.side_effect = mock_execute
     
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     clusters.recompute_cluster_aggregates(cluster_id=99, now=now)
     
     assert cluster.report_count == 2

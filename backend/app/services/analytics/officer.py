@@ -136,7 +136,7 @@ def officer_performance(
 
 
 def public_officer_stats(*, officer_id: int) -> dict[str, Any]:
-    """GET /officers/{id}/stats — any authenticated role. TODO(phase 4).
+    """GET /officers/{id}/stats — any authenticated role.
 
     Deliberately tiny: a resolved count and nothing else. Officers are
     identified to citizens by ID, never by name, so do NOT add `fullName` here

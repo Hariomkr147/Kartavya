@@ -13,6 +13,7 @@ from typing import Any
 
 from app.api.shared.serializers import serialize_complaint_detail
 from app.core.context import SerializationContext
+from app.core.serialization import iso_utc
 from app.models import Complaint, User
 
 
@@ -36,7 +37,7 @@ def serialize_user(user: User) -> dict[str, Any]:
         "displayName": user.display_name,
         "zoneId": str(user.zone_id) if user.zone_id else None,
         "active": user.is_active,
-        "createdAt": user.created_at.isoformat() + "Z" if user.created_at else None,
+        "createdAt": iso_utc(user.created_at),
     }
 
 
@@ -64,15 +65,7 @@ def serialize_complaint_for_admin(
 
 def serialize_ai_zone_report(report: Any) -> dict[str, Any]:
     """Serialize AiZoneReport."""
-    from datetime import UTC
-
-    gen_at_raw = getattr(report, "generated_at", None)
-    if gen_at_raw is not None:
-        if gen_at_raw.tzinfo is None:
-            gen_at_raw = gen_at_raw.replace(tzinfo=UTC)
-        gen_at = gen_at_raw.isoformat().replace("+00:00", "Z")
-    else:
-        gen_at = None
+    gen_at = iso_utc(getattr(report, "generated_at", None))
     return {
         "reportId": str(report.id),
         "zoneId": str(report.zone_id),

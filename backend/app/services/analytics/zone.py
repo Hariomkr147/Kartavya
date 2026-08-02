@@ -6,17 +6,22 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from flask import current_app
 from sqlalchemy import func, select
 
 from app.domain import lifecycle, sla
-from flask import current_app
-
-from app.domain.enums import AiReportStatus, SeverityLabel, SlaLabel, UserRole
+from app.domain.enums import (
+    AiReportStatus,
+    ComplaintStatus,
+    SeverityLabel,
+    SlaLabel,
+    UserRole,
+)
+from app.domain.errors import NotFoundError
 from app.domain.lifecycle import TERMINAL
 from app.domain.severity import label as severity_label
 from app.domain.sla import average_resolution_hours, resolution_hours
 from app.domain.sla import label as sla_label
-from app.domain.errors import NotFoundError
 from app.extensions import db
 from app.jobs.zone_report import submit_zone_report_job
 from app.models import AiZoneReport, Complaint, ComplaintCategory, PointsLedger, User, Zone
@@ -132,8 +137,44 @@ def zone_analytics(
     }
 
 
+def zone_summary(*, zone_id: int) -> dict[str, Any]:
+    """GET /zones/{zoneId}/summary — openapi.yaml: ZoneSummary.
+
+    `resolvedComplaints` counts everything that reached a resolution, which
+    includes CLOSED: a complaint the citizen confirmed is *more* resolved than
+    one still waiting on them, and counting only the RESOLVED status would make
+    a healthy zone report zero.
+
+    `activeClusters` is derived from member statuses, never stored — a cluster
+    is active while any member is still non-terminal.
+    """
+    zone = db.session.get(Zone, zone_id)
+    if zone is None:
+        raise NotFoundError("No such zone.")
+
+    rows = list(db.session.scalars(select(Complaint).where(Complaint.zone_id == zone_id)))
+    active = [row for row in rows if row.status not in TERMINAL]
+    resolved = [
+        row
+        for row in rows
+        if row.status in {ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED}
+    ]
+
+    cluster_ids = {row.cluster_id for row in rows if row.cluster_id is not None}
+    active_cluster_ids = {row.cluster_id for row in active if row.cluster_id is not None}
+
+    return {
+        "zoneId": str(zone.id),
+        "totalComplaints": len(rows),
+        "activeComplaints": len(active),
+        "resolvedComplaints": len(resolved),
+        "totalClusters": len(cluster_ids),
+        "activeClusters": len(active_cluster_ids),
+    }
+
+
 def zone_metrics(*, zone_id: int, now: datetime) -> dict[str, Any]:
-    """The ZoneMetrics block inside SystemAnalytics. TODO(phase 7)."""
+    """The ZoneMetrics block inside SystemAnalytics."""
     zone = db.session.get(Zone, zone_id)
     if zone is None:
         return {}

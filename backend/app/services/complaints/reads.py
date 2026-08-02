@@ -26,6 +26,7 @@ from app.models import (
     Zone,
 )
 from app.services.queries import (
+    URGENCY,
     Pagination,
     apply_filters,
     apply_pagination,
@@ -83,6 +84,58 @@ def get_citizen_complaints(
     ctx = build_serialization_context(complaints, now)
     pagination = Pagination(page=page, page_size=page_size, total_items=total_items)
     return complaints, pagination, ctx
+
+
+def get_officer_queue(
+    *,
+    officer: User,
+    query_params: Any,
+    now: datetime,
+) -> tuple[list[Complaint], Pagination, SerializationContext]:
+    """GET /officer/complaints — the zone queue, filtered and sorted in SQL.
+
+    Every filter, including the two DERIVED labels, is applied as part of the
+    query rather than to the page after it. That distinction is the whole point:
+    post-filtering a page searches only the rows that page happened to contain
+    and reports a total that describes the filtered page, not the result set —
+    so `severityLabel=CRITICAL` on a busy zone would silently return whichever
+    critical complaints landed on page 1 and claim that was all of them.
+
+    `severityLabel` becomes a range check on the cached `severity_score`;
+    `slaLabel` becomes the elapsed-time expression in `queries.apply_filters`.
+    Both live in `services/queries.py` so the officer queue, the admin list and
+    the CSV export cannot disagree about what OVERDUE means.
+    """
+    page, page_size = clamp_page_args(query_params.page, query_params.pageSize, max_page_size=100)
+
+    statuses = query_params.status
+    if statuses and not isinstance(statuses, list):
+        statuses = [statuses]
+
+    query = apply_filters(
+        visible_complaints(officer),
+        statuses=statuses,
+        category_id=query_params.categoryId,
+        sla_label=query_params.slaLabel,
+        severity_label=query_params.severityLabel,
+        now=now,
+    )
+
+    total_items = db.session.scalar(select(db.func.count()).select_from(query.subquery())) or 0
+
+    rows = list(
+        db.session.scalars(
+            apply_pagination(
+                apply_sort(query, query_params.sort, default=URGENCY, now=now),
+                page=page,
+                page_size=page_size,
+            )
+        ).all()
+    )
+
+    return rows, Pagination(page=page, page_size=page_size, total_items=total_items), (
+        build_serialization_context(rows, now)
+    )
 
 
 def build_serialization_context(complaints: list[Complaint], now: datetime) -> SerializationContext:

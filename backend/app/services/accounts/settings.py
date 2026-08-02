@@ -24,7 +24,7 @@ def list_categories() -> list[ComplaintCategory]:
 
 
 def get_settings() -> AppSettings:
-    """GET /admin/settings. TODO(phase 7).
+    """GET /admin/settings.
 
     Always row id = 1. Seeded, so this should never have to create it — but a
     get-or-create keeps a half-seeded dev database from 500ing.
@@ -39,7 +39,7 @@ def get_settings() -> AppSettings:
 
 
 def update_settings(*, admin: User, auto_close_timeout_hours: int) -> AppSettings:
-    """PATCH /admin/settings. TODO(phase 7).
+    """PATCH /admin/settings.
 
     `auto_close_timeout_hours` is a LIVE rule, not a per-complaint deadline. The
     sweeper re-reads it every pass, so lowering it can close a backlog on the
@@ -57,7 +57,7 @@ def update_settings(*, admin: User, auto_close_timeout_hours: int) -> AppSetting
 
 
 def update_category_sla(*, category_id: int, sla_target_hours: int) -> ComplaintCategory:
-    """PATCH /admin/slas/{categoryId}. TODO(phase 7).
+    """PATCH /admin/slas/{categoryId}.
 
     Affects only complaints accepted AFTERWARDS. Every complaint snapshots
     `sla_target_hours` at acceptance precisely so an SLA edit cannot retroactively

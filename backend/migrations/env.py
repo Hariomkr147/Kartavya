@@ -7,12 +7,11 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from app import create_app
-from app.extensions import db
-
 # Importing the models package populates db.metadata — without it, autogenerate
 # would cheerfully produce a migration that drops every table.
 import app.models  # noqa: F401
+from app import create_app
+from app.extensions import db
 
 config = context.config
 

@@ -22,7 +22,6 @@ from app.api.admin.schemas import (
     UserQuery,
 )
 from app.api.admin.serializers import serialize_complaint_for_admin, serialize_user
-from app.api.shared.responses import todo
 from app.api.shared.serializers import (
     SerializationContext,
     serialize_category,
@@ -110,15 +109,6 @@ def _context(data: AdminComplaintData) -> SerializationContext:
         history_rows=data.history_rows,
         note_rows=data.note_rows,
     )
-
-
-@bp.get("/categories")
-def list_categories():
-    """200 ComplaintCategory[]. Public/all roles.
-
-    TODO(phase 1).
-    """
-    todo("List categories")
 
 
 @bp.get("/admin/complaints")
@@ -355,10 +345,7 @@ def export_complaints_csv(query: ExportComplaintsQuery):
 @bp.post("/admin/zones/<int:zone_id>/ai-report")
 @require_role(ADMIN)
 def generate_ai_zone_report(zone_id: int):
-    """202 Accepted — trigger async generation of AI zone health report.
-
-    TODO(phase 8).
-    """
+    """202 Accepted — kick off async generation of an AI zone health report."""
     from app.api.admin.serializers import serialize_ai_zone_report
     from app.services.analytics.zone import request_ai_zone_report
 
@@ -373,10 +360,7 @@ def generate_ai_zone_report(zone_id: int):
 @bp.get("/admin/zones/<int:zone_id>/ai-report")
 @require_role(ADMIN)
 def get_ai_zone_report(zone_id: int):
-    """200 AiZoneReport | 404.
-
-    TODO(phase 8).
-    """
+    """200 AiZoneReport — the latest stored report, or 404 if none exists."""
     from app.api.admin.serializers import serialize_ai_zone_report
     from app.services.analytics.zone import get_latest_ai_zone_report
 

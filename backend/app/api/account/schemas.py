@@ -7,12 +7,13 @@ dropped.
 
 from __future__ import annotations
 
-from datetime import timezone
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+from app.core.serialization import iso_utc
 from app.models import User
+
 
 class UpdateProfileRequest(BaseModel):
     """openapi.yaml: UpdateProfileRequest.
@@ -56,15 +57,6 @@ def serialize_user(user: User) -> dict[str, Any]:
     Timestamps include an explicit UTC offset so that JavaScript's
     ``new Date(...)`` never misinterprets them as local time.
     """
-    created_at = user.created_at
-    if created_at is not None:
-        # SQLite strips tzinfo on round-trip; restore UTC if missing.
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
-        created_at_str = created_at.isoformat()
-    else:
-        created_at_str = None
-
     return {
         "id": str(user.id),
         "role": (
@@ -75,5 +67,5 @@ def serialize_user(user: User) -> dict[str, Any]:
         "displayName": user.display_name,
         "zoneId": str(user.zone_id) if user.zone_id is not None else None,
         "active": user.is_active,
-        "createdAt": created_at_str,
+        "createdAt": iso_utc(user.created_at),
     }

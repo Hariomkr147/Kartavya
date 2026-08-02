@@ -28,7 +28,7 @@ def suggest_zone(*, latitude: float, longitude: float) -> Zone | None:
 
 
 def create_zone(*, zone_code: str, zone_name: str, center_lat: float, center_lng: float) -> Zone:
-    """POST /admin/zones. TODO(phase 7). `zone_code` is immutable once created."""
+    """POST /admin/zones. `zone_code` is immutable once created."""
     code = zone_code.strip()
     if db.session.scalar(select(Zone.id).where(Zone.zone_code == code)) is not None:
         raise ConflictError("ZONE_CODE_TAKEN", "A zone with this code already exists.")
@@ -54,7 +54,7 @@ def update_zone(
     center_lng: float | None,
     is_active: bool | None,
 ) -> Zone:
-    """PATCH /admin/zones/{id}. TODO(phase 7).
+    """PATCH /admin/zones/{id}.
 
     A rename changes `zone_name` only — never `zone_code`. Moving the centre
     changes future routing but NOT existing complaints: a complaint's zone is a
@@ -80,7 +80,7 @@ def update_zone(
 
 
 def delete_zone(*, zone_id: int) -> None:
-    """DELETE /admin/zones/{id}. TODO(phase 7). Pre-check the RESTRICT blockers.
+    """DELETE /admin/zones/{id}. Pre-check the RESTRICT blockers.
 
     Count first, 409 with a useful message — never let the IntegrityError become
     a 500. Blockers:

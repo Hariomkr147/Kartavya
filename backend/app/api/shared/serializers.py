@@ -6,23 +6,15 @@ serializer may add reporter data after authorization and scoping are complete.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 
 from app.core.context import SerializationContext
+from app.core.serialization import iso_utc as _iso
 from app.core.signing import sign_photo_url
 from app.domain import severity as severity_domain
 from app.domain import sla as sla_domain
 from app.domain.enums import AiScreenStatus, StatusActor
 from app.models import Complaint, ComplaintCategory, Zone
-
-
-def _iso(value: datetime | None) -> str | None:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=UTC)
-    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def serialize_complaint(complaint: Complaint, ctx: SerializationContext) -> dict[str, Any]:
@@ -37,7 +29,7 @@ def serialize_complaint(complaint: Complaint, ctx: SerializationContext) -> dict
         paused_at=complaint.sla_paused_at,
         now=ctx.now,
     )
-    return {
+    payload: dict[str, Any] = {
         "id": str(complaint.id),
         "category": (
             serialize_category(category)
@@ -52,9 +44,7 @@ def serialize_complaint(complaint: Complaint, ctx: SerializationContext) -> dict
         ),
         "status": complaint.status.value,
         "severityLabel": severity_domain.label(complaint.severity_score).value,
-        "slaLabel": current_sla.value if current_sla else None,
         "upvoteCount": ctx.upvote_counts.get(complaint.id, 0),
-        "photoUrl": sign_photo_url(evidence.id) if evidence else "",
         "zoneId": str(zone.id if zone is not None else complaint.zone_id or ""),
         "zoneName": zone.zone_name if zone is not None else "Unknown",
         "assignedOfficerId": (
@@ -65,6 +55,19 @@ def serialize_complaint(complaint: Complaint, ctx: SerializationContext) -> dict
         "createdAt": _iso(complaint.created_at),
         "updatedAt": _iso(complaint.updated_at),
     }
+
+    # Both fields are OPTIONAL in the contract and neither is nullable, so the
+    # absent case is an absent KEY — not `null`, and not `""`. The finished
+    # frontend's mock does exactly this (`?? undefined` in
+    # frontend/src/mocks/serializers.ts), and `photoUrl: ""` would be worse than
+    # useless: a browser resolves `<img src="">` against the current document
+    # and re-requests the page itself as an image.
+    if current_sla is not None:
+        payload["slaLabel"] = current_sla.value
+    if evidence is not None:
+        payload["photoUrl"] = sign_photo_url(evidence.id)
+
+    return payload
 
 
 def serialize_complaint_detail(

@@ -109,7 +109,7 @@ def upvote(*, complaint_id: int, citizen: User, now: datetime) -> dict[str, obje
 def upvote_counts(*, complaint_ids: list[int]) -> dict[int, int]:
     """COUNT(*) per complaint, in ONE GROUP BY.
 
-    TODO(phase 3). Serializers must not query, so list endpoints prefetch this
+    Serializers must not query, so list endpoints prefetch this
     and hand it to the serializer. Without it a 20-item page becomes 20 extra
     queries — and `GET /feed` and the officer queue serialize a full page on
     every call.

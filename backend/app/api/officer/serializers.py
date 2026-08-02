@@ -37,18 +37,12 @@ def serialize_queue_item(complaint: Complaint, ctx: SerializationContext) -> dic
 def serialize_status_update_result(
     complaint: Complaint, cascade: list[dict[str, Any]], ctx: SerializationContext
 ) -> dict[str, Any]:
-    """Return a status update and an optional clustered-resolution cascade."""
+    """Return a status update and an optional clustered-resolution cascade.
+
+    `cascade` is ABSENT — not null — for standalone complaints and for every
+    non-RESOLVED update, which is what the contract's optional field means.
+    """
     result: dict[str, Any] = {"complaint": serialize_complaint_detail(complaint, ctx)}
     if complaint.status.value == "RESOLVED" and complaint.cluster_id is not None:
         result["cascade"] = cascade
     return result
-
-
-def serialize_batch_result(
-    updated: list[Complaint], failures: list[dict[str, Any]], ctx: SerializationContext
-) -> dict[str, Any]:
-    """Return successful batch updates alongside per-item failures."""
-    return {
-        "updated": [serialize_complaint_detail(complaint, ctx) for complaint in updated],
-        "failures": failures,
-    }

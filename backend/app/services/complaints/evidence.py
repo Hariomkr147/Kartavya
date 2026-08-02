@@ -9,16 +9,17 @@ an officer reviews that row and is written exactly once.
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from flask import current_app
 from sqlalchemy import func, select
 
-from app.domain.enums import AiScreenStatus, EvidenceVerdict
-from app.domain.errors import ValidationError
+from app.domain.enums import AiScreenStatus
+from app.domain.errors import DomainError, ValidationError
 from app.extensions import db
-from app.infra.storage import remove_photo, store_photo, validate_photo
-from app.models import ComplaintEvidence, User
+from app.infra.storage import open_photo, remove_photo, store_photo, validate_photo
+from app.models import ComplaintEvidence
 
 
 def next_sequence(*, complaint_id: int) -> int:
@@ -88,29 +89,21 @@ def attach_photos(
         raise
 
 
-def record_verdict(
-    *,
-    evidence_id: int,
-    officer: User,
-    verdict: EvidenceVerdict,
-    reason: str | None,
-    now: datetime,
-) -> ComplaintEvidence:
-    """Stamp an officer's ruling onto the evidence row it judged.
+def photo_for_signed_request(*, evidence_id: int, upload_dir: Path) -> Path | None:
+    """Resolve an evidence row's image for `GET /evidence/{id}/photo`.
 
-    TODO(phase 4). `reason` is mandatory for NEEDS_MORE_EVIDENCE and REJECTED —
-    the domain check has already enforced that by the time this runs.
+    Returns None — never raises — for every "cannot serve this" case: no such
+    row, a path that escapes UPLOAD_DIR, or a file missing from disk. The route
+    turns all of them into the same 403 it gives a bad signature, because a 404
+    here would let anyone enumerate which evidence IDs exist.
 
-    A dispute-evidence row NEVER passes through here: its verdict stays
-    permanently null, because the admin judges that photo directly when ruling
-    on the dispute, and the ruling lives on status_history.
+    The signature has already been verified by the time this runs; this function
+    performs no authorization of its own and must not be called without it.
     """
-    raise NotImplementedError
-
-
-def latest_reviewable(*, complaint_id: int) -> ComplaintEvidence | None:
-    """The evidence row an officer's verdict should attach to.
-
-    TODO(phase 4). The highest-sequence row that is not dispute evidence.
-    """
-    raise NotImplementedError
+    evidence = db.session.get(ComplaintEvidence, evidence_id)
+    if evidence is None:
+        return None
+    try:
+        return open_photo(file_path=evidence.file_path, upload_dir=upload_dir)
+    except DomainError:
+        return None

@@ -10,7 +10,31 @@ from typing import Annotated, Any
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.domain.enums import EvidenceVerdict, OfficerTargetStatus
+from app.domain.enums import (
+    ComplaintStatus,
+    EvidenceVerdict,
+    OfficerTargetStatus,
+    SeverityLabel,
+    SlaLabel,
+)
+
+
+class OfficerQueueQuery(BaseModel):
+    """openapi.yaml: GET /officer/complaints parameters.
+
+    `status` is repeatable, so it accepts either shape — `core.validation`
+    unwraps a single value and leaves a list alone.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: list[ComplaintStatus] | ComplaintStatus | None = None
+    categoryId: int | None = Field(default=None, gt=0)
+    slaLabel: SlaLabel | None = None
+    severityLabel: SeverityLabel | None = None
+    sort: str | None = None
+    page: int | None = Field(default=1, ge=1)
+    pageSize: int | None = Field(default=20, ge=1, le=100)
 
 
 class EvidenceReviewRequest(BaseModel):

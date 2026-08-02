@@ -81,10 +81,20 @@ from app.services.gamification.ledger import award
 
 @dataclass
 class TransitionResult:
-    """What a door returns to its route. `cascade` is empty unless a cluster moved."""
+    """What a door returns to its route. `cascade` is empty unless a cluster moved.
 
-    complaint: Complaint
+    `detail` carries the fully preloaded rows (evidence, history, notes) rather
+    than a bare `Complaint`, because the contract's 200 for these endpoints is a
+    ComplaintDetail — and a serializer is not allowed to go and fetch them
+    itself (architecture §3.3 rule 3).
+    """
+
+    detail: ComplaintDetailData
     cascade: list[dict[str, Any]]
+
+    @property
+    def complaint(self) -> Complaint:
+        return self.detail.complaint
 
 
 @dataclass(frozen=True)
@@ -217,26 +227,28 @@ def record_history(
 # --- Door 1: POST /officer/complaints/{id}/claim ------------------------------
 
 
-def claim(*, complaint_id: int, officer: User, now: datetime) -> Complaint:
+def claim(*, complaint_id: int, officer: User, now: datetime) -> ComplaintDetailData:
     """SUBMITTED -> EVIDENCE_UNDER_REVIEW, setting assigned_officer_id."""
-    complaint = db.session.execute(
-        scoping.visible_complaints(officer).where(Complaint.id == complaint_id)
-    ).scalar_one_or_none()
+    with transaction():
+        complaint = db.session.execute(
+            scoping.visible_complaints(officer).where(Complaint.id == complaint_id)
+        ).scalar_one_or_none()
 
-    if complaint is None:
-        raise scoping.not_found()
+        if complaint is None:
+            raise scoping.not_found()
 
-    raise_for(lifecycle.validate_claim(complaint.status))
+        raise_for(lifecycle.validate_claim(complaint.status))
 
-    return apply_transition(
-        complaint_id=complaint_id,
-        expected_status=ComplaintStatus.SUBMITTED,
-        new_status=ComplaintStatus.EVIDENCE_UNDER_REVIEW,
-        actor_role=StatusActor.OFFICER,
-        changed_by_user_id=officer.id,
-        now=now,
-        extra_values={"assigned_officer_id": officer.id},
-    )
+        apply_transition(
+            complaint_id=complaint_id,
+            expected_status=ComplaintStatus.SUBMITTED,
+            new_status=ComplaintStatus.EVIDENCE_UNDER_REVIEW,
+            actor_role=StatusActor.OFFICER,
+            changed_by_user_id=officer.id,
+            now=now,
+            extra_values={"assigned_officer_id": officer.id},
+        )
+        return load_complaint_detail(complaint_id=complaint_id)
 
 
 # --- Door 2: POST /officer/complaints/{id}/evidence-review --------------------
@@ -249,78 +261,81 @@ def review_evidence(
     verdict: EvidenceVerdict,
     reason: str | None,
     now: datetime,
-) -> Complaint:
+) -> ComplaintDetailData:
     """The photo verdict. Three outcomes, three different side effects."""
-    complaint = db.session.execute(
-        scoping.visible_complaints(officer).where(Complaint.id == complaint_id)
-    ).scalar_one_or_none()
+    with transaction():
+        complaint = db.session.execute(
+            scoping.visible_complaints(officer).where(Complaint.id == complaint_id)
+        ).scalar_one_or_none()
 
-    if complaint is None:
-        raise scoping.not_found()
+        if complaint is None:
+            raise scoping.not_found()
 
-    raise_for(
-        lifecycle.validate_evidence_review(
-            current=complaint.status,
-            sla_started_at=complaint.sla_started_at,
-            verdict=verdict,
-            reason=reason,
+        raise_for(
+            lifecycle.validate_evidence_review(
+                current=complaint.status,
+                sla_started_at=complaint.sla_started_at,
+                verdict=verdict,
+                reason=reason,
+            )
         )
-    )
 
-    evidence = (
-        db.session.execute(
-            select(ComplaintEvidence)
-            .where(ComplaintEvidence.complaint_id == complaint_id)
-            .where(ComplaintEvidence.verdict.is_(None))
-            .order_by(desc(ComplaintEvidence.sequence))
+        evidence = (
+            db.session.execute(
+                select(ComplaintEvidence)
+                .where(ComplaintEvidence.complaint_id == complaint_id)
+                .where(ComplaintEvidence.verdict.is_(None))
+                .order_by(desc(ComplaintEvidence.sequence))
+            )
+            .scalars()
+            .first()
         )
-        .scalars()
-        .first()
-    )
 
-    if evidence:
-        evidence.verdict = verdict
-        evidence.verdict_reason = reason
-        evidence.reviewed_by = officer.id
-        evidence.reviewed_at = now
+        if evidence:
+            evidence.verdict = verdict
+            evidence.verdict_reason = reason
+            evidence.reviewed_by = officer.id
+            evidence.reviewed_at = now
 
-    extra_values = {}
-    new_status = lifecycle.VERDICT_TARGET[verdict]
+        extra_values = {}
+        new_status = lifecycle.VERDICT_TARGET[verdict]
 
-    if verdict == EvidenceVerdict.VALID:
-        category_sla_hours = db.session.execute(
-            select(ComplaintCategory.sla_hours).where(ComplaintCategory.id == complaint.category_id)
-        ).scalar_one()
+        if verdict == EvidenceVerdict.VALID:
+            category_sla_hours = db.session.execute(
+                select(ComplaintCategory.sla_hours).where(
+                    ComplaintCategory.id == complaint.category_id
+                )
+            ).scalar_one()
 
-        target, started = sla.start(now, category_sla_hours)
-        extra_values["sla_target_hours"] = target
-        extra_values["sla_started_at"] = started
-    elif verdict == EvidenceVerdict.NEEDS_MORE_EVIDENCE:
-        new_pause = sla.pause(complaint.sla_started_at, now)
-        if new_pause:
-            extra_values["sla_paused_at"] = new_pause
-    elif verdict == EvidenceVerdict.REJECTED:
-        # Gamification: REJECTED on the evidence-review door costs 20 CSP
-        from app.services.gamification.ledger import award_points
+            target, started = sla.start(now, category_sla_hours)
+            extra_values["sla_target_hours"] = target
+            extra_values["sla_started_at"] = started
+        elif verdict == EvidenceVerdict.NEEDS_MORE_EVIDENCE:
+            new_pause = sla.pause(complaint.sla_started_at, now)
+            if new_pause:
+                extra_values["sla_paused_at"] = new_pause
+        elif verdict == EvidenceVerdict.REJECTED:
+            # Rejecting evidence as fake/invalid costs the reporter 20 CSP. The
+            # amount lives in domain/points.py, not here — `award` prices the row
+            # from the reason so the penalty cannot drift from the contract.
+            award(
+                citizen_id=complaint.citizen_id,
+                complaint_id=complaint_id,
+                reason=PointsReason.REJECTED_PENALTY,
+                now=now,
+            )
 
-        award_points(
-            user_id=complaint.citizen_id,
-            reason="REJECTED_PENALTY",
-            points=-20,
-            reference_id=complaint_id,
+        apply_transition(
+            complaint_id=complaint_id,
+            expected_status=ComplaintStatus.EVIDENCE_UNDER_REVIEW,
+            new_status=new_status,
+            actor_role=StatusActor.OFFICER,
+            changed_by_user_id=officer.id,
             now=now,
+            reason=reason,
+            extra_values=extra_values,
         )
-
-    return apply_transition(
-        complaint_id=complaint_id,
-        expected_status=ComplaintStatus.EVIDENCE_UNDER_REVIEW,
-        new_status=new_status,
-        actor_role=StatusActor.OFFICER,
-        changed_by_user_id=officer.id,
-        now=now,
-        reason=reason,
-        extra_values=extra_values,
-    )
+        return load_complaint_detail(complaint_id=complaint_id)
 
 
 def add_progress_note(
@@ -443,43 +458,47 @@ def transition_by_officer(
     now: datetime,
 ) -> TransitionResult:
     """The ordinary officer status move."""
-    complaint = db.session.execute(
-        scoping.visible_complaints(officer).where(Complaint.id == complaint_id)
-    ).scalar_one_or_none()
+    with transaction():
+        complaint = db.session.execute(
+            scoping.visible_complaints(officer).where(Complaint.id == complaint_id)
+        ).scalar_one_or_none()
 
-    if complaint is None:
-        raise scoping.not_found()
+        if complaint is None:
+            raise scoping.not_found()
 
-    raise_for(lifecycle.validate_officer_transition(complaint.status, target, reason))
+        raise_for(lifecycle.validate_officer_transition(complaint.status, target, reason))
 
-    extra_values = {}
-    if target == OfficerTargetStatus.RESOLVED:
-        extra_values["resolved_at"] = now
-    elif target == OfficerTargetStatus.NEEDS_MORE_EVIDENCE:
-        extra_values["sla_paused_at"] = sla.pause(complaint.sla_started_at, now)
+        extra_values = {}
+        if target == OfficerTargetStatus.RESOLVED:
+            extra_values["resolved_at"] = now
+        elif target == OfficerTargetStatus.NEEDS_MORE_EVIDENCE:
+            extra_values["sla_paused_at"] = sla.pause(complaint.sla_started_at, now)
 
-    new_status = ComplaintStatus(target.value)
+        new_status = ComplaintStatus(target.value)
 
-    updated = apply_transition(
-        complaint_id=complaint_id,
-        expected_status=complaint.status,
-        new_status=new_status,
-        actor_role=StatusActor.OFFICER,
-        changed_by_user_id=officer.id,
-        now=now,
-        reason=reason,
-        remark=note.strip() if note and note.strip() else None,
-        extra_values=extra_values,
-    )
-
-    cascade = []
-    if target == OfficerTargetStatus.RESOLVED and updated.cluster_id:
-        cascade = clusters.cascade_resolution(
-            resolved=updated,
+        updated = apply_transition(
+            complaint_id=complaint_id,
+            expected_status=complaint.status,
+            new_status=new_status,
+            actor_role=StatusActor.OFFICER,
+            changed_by_user_id=officer.id,
             now=now,
+            reason=reason,
+            remark=note.strip() if note and note.strip() else None,
+            extra_values=extra_values,
         )
 
-    return TransitionResult(complaint=updated, cascade=cascade)
+        cascade = []
+        if target == OfficerTargetStatus.RESOLVED and updated.cluster_id:
+            cascade = clusters.cascade_resolution(
+                resolved=updated,
+                now=now,
+            )
+
+        return TransitionResult(
+            detail=load_complaint_detail(complaint_id=complaint_id),
+            cascade=cascade,
+        )
 
 
 def transition_batch(
@@ -494,7 +513,7 @@ def transition_batch(
 ) -> dict[str, Any]:
     """The one endpoint where partial failure is a SUCCESS response.
 
-    TODO(phase 5). Semantics that differ from every other door:
+    Semantics that differ from every other door:
       * Validate all -> apply the valid ones -> ONE commit.
       * Per-item failures are `TransitionFailureCode` values inside the 200
         body, not rollbacks and not 4xx.
@@ -817,7 +836,6 @@ def review_dispute(
 ) -> Complaint:
     """The ONLY exit from REOPENED, and it belongs to the admin.
 
-    TODO(phase 7).
       * UPHELD   -> IN_PROGRESS (back to the officer).
       * REJECTED -> CLOSED with ZERO points — same as an auto-close. A citizen
         must not be able to use a losing dispute to manufacture a second shot at
@@ -862,7 +880,7 @@ def override(
 ) -> Complaint:
     """An admin may set any status — but the bookkeeping still happens.
 
-    TODO(phase 7). In particular: if the target is in
+    In particular: if the target is in
     `domain.lifecycle.AT_OR_PAST_UNDER_REVIEW` and
     `domain.sla.needs_backfill(...)` is true, backfill `sla_target_hours` and
     `sla_started_at` as if a VALID verdict had fired, so `slaLabel` never comes
@@ -890,8 +908,10 @@ def override(
             new_category_id is not None and new_category_id != complaint.category_id
         ) or (new_zone_id is not None and new_zone_id != complaint.zone_id)
         status_changed = new_status is not None and new_status != complaint.status
-        if not classification_changed and not status_changed:
-            raise ValidationError("At least one complaint field must actually change.")
+        if not classification_changed and not status_changed and not (reason or "").strip():
+            raise ValidationError(
+                "Send at least one of status, categoryId, zoneId, or a reason to record."
+            )
 
         if classification_changed:
             detach_for_admin_reclassification(complaint=complaint, now=now)

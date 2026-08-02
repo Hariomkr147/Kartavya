@@ -50,20 +50,24 @@ def serialize_feed_item(
 ) -> dict[str, Any]:
     """Return the anonymized FeedItem contract shape."""
     from app.api.shared.serializers import serialize_category
+    from app.core.serialization import iso_utc
     from app.core.signing import sign_photo_url
     from app.domain import severity as severity_domain
 
     category = ctx.categories[complaint.category_id]
     evidence = ctx.first_evidence.get(complaint.id)
-    return {
+    payload: dict[str, Any] = {
         "id": str(complaint.id),
         "category": serialize_category(category),
         "status": complaint.status.value,
         "severityLabel": severity_domain.label(complaint.severity_score).value,
         "upvoteCount": ctx.upvote_counts.get(complaint.id, 0),
         "hasUpvoted": complaint.id in (citizen_upvoted_ids or set()),
-        "photoUrl": sign_photo_url(evidence.id) if evidence else "",
         "latitude": complaint.latitude,
         "longitude": complaint.longitude,
-        "createdAt": complaint.created_at.isoformat() + "Z" if complaint.created_at else None,
+        "createdAt": iso_utc(complaint.created_at),
     }
+    # Optional and not nullable — omit the key rather than emitting "".
+    if evidence is not None:
+        payload["photoUrl"] = sign_photo_url(evidence.id)
+    return payload

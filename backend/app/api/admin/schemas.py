@@ -47,9 +47,24 @@ class ComplaintOverrideRequest(AdminModel):
     reason: str | None = None
 
     @model_validator(mode="after")
-    def has_a_change(self):
-        if self.status is None and self.categoryId is None and self.zoneId is None:
-            raise ValueError("At least one complaint field must be changed.")
+    def has_something_to_record(self):
+        """`reason` alone is enough.
+
+        The contract lists it as an independently sendable field, and an admin
+        annotating a complaint without altering it is a legitimate act — it
+        lands in `status_history` with the admin as actor, which is exactly
+        where the override description says every override is recorded. Only a
+        genuinely empty body is a 400.
+        """
+        if (
+            self.status is None
+            and self.categoryId is None
+            and self.zoneId is None
+            and not (self.reason or "").strip()
+        ):
+            raise ValueError(
+                "Send at least one of status, categoryId, zoneId, or a reason to record."
+            )
         return self
 
 

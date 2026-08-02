@@ -22,8 +22,8 @@ from app.api.citizen.schemas import (
 )
 from app.api.citizen.serializers import serialize_own_complaint
 from app.api.shared.context import detail_context
-from app.api.shared.responses import todo
 from app.core.auth import current_user, require_auth, require_role
+from app.core.serialization import iso_utc as _iso
 from app.core.validation import parse_model, validate_query
 from app.domain.enums import UserRole
 from app.domain.errors import NotFoundError, ValidationError
@@ -262,9 +262,9 @@ def dispute_resolution(complaint_id: str):
 def get_feed_route(query: FeedQuery):
     """200 FeedListResponse — the anonymized zone feed.
 
-    TODO(phase 6). A citizen sees complaints in their home zone only (403 for
-    any other zone). Excludes REJECTED and DELETED. The `reporter` object is
-    STRUCTURALLY ABSENT from every item.
+    A citizen sees complaints in their home zone only (403 for any other
+    zone). Closed and rejected complaints are hidden unless `includeResolved`.
+    The `reporter` object is STRUCTURALLY ABSENT from every item.
     """
     from app.api.citizen.serializers import serialize_feed_item
     from app.services.complaints.feed import get_public_feed
@@ -291,8 +291,8 @@ def get_feed_route(query: FeedQuery):
 def get_my_points():
     """200 PointsSummary + ledger page.
 
-    TODO(phase 6). Lifetime and monthly totals are SUMs over points_ledger.
-    There is no stored total anywhere.
+    Lifetime and monthly totals are SUMs over points_ledger. There is no
+    stored total anywhere.
     """
     from app.services.gamification.ledger import history, lifetime_points, monthly_points
     from app.services.queries import Pagination, clamp_page_args
@@ -314,8 +314,11 @@ def get_my_points():
                     "id": str(row.id),
                     "complaintId": str(row.complaint_id) if row.complaint_id else None,
                     "reason": row.reason.value,
-                    "pointsChange": row.points_change,
-                    "createdAt": row.created_at.isoformat() + "Z",
+                    # openapi.yaml: PointsLedgerEntry.amount. NOT `pointsChange`
+                    # — that is the column name, and the finished frontend reads
+                    # `entry.amount` (GamificationPage.tsx).
+                    "amount": row.points_change,
+                    "createdAt": _iso(row.created_at),
                 }
                 for row in rows
             ],
@@ -327,10 +330,7 @@ def get_my_points():
 @bp.get("/gamification/badges")
 @require_role(CITIZEN)
 def get_my_badges():
-    """200 Badge[] — earned and unearned, so the UI can show what is left.
-
-    TODO(phase 6).
-    """
+    """200 Badge[] — the badges this citizen has earned, each with its date."""
     from sqlalchemy import select
 
     from app.extensions import db
@@ -348,7 +348,7 @@ def get_my_badges():
                 "code": badge.badge_code.value,
                 "name": badge.badge_name,
                 "description": badge.description,
-                "earnedAt": earned_at.isoformat() + "Z",
+                "earnedAt": _iso(earned_at),
             }
             for badge, earned_at in rows
         ]
@@ -361,7 +361,7 @@ def get_my_badges():
 def get_leaderboard_route(query: LeaderboardQuery):
     """200 LeaderboardResponse.
 
-    TODO(phase 6). Sequential ranks, total order (points, then account age, then id),
+    Sequential ranks, total order (points, then account age, then id),
     DEACTIVATED citizens excluded, zero-point citizens included.
     Handles are `display_name` or a masked fallback — never `full_name`.
     """
@@ -380,7 +380,7 @@ def get_leaderboard_route(query: LeaderboardQuery):
         {
             "scope": query.scope,
             "period": query.period,
-            "generatedAt": now.isoformat().replace("+00:00", "Z"),
+            "generatedAt": _iso(now),
             "currentUser": current,
             "data": entries,
             "pagination": pagination.to_dict(),

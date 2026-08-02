@@ -12,7 +12,7 @@ from typing import Any
 from sqlalchemy import func, select, update
 
 from app.domain import geo, severity
-from app.domain.enums import ComplaintStatus, StatusActor, PointsReason
+from app.domain.enums import ComplaintStatus, PointsReason, StatusActor
 from app.domain.errors import ConflictError
 from app.domain.lifecycle import CASCADE_ELIGIBLE
 from app.domain.severity import score
@@ -210,7 +210,7 @@ def recompute_cluster_aggregates(*, cluster_id: int, now: datetime) -> None:
 def recompute_severity_for_cluster(*, cluster_id: int | None, complaint_id: int) -> None:
     """Refresh `complaints.severity_score` for a complaint or a whole cluster.
 
-    TODO(phase 5). Per member: `domain.severity.score(cluster
+    Per member: `domain.severity.score(cluster
     unique_reporter_count or 1, that member's OWN upvote count)`.
 
     Careful: a complaint's score uses only its own upvotes, while the API's
@@ -325,40 +325,43 @@ def cascade_resolution(*, resolved: Complaint, now: datetime) -> list[dict[str, 
 
     results = []
     for member in cluster_members:
-        if member.status in CASCADE_ELIGIBLE:
-            try:
-                lifecycle.apply_transition(
-                    complaint_id=member.id,
-                    expected_status=member.status,
-                    new_status=ComplaintStatus.RESOLVED,
-                    actor_role=StatusActor.SYSTEM,
-                    changed_by_user_id=None,
-                    now=now,
-                    extra_values={"resolved_at": now},
-                )
-                results.append(
-                    {
-                        "complaintId": str(member.id),
-                        "outcome": "CASCADED",
-                        "previousStatus": member.status.value,
-                    }
-                )
-            except ConflictError:
-                # Race: another thread moved it between SELECT and UPDATE
-                results.append(
-                    {
-                        "complaintId": str(member.id),
-                        "outcome": "SKIPPED",
-                        "previousStatus": member.status.value,
-                    }
-                )
-        else:
+        # Snapshot the status BEFORE the transition. `apply_transition` runs its
+        # UPDATE with synchronize_session="fetch", which refreshes this very
+        # instance — read `member.status` afterwards and every CASCADED entry
+        # reports the new status as its `previousStatus`.
+        previous_status = member.status
+
+        if previous_status not in CASCADE_ELIGIBLE:
             results.append(
                 {
                     "complaintId": str(member.id),
                     "outcome": "SKIPPED",
-                    "previousStatus": member.status.value,
+                    "previousStatus": previous_status.value,
                 }
             )
+            continue
+
+        try:
+            lifecycle.apply_transition(
+                complaint_id=member.id,
+                expected_status=previous_status,
+                new_status=ComplaintStatus.RESOLVED,
+                actor_role=StatusActor.SYSTEM,
+                changed_by_user_id=None,
+                now=now,
+                extra_values={"resolved_at": now},
+            )
+            outcome = "CASCADED"
+        except ConflictError:
+            # Race: another thread moved it between the SELECT and the UPDATE.
+            outcome = "SKIPPED"
+
+        results.append(
+            {
+                "complaintId": str(member.id),
+                "outcome": outcome,
+                "previousStatus": previous_status.value,
+            }
+        )
 
     return results

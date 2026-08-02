@@ -7,13 +7,14 @@ from typing import Any
 
 from sqlalchemy import select
 
+from app.core.serialization import iso_utc
 from app.extensions import db
 from app.models import Zone
 from app.services.analytics.zone import zone_metrics
 
 
 def system_analytics(*, now: datetime) -> dict[str, Any]:
-    """GET /admin/analytics — SystemAnalytics. TODO(phase 7).
+    """GET /admin/analytics — SystemAnalytics.
 
     Totals across every zone, per-zone ZoneMetrics, and a category breakdown.
     `avgResolutionHours` uses the one shared definition in
@@ -26,4 +27,4 @@ def system_analytics(*, now: datetime) -> dict[str, Any]:
     highest = max((zone["overdue"] for zone in zones), default=0)
     for zone in zones:
         zone["isHighestOverdue"] = highest > 0 and zone["overdue"] == highest
-    return {"generatedAt": now.isoformat() + "Z", "zones": zones}
+    return {"generatedAt": iso_utc(now), "zones": zones}

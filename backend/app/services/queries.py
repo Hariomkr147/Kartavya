@@ -140,7 +140,37 @@ def apply_filters(
     from app.models import Complaint
 
     if sla_label is not None:
-        raise NotImplementedError("slaLabel filtering — phase 4")
+        if now is None:
+            raise ValueError("now is required when filtering by slaLabel")
+        now_jd = func.julianday(now.isoformat())
+        started_jd = func.julianday(Complaint.sla_started_at)
+        paused_jd = func.julianday(Complaint.sla_paused_at)
+        # SQLite's raw julianday delta is slightly below an exact boundary for
+        # some timestamps (for example 100 h can become 99.999999996 h). Round
+        # wall-clock spans to milliseconds before applying the integer-second
+        # SLA thresholds so SQL filtering agrees with domain.sla.label().
+        wall_seconds = func.round((now_jd - started_jd) * 86400.0, 3)
+        open_pause = case(
+            (
+                Complaint.sla_paused_at.isnot(None),
+                func.round((now_jd - paused_jd) * 86400.0, 3),
+            ),
+            else_=0.0,
+        )
+        elapsed = wall_seconds - Complaint.sla_paused_seconds - open_pause
+        delayed_at = Complaint.sla_target_hours * 2880
+        overdue_at = Complaint.sla_target_hours * 3600
+        has_clock = (
+            Complaint.sla_started_at.isnot(None)
+            & Complaint.sla_target_hours.isnot(None)
+            & (Complaint.sla_target_hours > 0)
+        )
+        if sla_label is SlaLabel.ON_TIME:
+            query = query.where(has_clock, elapsed < delayed_at)
+        elif sla_label is SlaLabel.DELAYED:
+            query = query.where(has_clock, elapsed >= delayed_at, elapsed < overdue_at)
+        else:
+            query = query.where(has_clock, elapsed >= overdue_at)
 
     if statuses:
         clean_statuses = [s for s in statuses if s]

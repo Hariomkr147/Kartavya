@@ -7,7 +7,7 @@
 Because the `status_history` row is written inside `apply_transition()`, a
 status change without a matching audit entry is structurally impossible. If you
 find yourself typing `complaint.status = ...` anywhere else in this codebase,
-stop — that is precisely the bug this design exists to prevent.
+stop â€” that is precisely the bug this design exists to prevent.
 
 The pure rules ("is this legal?") live in `app/domain/lifecycle.py`. This module
 owns the *side effects*: the guarded UPDATE, the history row, the SLA columns,
@@ -35,10 +35,25 @@ from app.domain.enums import (
     PointsReason,
     StatusActor,
 )
-from app.domain.errors import ConflictError, Err, ForbiddenError, NotFoundError, raise_for
-from app.domain.lifecycle import validate_confirm, validate_dispute
+from app.domain.errors import (
+    ConflictError,
+    Err,
+    ForbiddenError,
+    NotFoundError,
+    ValidationError,
+    raise_for,
+)
+from app.domain.lifecycle import (
+    AT_OR_PAST_UNDER_REVIEW,
+    TERMINAL,
+    validate_admin_override,
+    validate_confirm,
+    validate_dispute,
+    validate_dispute_review,
+)
 from app.domain.points import close_reward, earns_on_time_bonus
 from app.domain.sla import label as sla_label
+from app.domain.sla import needs_backfill, start
 from app.extensions import db
 from app.infra.storage import remove_photo
 from app.models import (
@@ -49,11 +64,14 @@ from app.models import (
     ComplaintNote,
     StatusHistory,
     User,
+    Zone,
 )
 from app.services.complaints import clusters
 from app.services.complaints.clusters import (
     citizen_already_rewarded_in_cluster,
     claim_cluster_reward,
+    detach_for_admin_reclassification,
+    link_new_complaint,
 )
 from app.services.complaints.evidence import attach_photos
 from app.services.complaints.views import ComplaintDetailData, load_complaint_detail
@@ -105,14 +123,14 @@ def apply_transition(
 
     Putting the expected state in the WHERE clause lets `rowcount` make the
     decision instead: exactly one of two concurrent callers gets 1, the other
-    gets 0 and a clean 409 — which is what the contract specifies for a
+    gets 0 and a clean 409 â€” which is what the contract specifies for a
     contested claim.
 
     Args:
         expected_status: the status(es) this move is legal from. Becomes the
             guard. Pass a set for doors with several legal sources (e.g.
             UNRESOLVABLE).
-        extra_values: additional columns to set in the SAME statement — e.g.
+        extra_values: additional columns to set in the SAME statement â€” e.g.
             `assigned_officer_id` on claim, `resolved_at` on resolve, the SLA
             columns on accept. Setting them separately would open the very race
             this guard closes.
@@ -148,7 +166,7 @@ def apply_transition(
     if rowcount == 0:
         raise ConflictError(
             "INVALID_TRANSITION",
-            "This complaint has already moved on — reload it and try again.",
+            "This complaint has already moved on â€” reload it and try again.",
         )
 
     complaint = db.session.get(Complaint, complaint_id)
@@ -178,7 +196,7 @@ def record_history(
     reason: str | None = None,
     remark: str | None = None,
 ) -> StatusHistory:
-    """Append one audit row. INSERT only — there is no update path, ever.
+    """Append one audit row. INSERT only â€” there is no update path, ever.
 
     `changed_by_user_id` must be None exactly when `actor_role` is SYSTEM.
     """
@@ -482,7 +500,7 @@ def transition_batch(
         body, not rollbacks and not 4xx.
       * An unknown complaint ID is a per-item UNKNOWN_COMPLAINT. An unknown
         `clusterId` IS a 404. That difference is deliberate.
-      * Exactly one of `complaint_ids` / `cluster_id` — the schema's `oneOf`
+      * Exactly one of `complaint_ids` / `cluster_id` â€” the schema's `oneOf`
         makes both-or-neither a 400 before it reaches here.
       * Wrap each item in `core.session.savepoint()` so one item's database
         error cannot poison the batch.
@@ -640,7 +658,7 @@ def confirm_resolution(*, complaint_id: int, citizen: User, now: datetime) -> Co
       1. Ownership check (a citizen confirms their own complaint only).
       2. `domain.lifecycle.validate_confirm(current)`.
       3. `apply_transition(expected_status=RESOLVED, new_status=CLOSED,
-         extra_values={"closed_at": now})` — the guard is what makes a
+         extra_values={"closed_at": now})` â€” the guard is what makes a
          double-clicked confirm idempotent instead of double-paying.
       4. Cluster reward: atomic test-and-set on `reward_granted`
          (see clusters.claim_cluster_reward), then
@@ -676,7 +694,7 @@ def confirm_resolution(*, complaint_id: int, citizen: User, now: datetime) -> Co
         else:
             # Order matters. The per-citizen check runs FIRST so that a citizen
             # who has already been paid in this cluster cannot consume the
-            # one-time +50 on their way to earning nothing — which would silently
+            # one-time +50 on their way to earning nothing â€” which would silently
             # demote the next member's confirm from +50 to +10. Do not lean on
             # "already paid implies reward_granted": once cluster linking lands,
             # an already-rewarded CLOSED complaint can join a fresh cluster whose
@@ -718,7 +736,7 @@ def confirm_resolution(*, complaint_id: int, citizen: User, now: datetime) -> Co
             )
         # Not redundant with the evaluation `award()` already does: a duplicate
         # confirm inside one cluster credits ZERO points, so nothing above may
-        # have run — and COMPLAINTS_CLOSED still moved.
+        # have run â€” and COMPLAINTS_CLOSED still moved.
         evaluate_and_award(citizen_id=citizen.id, now=now)
         return load_complaint_detail(complaint_id=complaint.id)
 
@@ -732,7 +750,7 @@ def dispute_resolution(
     """RESOLVED -> REOPENED. Reason AND a fresh photo both required.
 
     The dispute photo is appended to `complaint_evidence` with
-    the next sequence, and its `verdict` stays permanently null — it is never
+    the next sequence, and its `verdict` stays permanently null â€” it is never
     routed through an officer's evidence review. The admin judges it directly
     when ruling, and that ruling lives on status_history.
 
@@ -775,7 +793,7 @@ def dispute_resolution(
             )
         raise
 
-    # Imported here, not at module scope — see the note in submission.py: this
+    # Imported here, not at module scope â€” see the note in submission.py: this
     # module is the one `jobs/auto_close.py` must import back.
     from app.jobs.screening import submit_evidence_screening
 
@@ -805,7 +823,27 @@ def review_dispute(
         must not be able to use a losing dispute to manufacture a second shot at
         the reward they gave up by disputing instead of confirming.
     """
-    raise NotImplementedError
+    with transaction():
+        complaint = db.session.get(Complaint, complaint_id)
+        if complaint is None:
+            raise NotFoundError("No such complaint.")
+        raise_for(validate_dispute_review(complaint.status))
+        target = (
+            ComplaintStatus.IN_PROGRESS
+            if verdict is DisputeVerdict.UPHELD
+            else ComplaintStatus.CLOSED
+        )
+        extra_values = {"closed_at": now} if target is ComplaintStatus.CLOSED else None
+        return apply_transition(
+            complaint_id=complaint.id,
+            expected_status=ComplaintStatus.REOPENED,
+            new_status=target,
+            actor_role=StatusActor.ADMIN,
+            changed_by_user_id=admin.id,
+            now=now,
+            reason=reason,
+            extra_values=extra_values,
+        )
 
 
 # --- Door 8: PATCH /admin/complaints/{id} -------------------------------------
@@ -817,8 +855,10 @@ def override(
     admin: User,
     new_status: ComplaintStatus | None,
     new_zone_id: int | None,
-    reason: str,
+    new_category_id: int | None,
+    reason: str | None,
     now: datetime,
+    cluster_radius_meters: float,
 ) -> Complaint:
     """An admin may set any status — but the bookkeeping still happens.
 
@@ -831,7 +871,72 @@ def override(
     An override still writes its history row, with actor_role=ADMIN and the
     admin's reason.
     """
-    raise NotImplementedError
+    with transaction():
+        complaint = db.session.get(Complaint, complaint_id)
+        if complaint is None:
+            raise NotFoundError("No such complaint.")
+
+        category = (
+            db.session.get(ComplaintCategory, new_category_id)
+            if new_category_id is not None
+            else db.session.get(ComplaintCategory, complaint.category_id)
+        )
+        if category is None:
+            raise ValidationError("categoryId does not refer to a known category.")
+        if new_zone_id is not None and db.session.get(Zone, new_zone_id) is None:
+            raise ValidationError("zoneId does not refer to a known zone.")
+
+        classification_changed = (
+            new_category_id is not None and new_category_id != complaint.category_id
+        ) or (new_zone_id is not None and new_zone_id != complaint.zone_id)
+        status_changed = new_status is not None and new_status != complaint.status
+        if not classification_changed and not status_changed:
+            raise ValidationError("At least one complaint field must actually change.")
+
+        if classification_changed:
+            detach_for_admin_reclassification(complaint=complaint, now=now)
+        if new_category_id is not None:
+            complaint.category_id = new_category_id
+        if new_zone_id is not None:
+            complaint.zone_id = new_zone_id
+        if classification_changed:
+            db.session.flush()
+            link_new_complaint(
+                complaint=complaint,
+                radius_meters=cluster_radius_meters,
+                now=now,
+            )
+
+        target_status = new_status or complaint.status
+        raise_for(validate_admin_override(target_status))
+        extra_values: dict[str, Any] = {}
+        if new_status in AT_OR_PAST_UNDER_REVIEW and needs_backfill(
+            complaint.sla_target_hours, complaint.sla_started_at
+        ):
+            target_hours, started_at = start(now, category.sla_hours)
+            extra_values.update({"sla_target_hours": target_hours, "sla_started_at": started_at})
+        if status_changed and target_status is ComplaintStatus.RESOLVED:
+            extra_values["resolved_at"] = now
+        if status_changed and target_status is ComplaintStatus.CLOSED:
+            extra_values["closed_at"] = now
+        if (
+            new_zone_id is not None
+            and target_status not in TERMINAL
+            and complaint.assigned_officer_id is not None
+        ):
+            assigned = db.session.get(User, complaint.assigned_officer_id)
+            if assigned is None or assigned.zone_id != complaint.zone_id:
+                extra_values["assigned_officer_id"] = None
+        return apply_transition(
+            complaint_id=complaint.id,
+            expected_status=complaint.status,
+            new_status=target_status,
+            actor_role=StatusActor.ADMIN,
+            changed_by_user_id=admin.id,
+            now=now,
+            reason=reason,
+            extra_values=extra_values,
+        )
 
 
 # --- Door 10: the auto-close sweeper (SYSTEM) --------------------------------

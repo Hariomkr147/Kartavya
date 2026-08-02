@@ -1,238 +1,372 @@
-"""Admin endpoints — cross-zone, and the ONLY package that may emit `reporter`.
-
-Admins are invisible to citizens and officers. Every route here is
-`@require_role(ADMIN)`; there are no exceptions and no "admin or officer"
-shortcuts. Anything both roles need lives in `app/api/shared/`.
-"""
+"""Admin-only cross-zone management, analytics, and export endpoints."""
 
 from __future__ import annotations
 
-from flask import Blueprint
+from datetime import UTC, datetime
 
+from flask import Blueprint, Response, current_app, jsonify, stream_with_context
+
+from app.api.admin.schemas import (
+    AssignOfficerRequest,
+    ComplaintOverrideRequest,
+    ComplaintQuery,
+    CreateUserRequest,
+    CreateZoneRequest,
+    DisputeReviewRequest,
+    ExportComplaintsQuery,
+    OfficerPerformanceQuery,
+    SettingsRequest,
+    SlaUpdateRequest,
+    UpdateUserRequest,
+    UpdateZoneRequest,
+    UserQuery,
+)
+from app.api.admin.serializers import serialize_complaint_for_admin, serialize_user
 from app.api.shared.responses import todo
-from app.core.auth import require_role
-from app.domain.enums import UserRole
+from app.api.shared.serializers import (
+    SerializationContext,
+    serialize_category,
+    serialize_complaint,
+    serialize_zone,
+)
+from app.core.auth import current_user, require_role
+from app.core.validation import validate_body, validate_query
+from app.domain.enums import ComplaintStatus, UserRole
+from app.services.accounts.settings import (
+    get_settings as get_settings_service,
+)
+from app.services.accounts.settings import (
+    update_category_sla,
+)
+from app.services.accounts.settings import (
+    update_settings as update_settings_service,
+)
+from app.services.accounts.users import (
+    create_user as create_user_service,
+)
+from app.services.accounts.users import (
+    delete_user as delete_user_service,
+)
+from app.services.accounts.users import (
+    get_user as get_user_service,
+)
+from app.services.accounts.users import (
+    list_users,
+    reassign_officer_zone,
+)
+from app.services.accounts.users import (
+    update_user as update_user_service,
+)
+from app.services.accounts.zones import (
+    create_zone as create_zone_service,
+)
+from app.services.accounts.zones import (
+    delete_zone as delete_zone_service,
+)
+from app.services.accounts.zones import (
+    update_zone as update_zone_service,
+)
+from app.services.analytics.export import generate_complaints_csv_service
+from app.services.analytics.officer import officer_performance
+from app.services.analytics.system import system_analytics
+from app.services.complaints.admin_views import (
+    AdminComplaintData,
+    list_admin_complaints,
+    load_admin_complaint,
+)
+from app.services.complaints.lifecycle import override, review_dispute
 
 bp = Blueprint("admin", __name__)
-
 ADMIN = UserRole.ADMIN
 
 
-# --- Complaints ---------------------------------------------------------------
+def _utcnow() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _naive(value: datetime | None) -> datetime | None:
+    if value is None or value.tzinfo is None:
+        return value
+    return value.astimezone(UTC).replace(tzinfo=None)
+
+
+def _statuses(
+    value: list[ComplaintStatus] | ComplaintStatus | None,
+) -> list[ComplaintStatus] | None:
+    if value is None:
+        return None
+    return value if isinstance(value, list) else [value]
+
+
+def _context(data: AdminComplaintData) -> SerializationContext:
+    return SerializationContext(
+        now=data.now,
+        categories=data.categories,
+        zones=data.zones,
+        users=data.users,
+        upvote_counts=data.upvote_counts,
+        first_evidence=data.first_evidence,
+        evidence_rows=data.evidence_rows,
+        history_rows=data.history_rows,
+        note_rows=data.note_rows,
+    )
+
+
+@bp.get("/categories")
+def list_categories():
+    """200 ComplaintCategory[]. Public/all roles.
+
+    TODO(phase 1).
+    """
+    todo("List categories")
 
 
 @bp.get("/admin/complaints")
 @require_role(ADMIN)
-def get_all_complaints():
-    """200 ComplaintListResponse across every zone. TODO(phase 7)."""
-    todo("Admin complaint list")
+@validate_query(ComplaintQuery)
+def get_all_complaints(query: ComplaintQuery):
+    now = _utcnow()
+    page = list_admin_complaints(
+        zone_id=query.zoneId,
+        category_id=query.categoryId,
+        statuses=_statuses(query.status),
+        sla_label=query.slaLabel,
+        date_from=_naive(query.dateFrom),
+        date_to=_naive(query.dateTo),
+        sort=query.sort,
+        page=query.page,
+        page_size=query.pageSize,
+        now=now,
+    )
+    ctx = _context(page.data)
+    return jsonify(
+        {
+            "data": [serialize_complaint(row, ctx) for row in page.complaints],
+            "pagination": page.pagination.to_dict(),
+        }
+    )
 
 
-@bp.patch("/admin/complaints/<complaint_id>")
+@bp.patch("/admin/complaints/<int:complaint_id>")
 @require_role(ADMIN)
-def override_complaint(complaint_id: str):
-    """200 ComplaintDetail — the override door. Any status, plus zone reassignment.
+@validate_body(ComplaintOverrideRequest)
+def override_complaint(complaint_id: int, body: ComplaintOverrideRequest):
+    now = _utcnow()
+    override(
+        complaint_id=complaint_id,
+        admin=current_user(),
+        new_status=body.status,
+        new_zone_id=body.zoneId,
+        new_category_id=body.categoryId,
+        reason=body.reason.strip() if body.reason else None,
+        now=now,
+        cluster_radius_meters=current_app.config["CLUSTER_RADIUS_METERS"],
+    )
+    complaint, data = load_admin_complaint(complaint_id=complaint_id, now=now)
+    return jsonify(serialize_complaint_for_admin(complaint, _context(data)))
 
-    TODO(phase 7). Still writes its `status_history` row (actor_role=ADMIN, with
-    the reason), and still BACKFILLS the SLA snapshot when the target is
-    UNDER_REVIEW-or-later and the clock never started — otherwise `slaLabel`
-    comes back silently null on every overridden complaint.
-    """
-    todo("Complaint override")
 
-
-@bp.post("/admin/complaints/<complaint_id>/dispute-review")
+@bp.post("/admin/complaints/<int:complaint_id>/dispute-review")
 @require_role(ADMIN)
-def review_dispute(complaint_id: str):
-    """200 ComplaintDetail — THE ONLY EXIT FROM REOPENED.
-
-    TODO(phase 7). UPHELD -> IN_PROGRESS. REJECTED -> CLOSED with zero points,
-    exactly like an auto-close: a losing dispute must not become a second shot
-    at the reward the citizen gave up by disputing instead of confirming.
-    """
-    todo("Dispute review")
-
-
-# --- Users --------------------------------------------------------------------
+@validate_body(DisputeReviewRequest)
+def review_complaint_dispute(complaint_id: int, body: DisputeReviewRequest):
+    now = _utcnow()
+    review_dispute(
+        complaint_id=complaint_id,
+        admin=current_user(),
+        verdict=body.verdict,
+        reason=body.reason.strip(),
+        now=now,
+    )
+    complaint, data = load_admin_complaint(complaint_id=complaint_id, now=now)
+    return jsonify(serialize_complaint_for_admin(complaint, _context(data)))
 
 
 @bp.get("/admin/users")
 @require_role(ADMIN)
-def get_all_users():
-    """200 UserListResponse. TODO(phase 7)."""
-    todo("User list")
+@validate_query(UserQuery)
+def get_all_users(query: UserQuery):
+    users, pagination = list_users(
+        role=query.role,
+        zone_id=query.zoneId,
+        active=query.active,
+        page=query.page,
+        page_size=query.pageSize,
+    )
+    return jsonify(
+        {"data": [serialize_user(user) for user in users], "pagination": pagination.to_dict()}
+    )
 
 
 @bp.post("/admin/users")
 @require_role(ADMIN)
-def create_user():
-    """201 User — a CITIZEN or an OFFICER. Never an ADMIN.
+@validate_body(CreateUserRequest)
+def create_user(body: CreateUserRequest):
+    user = create_user_service(
+        full_name=body.name,
+        email=str(body.email),
+        password=body.password,
+        role=UserRole(body.role.value),
+        zone_id=body.zoneId,
+    )
+    return jsonify(serialize_user(user)), 201
 
-    TODO(phase 7). An officer MUST be given a zone; an officer with no zone can
-    see nothing at all.
-    """
-    todo("User creation")
 
-
-@bp.get("/admin/users/<user_id>")
+@bp.get("/admin/users/<int:user_id>")
 @require_role(ADMIN)
-def get_user_by_id(user_id: str):
-    """200 User. TODO(phase 7)."""
-    todo("User detail")
+def get_user_by_id(user_id: int):
+    return jsonify(serialize_user(get_user_service(user_id=user_id)))
 
 
-@bp.patch("/admin/users/<user_id>")
+@bp.patch("/admin/users/<int:user_id>")
 @require_role(ADMIN)
-def update_user(user_id: str):
-    """200 User — including deactivation, the RECOMMENDED way to remove someone.
+@validate_body(UpdateUserRequest)
+def update_user(user_id: int, body: UpdateUserRequest):
+    user = update_user_service(
+        user_id=user_id,
+        full_name=body.name,
+        email=str(body.email) if body.email is not None else None,
+        zone_id=body.zoneId,
+        change_zone="zoneId" in body.model_fields_set,
+        active=body.active,
+    )
+    return jsonify(serialize_user(user))
 
-    TODO(phase 7). Takes effect immediately, which works only because every
-    request re-reads the user row instead of trusting the token.
-    """
-    todo("User update")
 
-
-@bp.delete("/admin/users/<user_id>")
+@bp.delete("/admin/users/<int:user_id>")
 @require_role(ADMIN)
-def delete_user(user_id: str):
-    """204, or 409 with the blocking counts.
-
-    TODO(phase 7). The audit trails are protected by ON DELETE RESTRICT, so
-    count the blockers explicitly first — complaints, ledger rows, notes,
-    evidence reviews, status history — and answer 409 with a message that names
-    them and recommends deactivation. A bare DELETE surfaces as a 500.
-    """
-    todo("User deletion")
-
-
-# --- Zones --------------------------------------------------------------------
+def delete_user(user_id: int):
+    delete_user_service(user_id=user_id)
+    return Response(status=204)
 
 
 @bp.post("/admin/zones")
 @require_role(ADMIN)
-def create_zone():
-    """201 Zone. TODO(phase 7). `zoneCode` is immutable once created."""
-    todo("Zone creation")
+@validate_body(CreateZoneRequest)
+def create_zone(body: CreateZoneRequest):
+    zone = create_zone_service(
+        zone_code=body.code,
+        zone_name=body.name,
+        center_lat=body.centerLat,
+        center_lng=body.centerLng,
+    )
+    return jsonify(serialize_zone(zone)), 201
 
 
-@bp.patch("/admin/zones/<zone_id>")
+@bp.patch("/admin/zones/<int:zone_id>")
 @require_role(ADMIN)
-def update_zone(zone_id: str):
-    """200 Zone.
+@validate_body(UpdateZoneRequest)
+def update_zone(zone_id: int, body: UpdateZoneRequest):
+    zone = update_zone_service(
+        zone_id=zone_id,
+        zone_name=body.name,
+        center_lat=None,
+        center_lng=None,
+        is_active=body.isActive,
+    )
+    return jsonify(serialize_zone(zone))
 
-    TODO(phase 7). A rename changes `zoneName` only. Moving the centre changes
-    FUTURE routing but not one existing complaint — a complaint's zone is a
-    snapshot. The catch-all zone can never be deactivated.
-    """
-    todo("Zone update")
 
-
-@bp.delete("/admin/zones/<zone_id>")
+@bp.delete("/admin/zones/<int:zone_id>")
 @require_role(ADMIN)
-def delete_zone(zone_id: str):
-    """204, or 409.
-
-    TODO(phase 7). Blockers: complaints, assigned officers, CITIZENS whose home
-    zone this is (easy to forget — registration requires one), and
-    `is_catch_all`, which is never deletable.
-    """
-    todo("Zone deletion")
+def delete_zone(zone_id: int):
+    delete_zone_service(zone_id=zone_id)
+    return Response(status=204)
 
 
-@bp.post("/admin/zones/<zone_id>/assign-officer")
+@bp.post("/admin/zones/<int:zone_id>/assign-officer")
 @require_role(ADMIN)
-def assign_officer_to_zone(zone_id: str):
-    """200 User.
-
-    TODO(phase 7). Also CLEAR `assignedOfficerId` on every one of that officer's
-    non-terminal complaints in the old zone — visibility is zone-scoped and
-    re-evaluated per request, so a complaint must never stay assigned to someone
-    who now gets a 403 opening it.
-    """
-    todo("Officer assignment")
+@validate_body(AssignOfficerRequest)
+def assign_officer_to_zone(zone_id: int, body: AssignOfficerRequest):
+    return jsonify(
+        serialize_user(reassign_officer_zone(officer_id=body.officerId, zone_id=zone_id))
+    )
 
 
-# --- SLAs and settings --------------------------------------------------------
-
-
-@bp.patch("/admin/slas/<category_id>")
+@bp.patch("/admin/slas/<int:category_id>")
 @require_role(ADMIN)
-def update_sla(category_id: str):
-    """200 Category.
-
-    TODO(phase 7). Affects only complaints accepted AFTERWARDS — every complaint
-    snapshots its own `sla_target_hours` at acceptance.
-    """
-    todo("SLA update")
+@validate_body(SlaUpdateRequest)
+def update_sla(category_id: int, body: SlaUpdateRequest):
+    return jsonify(
+        serialize_category(
+            update_category_sla(category_id=category_id, sla_target_hours=body.targetHours)
+        )
+    )
 
 
 @bp.get("/admin/settings")
 @require_role(ADMIN)
 def get_settings():
-    """200 Settings. TODO(phase 7)."""
-    todo("Settings")
+    settings = get_settings_service()
+    return jsonify({"autoCloseTimeoutHours": settings.auto_close_timeout_hours})
 
 
 @bp.patch("/admin/settings")
 @require_role(ADMIN)
-def update_settings():
-    """200 Settings.
-
-    TODO(phase 7). `autoCloseTimeoutHours` is a LIVE rule: the sweeper re-reads
-    it every pass, so lowering it can close a backlog on the next pass and
-    raising it hands time back. Nothing already CLOSED is ever reopened.
-    """
-    todo("Settings update")
-
-
-# --- Analytics and export -----------------------------------------------------
+@validate_body(SettingsRequest)
+def update_settings(body: SettingsRequest):
+    settings = update_settings_service(
+        admin=current_user(), auto_close_timeout_hours=body.autoCloseTimeoutHours
+    )
+    return jsonify({"autoCloseTimeoutHours": settings.auto_close_timeout_hours})
 
 
 @bp.get("/admin/analytics")
 @require_role(ADMIN)
 def get_system_analytics():
-    """200 SystemAnalytics — all zones. TODO(phase 7)."""
-    todo("System analytics")
+    return jsonify(system_analytics(now=_utcnow()))
 
 
-@bp.get("/admin/officers/<officer_id>/performance")
+@bp.get("/admin/officers/<int:officer_id>/performance")
 @require_role(ADMIN)
-def get_officer_performance(officer_id: str):
-    """200 OfficerPerformance. TODO(phase 7)."""
-    todo("Officer performance")
+@validate_query(OfficerPerformanceQuery)
+def get_officer_performance(officer_id: int, query: OfficerPerformanceQuery):
+    return jsonify(
+        officer_performance(
+            officer_id=officer_id,
+            period=query.period.value,
+            date_from=_naive(query.dateFrom),
+            date_to=_naive(query.dateTo),
+            now=_utcnow(),
+        )
+    )
 
 
 @bp.get("/admin/export/complaints")
 @require_role(ADMIN)
-def export_complaints_csv():
-    """200 text/csv.
+@validate_query(ExportComplaintsQuery)
+def export_complaints_csv(query: ExportComplaintsQuery):
+    generator = generate_complaints_csv_service(
+        zone_id=query.zoneId,
+        category_id=query.categoryId,
+        statuses=_statuses(query.status),
+        sla_label=query.slaLabel,
+        date_from=_naive(query.dateFrom),
+        date_to=_naive(query.dateTo),
+        now=_utcnow(),
+    )
+    return Response(
+        stream_with_context(generator),
+        mimetype="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="complaints.csv"'},
+    )
 
-    TODO(phase 7). The one surface where reporter identity legitimately leaves
-    the system. Stream it rather than building the whole file in memory.
-    """
-    todo("CSV export")
 
-
-# --- AI zone reports ----------------------------------------------------------
-
-
-@bp.post("/admin/zones/<zone_id>/ai-report")
+@bp.post("/admin/zones/<int:zone_id>/ai-report")
 @require_role(ADMIN)
-def generate_ai_zone_report(zone_id: str):
-    """202 AiZoneReport at PENDING, returned IMMEDIATELY.
+def generate_ai_zone_report(zone_id: int):
+    """202 Accepted — trigger async generation of AI zone health report.
 
-    TODO(phase 8). Fire-and-forget: the request never waits on the model. The
-    matching GET is a poll.
+    TODO(phase 8).
     """
-    todo("AI zone report generation")
+    todo("AI zone report trigger")
 
 
-@bp.get("/admin/zones/<zone_id>/ai-report")
+@bp.get("/admin/zones/<int:zone_id>/ai-report")
 @require_role(ADMIN)
-def get_ai_zone_report(zone_id: str):
-    """200 AiZoneReport — the latest row for the zone.
+def get_ai_zone_report(zone_id: int):
+    """200 AiZoneReport | 404.
 
-    TODO(phase 8). When the model was down this returns FAILED with
-    `aiAvailable: false`. It does NOT error — AI never breaks a flow.
+    TODO(phase 8).
     """
-    todo("AI zone report")
+    todo("AI zone report fetch")

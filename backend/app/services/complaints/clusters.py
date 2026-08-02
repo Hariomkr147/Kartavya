@@ -20,6 +20,57 @@ from app.extensions import db
 from app.models import Complaint, ComplaintCluster, ComplaintUpvote, PointsLedger
 
 
+def detach_for_admin_reclassification(*, complaint: Complaint, now: datetime) -> None:
+    """Remove a category/zone-edited complaint without leaving a corrupt cluster.
+
+    Reclassification cannot preserve membership because clusters are strictly
+    same-category and same-zone. Existing members are recomputed; a one-member
+    remainder is dissolved because clusters represent duplicates.
+    """
+    old_cluster_id = complaint.cluster_id
+    if old_cluster_id is None:
+        return
+    complaint.cluster_id = None
+    remaining = list(
+        db.session.scalars(
+            select(Complaint).where(
+                Complaint.cluster_id == old_cluster_id,
+                Complaint.id != complaint.id,
+            )
+        )
+    )
+    if len(remaining) < 2:
+        for member in remaining:
+            member.cluster_id = None
+        cluster = db.session.get(ComplaintCluster, old_cluster_id)
+        if cluster is not None:
+            db.session.delete(cluster)
+            db.session.flush()
+        affected = [complaint, *remaining]
+        unique_reporters = 1
+    else:
+        cluster = db.session.get(ComplaintCluster, old_cluster_id)
+        assert cluster is not None
+        cluster.report_count = len(remaining)
+        cluster.unique_reporter_count = len({row.citizen_id for row in remaining})
+        cluster.centroid_lat = sum(row.latitude for row in remaining) / len(remaining)
+        cluster.centroid_lng = sum(row.longitude for row in remaining) / len(remaining)
+        cluster.updated_at = now
+        affected = [complaint, *remaining]
+        unique_reporters = cluster.unique_reporter_count
+    counts = {
+        complaint_id: int(count)
+        for complaint_id, count in db.session.execute(
+            select(ComplaintUpvote.complaint_id, func.count(ComplaintUpvote.id))
+            .where(ComplaintUpvote.complaint_id.in_([row.id for row in affected]))
+            .group_by(ComplaintUpvote.complaint_id)
+        )
+    }
+    for member in affected:
+        reporters = unique_reporters if member.cluster_id is not None else 1
+        member.severity_score = severity.score(reporters, counts.get(member.id, 0))
+
+
 def link_new_complaint(*, complaint: Complaint, radius_meters: float, now: datetime) -> None:
     """Attach a freshly created complaint to a cluster, if there is one within radius."""
     # Find same-category, same-zone, non-rejected complaints within radius

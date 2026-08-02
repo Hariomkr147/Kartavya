@@ -49,6 +49,8 @@ def serialize_complaint_for_admin(
     reporter_user: User | None = None,
 ) -> dict[str, Any]:
     """ComplaintDetail plus `reporter`."""
+    if reporter_user is None:
+        reporter_user = ctx.users.get(complaint.citizen_id)
     data = serialize_complaint_detail(
         complaint,
         ctx,

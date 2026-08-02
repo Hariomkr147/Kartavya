@@ -6,6 +6,9 @@
 
 [importlinter]
 root_package = app
+; Required because the pure-domain contract below names external packages
+; (flask, sqlalchemy). Without it, `lint-imports` refuses to run at all.
+include_external_packages = True
 
 [importlinter:contract:layers]
 name = Layered architecture
@@ -41,6 +44,13 @@ source_modules =
 forbidden_modules =
     app.extensions
     app.services
+; A serializer naming a model type is fine and unavoidable; `app.models.base`
+; is where the declarative base pulls in `db`. Without this the contract is
+; unsatisfiable — every serializer reaches app.extensions transitively through
+; the very type annotations it needs. What the rule is actually about is a
+; serializer reaching for `db.session` itself, which is the direct edge.
+ignore_imports =
+    app.models.base -> app.extensions
 
 [importlinter:contract:reporter-identity-is-admin-only]
 name = Only the admin package may serialize reporter identity

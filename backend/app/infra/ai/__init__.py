@@ -51,6 +51,7 @@ def build_provider(
     local_url: str | None = None,
     vision_model: str | None = None,
     text_model: str | None = None,
+    executor_workers: int = 1,
 ) -> GuardedProvider:
     """Build the configured provider, already wrapped in its guard."""
     provider_key = name.strip().lower()
@@ -83,6 +84,7 @@ def build_provider(
         timeout_seconds=timeout_seconds,
         failure_threshold=failure_threshold,
         cooldown_seconds=cooldown_seconds,
+        executor_workers=executor_workers,
     )
 
 
@@ -96,6 +98,7 @@ def get_app_provider(app: Any) -> GuardedProvider:
     timeout = float(app.config.get("AI_TIMEOUT_SECONDS", 10.0))
     threshold = int(app.config.get("AI_BREAKER_FAILURE_THRESHOLD", 5))
     cooldown = float(app.config.get("AI_BREAKER_COOLDOWN_SECONDS", 120.0))
+    workers = int(app.config.get("AI_WORKER_THREADS", 1))
 
     api_key = str(app.config.get("AI_API_KEY", ""))
     api_url = str(app.config.get("AI_API_URL", ""))
@@ -116,6 +119,7 @@ def get_app_provider(app: Any) -> GuardedProvider:
         local_url,
         vision_model,
         text_model,
+        workers,
     )
 
     if cache_key not in _PROVIDER_CACHE:
@@ -132,5 +136,6 @@ def get_app_provider(app: Any) -> GuardedProvider:
                     local_url=local_url,
                     vision_model=vision_model,
                     text_model=text_model,
+                    executor_workers=workers,
                 )
     return _PROVIDER_CACHE[cache_key]

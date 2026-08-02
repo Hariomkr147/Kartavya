@@ -16,3 +16,6 @@ class SerializationContext:
     zones: dict[int, Any] = field(default_factory=dict)
     upvote_counts: dict[int, int] = field(default_factory=dict)
     first_evidence: dict[int, Any] = field(default_factory=dict)
+    evidence_rows: dict[int, list[Any]] = field(default_factory=dict)
+    history_rows: dict[int, list[Any]] = field(default_factory=dict)
+    note_rows: dict[int, list[Any]] = field(default_factory=dict)

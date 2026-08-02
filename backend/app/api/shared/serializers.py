@@ -1,20 +1,12 @@
-"""Neutral response shapes — the ones every audience reuses.
+"""Neutral response shapes shared by citizen, officer, and admin APIs.
 
-Two hard rules:
-
-1. **Serializers never query.** They receive everything pre-loaded through a
-   `SerializationContext`. This keeps privacy decisions visible in one place and
-   stops a 20-item page from becoming 60 queries.
-2. **These shapes have NO reporter field at all** — structurally, not by
-   stripping it afterwards. The officer queue, the public feed and cluster
-   details all reuse them, so there is nothing here to accidentally leak.
-
-Only `app/api/admin/serializers.py` may ever emit reporter identity.
+Serializers never query and never expose reporter identity. Only the admin
+serializer may add reporter data after authorization and scoping are complete.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
 
+from datetime import UTC, datetime
 from typing import Any
 
 from app.core.context import SerializationContext
@@ -24,71 +16,45 @@ from app.domain import sla as sla_domain
 from app.domain.enums import AiScreenStatus, StatusActor
 from app.models import Complaint, ComplaintCategory, Zone
 
-@dataclass
-class SerializationContext:
-    """Everything the serializers need, gathered once by the caller.
 
-    The service builds this; the serializer only reads it. `now` is passed in so
-    derived SLA labels are consistent across a whole page — computing
-    `datetime.now()` per item would let the first and last row of one response
-    disagree about what time it is.
-    """
-
-    now: datetime
-    categories: dict[int, ComplaintCategory] = field(default_factory=dict)
-    zones: dict[int, Zone] = field(default_factory=dict)
-    #: complaint_id -> COUNT(*), from ONE GROUP BY.
-    upvote_counts: dict[int, int] = field(default_factory=dict)
-    #: complaint_id -> first evidence row, for `photoUrl`.
-    first_evidence: dict[int, Any] = field(default_factory=dict)
+def _iso(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def serialize_complaint(complaint: Complaint, ctx: SerializationContext) -> dict[str, Any]:
-    """The compact Complaint shape (openapi.yaml: Complaint)."""
-    cat = ctx.categories[complaint.category_id]
-    zone = ctx.zones.get(complaint.zone_id)
-
-    sev_lbl = severity_domain.label(complaint.severity_score).value
-
-    sla_lbl_obj = sla_domain.label(
+    """Return the compact Complaint contract shape without reporter identity."""
+    category = ctx.categories[complaint.category_id]
+    zone = ctx.zones[complaint.zone_id]
+    evidence = ctx.first_evidence.get(complaint.id)
+    current_sla = sla_domain.label(
         target_hours=complaint.sla_target_hours,
         started_at=complaint.sla_started_at,
         paused_seconds=complaint.sla_paused_seconds,
         paused_at=complaint.sla_paused_at,
         now=ctx.now,
     )
-    sla_label = sla_lbl_obj.value if sla_lbl_obj else None
-
-    upvote_count = ctx.upvote_counts.get(complaint.id, 0)
-    first_ev = ctx.first_evidence.get(complaint.id)
-
-    photo_url = sign_photo_url(first_ev.id) if first_ev else ""
-
-    officer_id = (
-        str(complaint.assigned_officer_id) if complaint.assigned_officer_id else None
-    )
-    created_at_str = (
-        complaint.created_at.isoformat() + "Z" if complaint.created_at else None
-    )
-    updated_at_str = (
-        complaint.updated_at.isoformat() + "Z" if complaint.updated_at else None
-    )
-
-    res = {
+    return {
         "id": str(complaint.id),
-        "category": serialize_category(cat),
+        "category": serialize_category(category),
         "status": complaint.status.value,
-        "severityLabel": sev_lbl,
-        "slaLabel": sla_label,
-        "upvoteCount": upvote_count,
-        "photoUrl": photo_url,
-        "zoneId": str(complaint.zone_id),
-        "zoneName": zone.zone_name if zone else "",
-        "assignedOfficerId": officer_id,
-        "createdAt": created_at_str,
-        "updatedAt": updated_at_str,
+        "severityLabel": severity_domain.label(complaint.severity_score).value,
+        "slaLabel": current_sla.value if current_sla else None,
+        "upvoteCount": ctx.upvote_counts.get(complaint.id, 0),
+        "photoUrl": sign_photo_url(evidence.id) if evidence else "",
+        "zoneId": str(zone.id),
+        "zoneName": zone.zone_name,
+        "assignedOfficerId": (
+            str(complaint.assigned_officer_id)
+            if complaint.assigned_officer_id is not None
+            else None
+        ),
+        "createdAt": _iso(complaint.created_at),
+        "updatedAt": _iso(complaint.updated_at),
     }
-    return res
 
 
 def serialize_complaint_detail(
@@ -98,27 +64,38 @@ def serialize_complaint_detail(
     history_list: list[Any] | None = None,
     notes_list: list[Any] | None = None,
 ) -> dict[str, Any]:
-    """ComplaintDetail — the compact shape plus evidence, history and notes."""
-    data = serialize_complaint(complaint, ctx)
+    """Return ComplaintDetail, using explicit rows or preloaded context rows."""
+    complaint_id = complaint.id
+    evidence = (
+        evidence_list
+        if evidence_list is not None
+        else ctx.evidence_rows.get(complaint_id, [])
+    )
+    history = (
+        history_list
+        if history_list is not None
+        else ctx.history_rows.get(complaint_id, [])
+    )
+    notes = notes_list if notes_list is not None else ctx.note_rows.get(complaint_id, [])
 
-    ev_items = evidence_list or []
-    ev_serialized = [serialize_evidence(e, ctx) for e in ev_items]
-
-    data["description"] = complaint.description
-
-    data["latitude"] = complaint.latitude
-    data["longitude"] = complaint.longitude
-    data["severityScore"] = complaint.severity_score
-    data["slaTargetHours"] = complaint.sla_target_hours
-    data["clusterId"] = str(complaint.cluster_id) if complaint.cluster_id else None
-    data["evidence"] = ev_serialized
-    data["statusHistory"] = [serialize_status_history(h) for h in (history_list or [])]
-    data["progressNotes"] = [serialize_progress_note(n) for n in (notes_list or [])]
-    return data
+    payload = serialize_complaint(complaint, ctx)
+    payload.update(
+        {
+            "description": complaint.description,
+            "latitude": complaint.latitude,
+            "longitude": complaint.longitude,
+            "severityScore": complaint.severity_score,
+            "slaTargetHours": complaint.sla_target_hours,
+            "clusterId": str(complaint.cluster_id) if complaint.cluster_id else None,
+            "evidence": [serialize_evidence(row, ctx) for row in evidence],
+            "statusHistory": [serialize_status_history(row) for row in history],
+            "progressNotes": [serialize_progress_note(row) for row in notes],
+        }
+    )
+    return payload
 
 
 def serialize_category(category: ComplaintCategory) -> dict[str, Any]:
-    """`Category`."""
     return {
         "id": str(category.id),
         "code": category.category_code,
@@ -129,7 +106,6 @@ def serialize_category(category: ComplaintCategory) -> dict[str, Any]:
 
 
 def serialize_zone(zone: Zone) -> dict[str, Any]:
-    """``Zone`` (openapi.yaml: Zone)."""
     return {
         "id": str(zone.id),
         "code": zone.zone_code,
@@ -140,79 +116,52 @@ def serialize_zone(zone: Zone) -> dict[str, Any]:
 
 
 def serialize_evidence(evidence: Any, ctx: SerializationContext) -> dict[str, Any]:
-    """Evidence, including the AiConfidenceNote."""
-    ai_available = getattr(evidence, "ai_screen_status", None) != AiScreenStatus.UNAVAILABLE
-    ai_note = {
-        "aiAvailable": ai_available,
-        "matchesCategory": getattr(evidence, "ai_matches_category", None),
-        "confidence": getattr(evidence, "ai_confidence", None),
-        "note": getattr(evidence, "ai_note", None),
-    }
-
-    verdict_val = evidence.verdict.value if getattr(evidence, "verdict", None) else None
-    rev_officer_id = (
-        str(evidence.reviewed_by) if getattr(evidence, "reviewed_by", None) else None
-    )
-    rev_at_str = (
-        evidence.reviewed_at.isoformat() + "Z"
-        if getattr(evidence, "reviewed_at", None)
-        else None
-    )
-    sub_at_str = (
-        evidence.created_at.isoformat() + "Z"
-        if getattr(evidence, "created_at", None)
-        else None
-    )
-
+    del ctx  # The signature stays uniform with the other shared serializers.
     return {
         "id": str(evidence.id),
         "photoUrl": sign_photo_url(evidence.id),
         "sequence": evidence.sequence,
-        "aiConfidenceNote": ai_note,
-        "verdict": verdict_val,
-        "verdictReason": getattr(evidence, "verdict_reason", None),
-        "reviewedByOfficerId": rev_officer_id,
-        "reviewedAt": rev_at_str,
-        "submittedAt": sub_at_str,
+        "aiConfidenceNote": {
+            "aiAvailable": evidence.ai_screen_status is not AiScreenStatus.UNAVAILABLE,
+            "matchesCategory": evidence.ai_matches_category,
+            "confidence": evidence.ai_confidence,
+            "note": evidence.ai_note,
+        },
+        "verdict": evidence.verdict.value if evidence.verdict else None,
+        "verdictReason": evidence.verdict_reason,
+        "reviewedByOfficerId": (
+            str(evidence.reviewed_by) if evidence.reviewed_by is not None else None
+        ),
+        "reviewedAt": _iso(evidence.reviewed_at),
+        "submittedAt": _iso(evidence.created_at),
     }
 
 
 def serialize_status_history(entry: Any) -> dict[str, Any]:
-    """StatusHistoryEntry."""
-    is_officer = getattr(entry, "actor_role", None) == StatusActor.OFFICER
-    user_id = getattr(entry, "changed_by_user_id", None)
-    officer_id = str(entry.changed_by_user_id) if is_officer and user_id else None
-    ts_str = (
-        entry.created_at.isoformat() + "Z" if getattr(entry, "created_at", None) else None
-    )
-
-    return {
+    payload = {
         "id": str(entry.id),
-        "fromStatus": entry.from_status.value if getattr(entry, "from_status", None) else None,
-        "toStatus": entry.to_status.value if getattr(entry, "to_status", None) else None,
-        "changedByRole": entry.actor_role.value if getattr(entry, "actor_role", None) else None,
-        "changedByOfficerId": officer_id,
-        "reason": getattr(entry, "reason", None),
-        "remark": getattr(entry, "remark", None),
-        "timestamp": ts_str,
+        "fromStatus": entry.from_status.value if entry.from_status else None,
+        "toStatus": entry.to_status.value,
+        "changedByRole": entry.actor_role.value,
+        "reason": entry.reason,
+        "remark": entry.remark,
+        "timestamp": _iso(entry.created_at),
     }
+    if entry.actor_role is StatusActor.OFFICER and entry.changed_by_user_id is not None:
+        payload["changedByOfficerId"] = str(entry.changed_by_user_id)
+    return payload
 
 
 def serialize_progress_note(note: Any) -> dict[str, Any]:
-    """ProgressNote."""
-    created_str = (
-        note.created_at.isoformat() + "Z" if getattr(note, "created_at", None) else None
-    )
     return {
         "id": str(note.id),
         "officerId": str(note.officer_id),
         "text": note.note_text,
-        "createdAt": created_str,
+        "createdAt": _iso(note.created_at),
     }
 
 
 def masked_display_name(user: Any) -> str:
-    """`display_name`, or a masked fallback like "Citizen #1042"."""
     if getattr(user, "display_name", None):
         return user.display_name
     return f"Citizen #{user.id}"

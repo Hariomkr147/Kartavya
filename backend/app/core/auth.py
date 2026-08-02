@@ -20,7 +20,7 @@ from functools import wraps
 from typing import Any, TypeVar, cast
 
 import jwt
-from flask import current_app, g, request
+from flask import current_app, request
 
 from app.domain.enums import UserRole
 from app.domain.errors import AuthError, ForbiddenError
@@ -81,19 +81,28 @@ def _bearer_token() -> str:
 
 # --- Request-scoped current user ---------------------------------------------
 
+#: Where the resolved caller is stashed for the life of ONE request.
+#:
+#: ⚠ Deliberately not `flask.g`. `g` is bound to the *application* context, not
+#: the request, and one app context can serve several requests — Flask reuses an
+#: already-pushed one rather than nesting. Caching the caller on `g` therefore
+#: lets request N+1 be authorized as request N's user: two citizens hitting the
+#: same app context in turn, and the second one inherits the first one's
+#: identity. The request object is the only thing in scope here whose lifetime
+#: really is a single request.
+_CURRENT_USER_ATTR = "kartavya_current_user"
+
 
 def load_current_user() -> User:
     """Resolve the caller, re-reading the row from the database.
 
-    Cached on `g` for the life of one request only — never across requests.
+    Cached for the life of one request only — never across requests.
     """
-    token = _bearer_token()
-    cached_token = getattr(g, "_current_token", None)
-    cached_user = getattr(g, "current_user", None)
-    if cached_user is not None and cached_token == token:
-        return cast(User, cached_user)
+    cached = getattr(request, _CURRENT_USER_ATTR, None)
+    if cached is not None:
+        return cast(User, cached)
 
-    claims = decode_token(token)
+    claims = decode_token(_bearer_token())
     try:
         user_id = int(claims.get("sub", ""))
     except (TypeError, ValueError) as exc:
@@ -105,14 +114,13 @@ def load_current_user() -> User:
         # indistinguishable to the caller.
         raise AuthError("Your account is no longer active.")
 
-    g.current_user = user
-    g._current_token = token
+    setattr(request, _CURRENT_USER_ATTR, user)
     return user
 
 
 def current_user() -> User:
     """The authenticated caller. Only valid inside a @require_auth route."""
-    user = getattr(g, "current_user", None)
+    user = getattr(request, _CURRENT_USER_ATTR, None)
     if user is None:
         raise AuthError("Authentication required.")
     return cast(User, user)

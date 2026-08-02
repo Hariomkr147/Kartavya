@@ -86,6 +86,11 @@ class BaseConfig:
         self.AI_LOCAL_URL = os.environ.get("AI_LOCAL_URL", "http://localhost:11434")
         self.AI_LOCAL_VISION_MODEL = os.environ.get("AI_LOCAL_VISION_MODEL", "llava")
         self.AI_LOCAL_TEXT_MODEL = os.environ.get("AI_LOCAL_TEXT_MODEL", "llama3")
+        # Screening is fire-and-forget, so a test that submits evidence would
+        # otherwise race a background thread against its own assertions. This is
+        # the switch for that — not `TESTING`, so a test can still turn the real
+        # submission path on and assert it queues.
+        self.AI_SCREENING_ENABLED = _env_bool("AI_SCREENING_ENABLED", True)
 
         # --- Domain tuning ---
         # Cluster radius is config, not a domain constant: it is a tuning knob,
@@ -149,6 +154,9 @@ class TestingConfig(BaseConfig):
         # A background scheduler inside a test suite is a source of flakes and
         # cross-test state. Jobs are called directly in tests/services/ instead.
         self.SCHEDULER_ENABLED = False
+        # Same reasoning for per-photo screening. Tests that want the submission
+        # path flip this back on explicitly.
+        self.AI_SCREENING_ENABLED = False
 
     def validate(self) -> None:
         return

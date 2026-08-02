@@ -19,11 +19,18 @@ from app.api.citizen.schemas import (
     CreateComplaintForm,
 )
 from app.api.citizen.serializers import serialize_own_complaint
+from app.api.shared.context import detail_context
 from app.api.shared.responses import todo
 from app.core.auth import current_user, require_auth, require_role
 from app.core.validation import parse_model, validate_query
 from app.domain.enums import UserRole
 from app.domain.errors import NotFoundError, ValidationError
+from app.services.complaints.lifecycle import (
+    confirm_resolution as confirm_resolution_service,
+)
+from app.services.complaints.lifecycle import (
+    dispute_resolution as dispute_resolution_service,
+)
 from app.services.complaints.reads import (
     get_citizen_complaints,
     get_complaint_detail,
@@ -31,10 +38,32 @@ from app.services.complaints.reads import (
 from app.services.complaints.submission import (
     create_complaint as create_complaint_service,
 )
+from app.services.complaints.submission import resubmit_evidence
+from app.services.complaints.upvotes import upvote
+from app.services.complaints.views import ComplaintDetailData
 
 bp = Blueprint("citizen", __name__)
 
 CITIZEN = UserRole.CITIZEN
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _parse_complaint_id(complaint_id: str) -> int:
+    try:
+        return int(complaint_id)
+    except ValueError as exc:
+        raise NotFoundError("No such complaint.") from exc
+
+
+def _serialize_detail(detail: ComplaintDetailData, *, now: datetime) -> dict[str, object]:
+    return serialize_own_complaint(
+        detail.complaint,
+        detail_context(detail, now=now),
+        is_detail=True,
+    )
 
 
 # --- Complaints ---------------------------------------------------------------
@@ -155,22 +184,35 @@ def get_complaint_by_id(complaint_id: str):
 def submit_additional_evidence(complaint_id: str):
     """200 ComplaintDetail — answering a NEEDS_MORE_EVIDENCE request.
 
-    TODO(phase 3). Appends evidence at the next `sequence` (old rows kept) and
+    Appends evidence at the next `sequence` (old rows kept) and
     moves the complaint back to EVIDENCE_UNDER_REVIEW, RESUMING the SLA clock if
     it had already started.
     """
-    todo("Evidence re-submission")
+    now = _utcnow()
+    detail = resubmit_evidence(
+        complaint_id=_parse_complaint_id(complaint_id),
+        citizen=current_user(),
+        photos=[request.files.get("photo")],
+        now=now,
+    )
+    return jsonify(_serialize_detail(detail, now=now)), 201
 
 
 @bp.post("/complaints/<complaint_id>/upvote")
 @require_role(CITIZEN)
 def upvote_complaint(complaint_id: str):
-    """200 UpvoteResult {upvoteCount, severityScore}.
+    """200 UpvoteResult {complaintId, upvoteCount, severityLabel}.
 
-    TODO(phase 6). 409 ALREADY_UPVOTED on a repeat; no self-upvotes. Credits +5
+    409 ALREADY_UPVOTED on a repeat; no self-upvotes. Credits +5
     to the REPORTER, not the voter, and recomputes severity.
     """
-    todo("Upvote")
+    return jsonify(
+        upvote(
+            complaint_id=_parse_complaint_id(complaint_id),
+            citizen=current_user(),
+            now=_utcnow(),
+        )
+    )
 
 
 @bp.post("/complaints/<complaint_id>/confirm")
@@ -178,10 +220,16 @@ def upvote_complaint(complaint_id: str):
 def confirm_resolution(complaint_id: str):
     """200 ComplaintDetail — RESOLVED -> CLOSED.
 
-    TODO(phase 6). The ONLY path that credits confirm rewards. Auto-close and an
+    The ONLY path that credits confirm rewards. Auto-close and an
     admin-rejected dispute both close a complaint with zero points.
     """
-    todo("Confirm fix")
+    now = _utcnow()
+    detail = confirm_resolution_service(
+        complaint_id=_parse_complaint_id(complaint_id),
+        citizen=current_user(),
+        now=now,
+    )
+    return jsonify(_serialize_detail(detail, now=now))
 
 
 @bp.post("/complaints/<complaint_id>/dispute")
@@ -189,10 +237,18 @@ def confirm_resolution(complaint_id: str):
 def dispute_resolution(complaint_id: str):
     """200 ComplaintDetail — RESOLVED -> REOPENED. multipart: reason + a photo.
 
-    TODO(phase 6). Both are required — the citizen carries the burden of proof.
+    Both are required — the citizen carries the burden of proof.
     An ADMIN then rules on it, never the officer who did the work.
     """
-    todo("Dispute fix")
+    now = _utcnow()
+    detail = dispute_resolution_service(
+        complaint_id=_parse_complaint_id(complaint_id),
+        citizen=current_user(),
+        reason=request.form.get("reason"),
+        photo=request.files.get("photo"),
+        now=now,
+    )
+    return jsonify(_serialize_detail(detail, now=now))
 
 
 # --- Feed ---------------------------------------------------------------------

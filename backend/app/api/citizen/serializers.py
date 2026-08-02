@@ -1,8 +1,4 @@
-"""Citizen deltas on top of the neutral shapes.
-
-A citizen sees their own complaint in full — but never another citizen's
-identity, and never an officer's name.
-"""
+"""Citizen-specific response shapes built on the neutral serializers."""
 
 from __future__ import annotations
 
@@ -21,7 +17,7 @@ def serialize_own_complaint(
     history_list: list[Any] | None = None,
     notes_list: list[Any] | None = None,
 ) -> dict[str, Any]:
-    """The shared Complaint or ComplaintDetail plus citizenActionNeeded."""
+    """Return a citizen's complaint plus its derived action requirement."""
     if is_detail:
         from app.api.shared.serializers import serialize_complaint_detail
 
@@ -38,9 +34,9 @@ def serialize_own_complaint(
         data = serialize_complaint(complaint, ctx)
 
     action_needed = None
-    if complaint.status == ComplaintStatus.RESOLVED:
+    if complaint.status is ComplaintStatus.RESOLVED:
         action_needed = "CONFIRM_FIX"
-    elif complaint.status == ComplaintStatus.NEEDS_MORE_EVIDENCE:
+    elif complaint.status is ComplaintStatus.NEEDS_MORE_EVIDENCE:
         action_needed = "PROVIDE_MORE_EVIDENCE"
 
     data["citizenActionNeeded"] = action_needed
@@ -52,33 +48,22 @@ def serialize_feed_item(
     ctx: SerializationContext,
     citizen_upvoted_ids: set[int] | None = None,
 ) -> dict[str, Any]:
-    """`FeedItem` — anonymized matching openapi.yaml schema.
-
-    Required: [id, category, status, upvoteCount, hasUpvoted]
-    Includes: latitude, longitude, photoUrl, severityLabel, createdAt.
-    Omits: reporter, zoneId, zoneName, assignedOfficerId, citizenActionNeeded, updatedAt.
-    """
+    """Return the anonymized FeedItem contract shape."""
     from app.api.shared.serializers import serialize_category
     from app.core.signing import sign_photo_url
     from app.domain import severity as severity_domain
 
-    cat = ctx.categories[complaint.category_id]
-    sev_lbl = severity_domain.label(complaint.severity_score).value
-    upvote_count = ctx.upvote_counts.get(complaint.id, 0)
-    first_ev = ctx.first_evidence.get(complaint.id)
-    photo_url = sign_photo_url(first_ev.id) if first_ev else ""
-    has_upvoted = (complaint.id in citizen_upvoted_ids) if citizen_upvoted_ids else False
-    created_at_str = complaint.created_at.isoformat() + "Z" if complaint.created_at else None
-
+    category = ctx.categories[complaint.category_id]
+    evidence = ctx.first_evidence.get(complaint.id)
     return {
         "id": str(complaint.id),
-        "category": serialize_category(cat),
+        "category": serialize_category(category),
         "status": complaint.status.value,
-        "severityLabel": sev_lbl,
-        "upvoteCount": upvote_count,
-        "hasUpvoted": has_upvoted,
-        "photoUrl": photo_url,
+        "severityLabel": severity_domain.label(complaint.severity_score).value,
+        "upvoteCount": ctx.upvote_counts.get(complaint.id, 0),
+        "hasUpvoted": complaint.id in (citizen_upvoted_ids or set()),
+        "photoUrl": sign_photo_url(evidence.id) if evidence else "",
         "latitude": complaint.latitude,
         "longitude": complaint.longitude,
-        "createdAt": created_at_str,
+        "createdAt": complaint.created_at.isoformat() + "Z" if complaint.created_at else None,
     }

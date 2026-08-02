@@ -9,10 +9,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import update
+from sqlalchemy import func, select, update
 
+from app.domain.enums import PointsReason
+from app.domain.severity import score
 from app.extensions import db
-from app.models import Complaint, ComplaintCluster
+from app.models import Complaint, ComplaintCluster, ComplaintUpvote, PointsLedger
 
 
 def link_new_complaint(*, complaint: Complaint, radius_meters: float, now: datetime) -> None:
@@ -54,7 +56,29 @@ def recompute_severity_for_cluster(*, cluster_id: int | None, complaint_id: int)
 
     Call this on: complaint creation, cluster join, and every upvote.
     """
-    raise NotImplementedError
+    complaint_ids = [complaint_id]
+    reporter_count = 1
+    if cluster_id is not None:
+        cluster = db.session.get(ComplaintCluster, cluster_id)
+        if cluster is not None:
+            reporter_count = cluster.unique_reporter_count
+            complaint_ids = list(
+                db.session.execute(
+                    select(Complaint.id).where(Complaint.cluster_id == cluster_id)
+                ).scalars()
+            )
+
+    counts = dict(
+        db.session.execute(
+            select(ComplaintUpvote.complaint_id, func.count(ComplaintUpvote.id))
+            .where(ComplaintUpvote.complaint_id.in_(complaint_ids))
+            .group_by(ComplaintUpvote.complaint_id)
+        ).all()
+    )
+    for member in db.session.execute(
+        select(Complaint).where(Complaint.id.in_(complaint_ids))
+    ).scalars():
+        member.severity_score = score(reporter_count, int(counts.get(member.id, 0)))
 
 
 def claim_cluster_reward(*, cluster_id: int) -> bool:
@@ -81,12 +105,40 @@ def claim_cluster_reward(*, cluster_id: int) -> bool:
 def citizen_already_rewarded_in_cluster(*, cluster_id: int, citizen_id: int) -> bool:
     """Has this citizen already been paid a cluster reward here?
 
-    TODO(phase 6). Look for a points_ledger row with reason COMPLAINT_CLOSED or
-    CLUSTER_MEMBER_CLOSED whose complaint belongs to this cluster and this
-    citizen. Cluster rewards are paid at most once per citizen per cluster, so
-    filing three complaints that get clustered together cannot farm rewards.
+    A points_ledger row with reason COMPLAINT_CLOSED or CLUSTER_MEMBER_CLOSED
+    whose complaint belongs to this cluster and this citizen. Cluster rewards are
+    paid at most once per citizen per cluster, so filing three complaints that
+    get clustered together cannot farm rewards.
+
+    Call this BEFORE `claim_cluster_reward` — see `lifecycle.confirm_resolution`.
     """
-    raise NotImplementedError
+    # Take the cluster row first, so this read and the claim that follows it are
+    # one decision rather than two.
+    #
+    # ⚠ On SQLite this renders nothing at all — the dialect drops FOR UPDATE
+    # silently. What actually serialises concurrent confirms there is SQLite's
+    # single-writer lock, which the claim's UPDATE takes. This line is the
+    # equivalent guarantee for Postgres; it is not what is protecting us today.
+    db.session.execute(
+        select(ComplaintCluster.id).where(ComplaintCluster.id == cluster_id).with_for_update()
+    ).scalar_one_or_none()
+    return (
+        db.session.execute(
+            select(func.count(PointsLedger.id))
+            .join(Complaint, Complaint.id == PointsLedger.complaint_id)
+            .where(
+                PointsLedger.citizen_id == citizen_id,
+                Complaint.cluster_id == cluster_id,
+                PointsLedger.reason.in_(
+                    [
+                        PointsReason.COMPLAINT_CLOSED,
+                        PointsReason.CLUSTER_MEMBER_CLOSED,
+                    ]
+                ),
+            )
+        ).scalar_one()
+        > 0
+    )
 
 
 def cascade_resolution(*, resolved: Complaint, now: datetime) -> list[dict[str, Any]]:

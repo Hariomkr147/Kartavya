@@ -2,20 +2,26 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
 
 from app.domain import lifecycle, sla
-from app.domain.enums import SeverityLabel, SlaLabel, UserRole
+from flask import current_app
+
+from app.domain.enums import AiReportStatus, SeverityLabel, SlaLabel, UserRole
 from app.domain.lifecycle import TERMINAL
 from app.domain.severity import label as severity_label
 from app.domain.sla import average_resolution_hours, resolution_hours
 from app.domain.sla import label as sla_label
 from app.domain.errors import NotFoundError
 from app.extensions import db
-from app.models import Complaint, ComplaintCategory, PointsLedger, User, Zone
+from app.jobs.zone_report import submit_zone_report_job
+from app.models import AiZoneReport, Complaint, ComplaintCategory, PointsLedger, User, Zone
+
+logger = logging.getLogger(__name__)
 
 
 def _database_time(value: datetime | None) -> datetime | None:
@@ -197,3 +203,53 @@ def zone_metrics(*, zone_id: int, now: datetime) -> dict[str, Any]:
         "topCitizens": leaders,
         "severityHeat": heat,
     }
+
+
+def request_ai_zone_report(*, zone_id: int, admin_user: User, now: datetime) -> AiZoneReport:
+    """Request generation of an AI zone health report."""
+    zone = db.session.get(Zone, zone_id)
+    if zone is None:
+        raise NotFoundError("No such zone.")
+
+    report = AiZoneReport(
+        zone_id=zone_id,
+        requested_by=admin_user.id,
+        status=AiReportStatus.PENDING,
+        ai_available=True,
+        created_at=now,
+    )
+    db.session.add(report)
+    db.session.commit()
+
+    app_obj = current_app._get_current_object()
+    try:
+        submit_zone_report_job(app_obj, report.id)
+    except Exception:
+        logger.exception("Failed to submit AI zone report job %d", report.id)
+        report.status = AiReportStatus.FAILED
+        report.ai_available = False
+        report.generated_at = now
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+    return report
+
+
+def get_latest_ai_zone_report(*, zone_id: int) -> AiZoneReport:
+    """Fetch latest AI zone report for a zone."""
+    zone = db.session.get(Zone, zone_id)
+    if zone is None:
+        raise NotFoundError("No such zone.")
+
+    stmt = (
+        select(AiZoneReport)
+        .where(AiZoneReport.zone_id == zone_id)
+        .order_by(AiZoneReport.created_at.desc())
+        .limit(1)
+    )
+    report = db.session.scalar(stmt)
+    if report is None:
+        raise NotFoundError("No AI report has ever been generated for this zone.")
+    return report

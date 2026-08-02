@@ -359,7 +359,15 @@ def generate_ai_zone_report(zone_id: int):
 
     TODO(phase 8).
     """
-    todo("AI zone report trigger")
+    from app.api.admin.serializers import serialize_ai_zone_report
+    from app.services.analytics.zone import request_ai_zone_report
+
+    report = request_ai_zone_report(
+        zone_id=zone_id,
+        admin_user=current_user(),
+        now=datetime.now(UTC),
+    )
+    return jsonify(serialize_ai_zone_report(report)), 202
 
 
 @bp.get("/admin/zones/<int:zone_id>/ai-report")
@@ -369,4 +377,8 @@ def get_ai_zone_report(zone_id: int):
 
     TODO(phase 8).
     """
-    todo("AI zone report fetch")
+    from app.api.admin.serializers import serialize_ai_zone_report
+    from app.services.analytics.zone import get_latest_ai_zone_report
+
+    report = get_latest_ai_zone_report(zone_id=zone_id)
+    return jsonify(serialize_ai_zone_report(report))

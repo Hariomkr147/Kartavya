@@ -40,27 +40,28 @@ def generate_complaints_csv_service(
     # Pre-fetch zones and categories for codes
     zones = {z.id: z.zone_code for z in db.session.scalars(select(Zone)).all()}
     categories = {
-        c.id: c.category_code
-        for c in db.session.scalars(select(ComplaintCategory)).all()
+        c.id: c.category_code for c in db.session.scalars(select(ComplaintCategory)).all()
     }
 
     output = io.StringIO()
     writer = csv.writer(output)
 
-    writer.writerow([
-        "ID",
-        "Complaint Code",
-        "Category Code",
-        "Zone Code",
-        "Status",
-        "Severity Label",
-        "SLA Label",
-        "Latitude",
-        "Longitude",
-        "Assigned Officer ID",
-        "Created At",
-        "Updated At",
-    ])
+    writer.writerow(
+        [
+            "ID",
+            "Complaint Code",
+            "Category Code",
+            "Zone Code",
+            "Status",
+            "Severity Label",
+            "SLA Label",
+            "Latitude",
+            "Longitude",
+            "Assigned Officer ID",
+            "Created At",
+            "Updated At",
+        ]
+    )
     yield output.getvalue()
     output.seek(0)
     output.truncate(0)
@@ -79,20 +80,22 @@ def generate_complaints_csv_service(
         if sla_label is not None and sla_lbl_str != sla_label:
             continue
 
-        writer.writerow([
-            str(c.id),
-            c.complaint_code or "",
-            categories.get(c.category_id, ""),
-            zones.get(c.zone_id, ""),
-            c.status.value if hasattr(c.status, "value") else str(c.status),
-            sev_lbl,
-            sla_lbl_str,
-            f"{c.latitude:.6f}",
-            f"{c.longitude:.6f}",
-            str(c.assigned_officer_id) if c.assigned_officer_id else "",
-            c.created_at.isoformat() if c.created_at else "",
-            c.updated_at.isoformat() if c.updated_at else "",
-        ])
+        writer.writerow(
+            [
+                str(c.id),
+                c.complaint_code or "",
+                categories.get(c.category_id, ""),
+                zones.get(c.zone_id, ""),
+                c.status.value if hasattr(c.status, "value") else str(c.status),
+                sev_lbl,
+                sla_lbl_str,
+                f"{c.latitude:.6f}",
+                f"{c.longitude:.6f}",
+                str(c.assigned_officer_id) if c.assigned_officer_id else "",
+                c.created_at.isoformat() if c.created_at else "",
+                c.updated_at.isoformat() if c.updated_at else "",
+            ]
+        )
         yield output.getvalue()
         output.seek(0)
         output.truncate(0)

@@ -5,6 +5,21 @@ from __future__ import annotations
 from app.models import AppSettings, ComplaintCategory, User
 
 
+def list_categories() -> list[ComplaintCategory]:
+    """GET /categories — all categories, ordered by name.
+
+    Called from the reference route. Lives here rather than in the route so
+    that the route never imports a model directly.
+    """
+    from app.extensions import db
+
+    return list(
+        db.session.scalars(
+            db.select(ComplaintCategory).order_by(ComplaintCategory.category_name)
+        ).all()
+    )
+
+
 def get_settings() -> AppSettings:
     """GET /admin/settings. TODO(phase 7).
 

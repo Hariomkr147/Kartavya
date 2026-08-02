@@ -6,21 +6,19 @@ from app.models import Zone
 
 
 def list_zones(*, active_only: bool = False) -> list[Zone]:
-    """GET /zones — public, because the registration form needs it. TODO(phase 2)."""
-    raise NotImplementedError
+    """GET /zones."""
+    from app.extensions import db
+    q = db.select(Zone)
+    if active_only:
+        q = q.filter_by(is_active=True)
+    return list(db.session.scalars(q))
 
 
 def suggest_zone(*, latitude: float, longitude: float) -> Zone | None:
-    """POST /zones/suggest — requires a token, despite sitting next to the
-    public reference lookups. TODO(phase 2).
-
-    Thin wrapper over `domain.geo.nearest_active_zone`. Inactive zones are
-    excluded so this never pre-fills a zone POST /complaints would then reject.
-
-    This is a SUGGESTION. The citizen confirms it, and `CreateComplaintRequest.
-    zoneId` is what the server stores.
-    """
-    raise NotImplementedError
+    """POST /zones/suggest."""
+    from app.domain.geo import nearest_active_zone
+    zones = list_zones(active_only=True)
+    return nearest_active_zone(zones, latitude, longitude)
 
 
 def create_zone(*, zone_code: str, zone_name: str, center_lat: float, center_lng: float) -> Zone:

@@ -23,6 +23,24 @@ from app.domain import sla as sla_domain
 from app.domain.enums import AiScreenStatus, StatusActor
 from app.models import Complaint, ComplaintCategory, Zone
 
+@dataclass
+class SerializationContext:
+    """Everything the serializers need, gathered once by the caller.
+
+    The service builds this; the serializer only reads it. `now` is passed in so
+    derived SLA labels are consistent across a whole page — computing
+    `datetime.now()` per item would let the first and last row of one response
+    disagree about what time it is.
+    """
+
+    now: datetime
+    categories: dict[int, ComplaintCategory] = field(default_factory=dict)
+    zones: dict[int, Zone] = field(default_factory=dict)
+    #: complaint_id -> COUNT(*), from ONE GROUP BY.
+    upvote_counts: dict[int, int] = field(default_factory=dict)
+    #: complaint_id -> first evidence row, for `photoUrl`.
+    first_evidence: dict[int, Any] = field(default_factory=dict)
+
 
 def serialize_complaint(complaint: Complaint, ctx: SerializationContext) -> dict[str, Any]:
     """The compact Complaint shape (openapi.yaml: Complaint)."""
@@ -99,7 +117,7 @@ def serialize_complaint_detail(
 
 
 def serialize_category(category: ComplaintCategory) -> dict[str, Any]:
-    """Category. Note field renames: category_code -> code, sla_hours -> slaTargetHours."""
+    """`Category`."""
     return {
         "id": str(category.id),
         "code": category.category_code,
@@ -110,7 +128,7 @@ def serialize_category(category: ComplaintCategory) -> dict[str, Any]:
 
 
 def serialize_zone(zone: Zone) -> dict[str, Any]:
-    """Zone."""
+    """``Zone`` (openapi.yaml: Zone)."""
     return {
         "id": str(zone.id),
         "code": zone.zone_code,
@@ -193,7 +211,7 @@ def serialize_progress_note(note: Any) -> dict[str, Any]:
 
 
 def masked_display_name(user: Any) -> str:
-    """display_name, or a masked fallback like 'Citizen #1042'."""
+    """`display_name`, or a masked fallback like "Citizen #1042"."""
     if getattr(user, "display_name", None):
         return user.display_name
     return f"Citizen #{user.id}"

@@ -16,7 +16,8 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 from typing import Any
 
 from app.infra.ai.base import AiProvider, ReportResult, ScreenResult
@@ -74,13 +75,18 @@ class GuardedProvider:
         timeout_seconds: float,
         failure_threshold: int,
         cooldown_seconds: float,
+        executor_workers: int = 1,
     ) -> None:
         self._provider = provider
         self._timeout = timeout_seconds
         self._breaker = CircuitBreaker(failure_threshold, cooldown_seconds)
-        # One worker: the timeout needs the call to run somewhere it can be
-        # abandoned. Job-level concurrency is the scheduler's pool, not this.
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ai-call")
+        # The timeout needs the call to run somewhere it can be abandoned.
+        # Callers choose the fixed capacity: one remains the default, while
+        # evidence screening uses its existing configured per-photo concurrency.
+        self._executor = ThreadPoolExecutor(
+            max_workers=executor_workers,
+            thread_name_prefix="ai-call",
+        )
 
     def _call(self, method: str, *args: Any) -> Any | None:
         if self._breaker.is_open():
@@ -99,7 +105,10 @@ class GuardedProvider:
             logger.exception("AI call %s failed", method)
             self._breaker.record_failure()
             return None
-        self._breaker.record_success()
+        if result is None:
+            self._breaker.record_failure()
+        else:
+            self._breaker.record_success()
         return result
 
     def screen_photo(self, path: str, category: str) -> ScreenResult | None:

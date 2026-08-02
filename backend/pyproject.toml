@@ -25,9 +25,17 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.5",
     "import-linter>=2.0",
+    # tests/contract/ validates live responses against backend/api/openapi.yaml.
+    # Both are small, pure-Python packages, and they belong in the DEFAULT dev
+    # install rather than behind an extra: a contract-test layer nobody installs
+    # catches nothing. Three shipped contract violations (a ledger field named
+    # after its column, a ZoneSummary missing two fields, and an invented
+    # pagination key) got through precisely because this layer was optional.
+    "PyYAML>=6.0",
+    "jsonschema>=4.21",
 ]
-# Contract tests (tests/contract/) validate live responses against
-# backend/api/openapi.yaml. Kept separate because it is a heavy install.
+# Property-based fuzzing of the whole surface from the spec. Genuinely heavy, so
+# it stays opt-in: `pip install -e ".[contract]"`.
 contract = [
     "schemathesis>=3.25",
 ]

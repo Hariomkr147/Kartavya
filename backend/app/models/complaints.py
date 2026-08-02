@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
@@ -18,6 +19,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.enums import AiScreenStatus, ComplaintStatus, EvidenceVerdict
 from app.models.base import TimestampMixin, db, enum_column, utcnow
+
+if TYPE_CHECKING:  # Relationship targets only — importing these at runtime
+    from app.models.history import ComplaintNote, StatusHistory  # would be circular.
 
 
 class ComplaintCluster(TimestampMixin, db.Model):
@@ -147,6 +151,16 @@ class Complaint(TimestampMixin, db.Model):
         back_populates="complaint",
         cascade="all, delete-orphan",
         order_by="ComplaintEvidence.sequence",
+    )
+    status_history: Mapped[list[StatusHistory]] = relationship(
+        back_populates="complaint",
+        cascade="all, delete-orphan",
+        order_by="StatusHistory.created_at",
+    )
+    notes: Mapped[list[ComplaintNote]] = relationship(
+        back_populates="complaint",
+        cascade="all, delete-orphan",
+        order_by="ComplaintNote.created_at",
     )
 
     __table_args__ = (

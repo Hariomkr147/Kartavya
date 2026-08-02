@@ -10,7 +10,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TypeVar
 
-from sqlalchemy import Engine, Enum as SAEnum, event
+from sqlalchemy import Engine, event
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.extensions import db

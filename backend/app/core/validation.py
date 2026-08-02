@@ -11,7 +11,8 @@ from functools import wraps
 from typing import Any, TypeVar, cast
 
 from flask import request
-from pydantic import BaseModel, ValidationError as PydanticValidationError
+from pydantic import BaseModel
+from pydantic import ValidationError as PydanticValidationError
 
 from app.domain.errors import ErrorDetail, ValidationError
 

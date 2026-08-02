@@ -20,7 +20,7 @@ from functools import wraps
 from typing import Any, TypeVar, cast
 
 import jwt
-from flask import current_app, g, request
+from flask import current_app, request
 
 from app.domain.enums import UserRole
 from app.domain.errors import AuthError, ForbiddenError
@@ -81,13 +81,24 @@ def _bearer_token() -> str:
 
 # --- Request-scoped current user ---------------------------------------------
 
+#: Where the resolved caller is stashed for the life of ONE request.
+#:
+#: ⚠ Deliberately not `flask.g`. `g` is bound to the *application* context, not
+#: the request, and one app context can serve several requests — Flask reuses an
+#: already-pushed one rather than nesting. Caching the caller on `g` therefore
+#: lets request N+1 be authorized as request N's user: two citizens hitting the
+#: same app context in turn, and the second one inherits the first one's
+#: identity. The request object is the only thing in scope here whose lifetime
+#: really is a single request.
+_CURRENT_USER_ENV_KEY = "kartavya.current_user"
+
 
 def load_current_user() -> User:
     """Resolve the caller, re-reading the row from the database.
 
-    Cached on `g` for the life of one request only — never across requests.
+    Cached for the life of one request only — never across requests.
     """
-    cached = getattr(g, "current_user", None)
+    cached = request.environ.get(_CURRENT_USER_ENV_KEY)
     if cached is not None:
         return cast(User, cached)
 
@@ -103,13 +114,13 @@ def load_current_user() -> User:
         # indistinguishable to the caller.
         raise AuthError("Your account is no longer active.")
 
-    g.current_user = user
+    request.environ[_CURRENT_USER_ENV_KEY] = user
     return user
 
 
 def current_user() -> User:
     """The authenticated caller. Only valid inside a @require_auth route."""
-    user = getattr(g, "current_user", None)
+    user = request.environ.get(_CURRENT_USER_ENV_KEY)
     if user is None:
         raise AuthError("Authentication required.")
     return cast(User, user)

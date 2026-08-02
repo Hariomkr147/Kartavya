@@ -30,18 +30,16 @@ def elapsed_seconds(
     paused_at: datetime | None,
     now: datetime,
 ) -> float:
-    """Seconds actually counted against the target.
+    """The core SLA clock."""
+    if started_at.tzinfo is None and now.tzinfo is not None:
+        started_at = started_at.replace(tzinfo=now.tzinfo)
+    if paused_at and paused_at.tzinfo is None and now.tzinfo is not None:
+        paused_at = paused_at.replace(tzinfo=now.tzinfo)
 
-    Wall-clock since the clock started, minus accumulated pause time, minus any
-    currently-open pause that has not yet been folded into `paused_seconds`.
-
-    Paused time must never count against the SLA: a complaint sitting three days
-    waiting on a citizen's photo has not consumed three days of the officer's
-    target.
-    """
     total_paused = float(paused_seconds)
-    if paused_at is not None:
+    if paused_at:
         total_paused += (now - paused_at).total_seconds()
+
     return (now - started_at).total_seconds() - total_paused
 
 

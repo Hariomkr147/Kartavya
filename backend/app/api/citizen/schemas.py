@@ -1,28 +1,55 @@
-"""Request models for the citizen endpoints.
-
-Mirrored by hand from `components/schemas` in backend/api/openapi.yaml — field
-names stay camelCase, because the wire format is the contract's.
-`app/api/auth/schemas.py` is the worked example.
-
-TODO(phase 3/6) — the models this package needs:
-
-  * CreateComplaintRequest   — multipart, so parse the FORM fields with a model
-                               and handle `photos` separately. `zoneId` and
-                               `categoryId` are REQUIRED; `description` is not.
-                               `categorySuggestedByMatcher` is recorded exactly
-                               as the client reports it and never re-derived.
-  * SubmitEvidenceRequest    — multipart: 1-3 photos, optional note.
-  * DisputeRequest           — multipart: `reason` (required) AND a photo
-                               (required). Both, always.
-  * ComplaintListQuery       — page, pageSize, sort, status (REPEATABLE),
-                               categoryId, dateFrom, dateTo.
-  * FeedQuery                — zoneId (a citizen may only ask for their own),
-                               includeResolved (default false), categoryId,
-                               sort, page, pageSize.
-  * LeaderboardQuery         — zoneId, page, pageSize.
-
-Use `model_config = ConfigDict(extra="forbid")` on each, so a client-side typo
-becomes a clean 400 instead of a silently dropped field.
-"""
+"""Request models for the citizen package."""
 
 from __future__ import annotations
+
+import math
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.domain.enums import ComplaintStatus
+
+
+class CreateComplaintForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    categoryId: int = Field(..., gt=0)
+    zoneId: int = Field(..., gt=0)
+    latitude: float = Field(..., ge=-90.0, le=90.0)
+    longitude: float = Field(..., ge=-180.0, le=180.0)
+    description: str | None = Field(default=None)
+    categorySuggestedByMatcher: bool = Field(default=False)
+
+    @field_validator("latitude", "longitude")
+    @classmethod
+    def check_finite(cls, value: float) -> float:
+        if not math.isfinite(value):
+            raise ValueError("Coordinate must be a finite number.")
+        return value
+
+
+class ComplaintListQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    page: int | None = Field(default=1, ge=1)
+    pageSize: int | None = Field(default=20, ge=1, le=100)
+    sort: str | None = Field(default="-createdAt")
+    status: list[ComplaintStatus] | ComplaintStatus | None = Field(default=None)
+    categoryId: int | None = Field(default=None, gt=0)
+
+
+class FeedQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    zoneId: int | None = Field(default=None, gt=0)
+    includeResolved: bool = False
+    categoryId: int | None = Field(default=None, gt=0)
+    sort: str | None = "-createdAt"
+    page: int | None = Field(default=1, ge=1)
+    pageSize: int | None = Field(default=20, ge=1, le=100)
+
+
+class LeaderboardQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    scope: str = Field(..., pattern="^(zone|city)$")
+    period: str = Field(default="monthly", pattern="^(monthly|all_time)$")
+    page: int | None = Field(default=1, ge=1)
+    pageSize: int | None = Field(default=20, ge=1, le=100)

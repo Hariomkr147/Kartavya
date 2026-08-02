@@ -28,6 +28,7 @@ from app.extensions import db
 from app.infra.storage import remove_photo, store_photo, validate_photo
 from app.models import Complaint, ComplaintCategory, ComplaintEvidence, StatusHistory, User, Zone
 from app.services.complaints.evidence import attach_photos
+from app.services.complaints.clusters import link_new_complaint
 from app.services.complaints.lifecycle import apply_transition
 from app.services.complaints.views import ComplaintDetailData, load_complaint_detail
 from app.services.gamification.ledger import award
@@ -132,7 +133,11 @@ def create_complaint(
 
         db.session.flush()
 
-        # TODO(phase 5): link_new_complaint(...) when services/complaints/clusters.py lands.
+        link_new_complaint(
+            complaint=complaint,
+            radius_meters=current_app.config["CLUSTER_RADIUS_METERS"],
+            now=now,
+        )
 
         # Award FIRST_COMPLAINT points (+10) if this is citizen's first complaint.
         # NOTE (Phase 3): FIRST_COMPLAINT points award (+10 points) is fully implemented here

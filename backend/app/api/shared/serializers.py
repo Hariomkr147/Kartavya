@@ -161,6 +161,51 @@ def serialize_progress_note(note: Any) -> dict[str, Any]:
     }
 
 
+def serialize_cluster(cluster: Any, ctx: SerializationContext) -> dict[str, Any]:
+    """Return the OpenAPI Cluster shape from the cluster's preloaded members."""
+    members = ctx.cluster_members.get(cluster.id, [])
+    total_upvotes = sum(ctx.upvote_counts.get(member.id, 0) for member in members)
+    severity_score = severity_domain.score(cluster.unique_reporter_count, total_upvotes)
+    status_summary: dict[str, int] = {}
+    for member in members:
+        status = member.status.value
+        status_summary[status] = status_summary.get(status, 0) + 1
+
+    category = ctx.categories.get(cluster.category_id)
+    return {
+        "id": str(cluster.id),
+        "zoneId": str(cluster.zone_id),
+        "category": (
+            serialize_category(category)
+            if category is not None
+            else {
+                "id": str(cluster.category_id),
+                "code": "UNKNOWN",
+                "name": "Unknown",
+                "description": None,
+                "slaTargetHours": None,
+            }
+        ),
+        "reportCount": cluster.report_count,
+        "uniqueReporterCount": cluster.unique_reporter_count,
+        "severityScore": severity_score,
+        "severityLabel": severity_domain.label(severity_score).value,
+        "statusSummary": status_summary,
+        "centroidLat": cluster.centroid_lat,
+        "centroidLng": cluster.centroid_lng,
+        "createdAt": _iso(cluster.created_at),
+    }
+
+
+def serialize_cluster_detail(cluster: Any, ctx: SerializationContext) -> dict[str, Any]:
+    payload = serialize_cluster(cluster, ctx)
+    payload["complaints"] = [
+        serialize_complaint(member, ctx)
+        for member in ctx.cluster_members.get(cluster.id, [])
+    ]
+    return payload
+
+
 def masked_display_name(user: Any) -> str:
     if getattr(user, "display_name", None):
         return user.display_name

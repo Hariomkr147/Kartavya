@@ -19,3 +19,4 @@ class SerializationContext:
     evidence_rows: dict[int, list[Any]] = field(default_factory=dict)
     history_rows: dict[int, list[Any]] = field(default_factory=dict)
     note_rows: dict[int, list[Any]] = field(default_factory=dict)
+    cluster_members: dict[int, list[Any]] = field(default_factory=dict)

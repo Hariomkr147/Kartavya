@@ -27,8 +27,8 @@ def _iso(value: datetime | None) -> str | None:
 
 def serialize_complaint(complaint: Complaint, ctx: SerializationContext) -> dict[str, Any]:
     """Return the compact Complaint contract shape without reporter identity."""
-    category = ctx.categories[complaint.category_id]
-    zone = ctx.zones[complaint.zone_id]
+    category = ctx.categories.get(complaint.category_id)
+    zone = ctx.zones.get(complaint.zone_id)
     evidence = ctx.first_evidence.get(complaint.id)
     current_sla = sla_domain.label(
         target_hours=complaint.sla_target_hours,
@@ -39,14 +39,24 @@ def serialize_complaint(complaint: Complaint, ctx: SerializationContext) -> dict
     )
     return {
         "id": str(complaint.id),
-        "category": serialize_category(category),
+        "category": (
+            serialize_category(category)
+            if category is not None
+            else {
+                "id": str(complaint.category_id or ""),
+                "code": "UNKNOWN",
+                "name": "Unknown",
+                "description": None,
+                "slaTargetHours": None,
+            }
+        ),
         "status": complaint.status.value,
         "severityLabel": severity_domain.label(complaint.severity_score).value,
         "slaLabel": current_sla.value if current_sla else None,
         "upvoteCount": ctx.upvote_counts.get(complaint.id, 0),
         "photoUrl": sign_photo_url(evidence.id) if evidence else "",
-        "zoneId": str(zone.id),
-        "zoneName": zone.zone_name,
+        "zoneId": str(zone.id if zone is not None else complaint.zone_id or ""),
+        "zoneName": zone.zone_name if zone is not None else "Unknown",
         "assignedOfficerId": (
             str(complaint.assigned_officer_id)
             if complaint.assigned_officer_id is not None
@@ -66,16 +76,8 @@ def serialize_complaint_detail(
 ) -> dict[str, Any]:
     """Return ComplaintDetail, using explicit rows or preloaded context rows."""
     complaint_id = complaint.id
-    evidence = (
-        evidence_list
-        if evidence_list is not None
-        else ctx.evidence_rows.get(complaint_id, [])
-    )
-    history = (
-        history_list
-        if history_list is not None
-        else ctx.history_rows.get(complaint_id, [])
-    )
+    evidence = evidence_list if evidence_list is not None else ctx.evidence_rows.get(complaint_id, [])
+    history = history_list if history_list is not None else ctx.history_rows.get(complaint_id, [])
     notes = notes_list if notes_list is not None else ctx.note_rows.get(complaint_id, [])
 
     payload = serialize_complaint(complaint, ctx)
@@ -116,7 +118,7 @@ def serialize_zone(zone: Zone) -> dict[str, Any]:
 
 
 def serialize_evidence(evidence: Any, ctx: SerializationContext) -> dict[str, Any]:
-    del ctx  # The signature stays uniform with the other shared serializers.
+    del ctx
     return {
         "id": str(evidence.id),
         "photoUrl": sign_photo_url(evidence.id),
@@ -129,9 +131,7 @@ def serialize_evidence(evidence: Any, ctx: SerializationContext) -> dict[str, An
         },
         "verdict": evidence.verdict.value if evidence.verdict else None,
         "verdictReason": evidence.verdict_reason,
-        "reviewedByOfficerId": (
-            str(evidence.reviewed_by) if evidence.reviewed_by is not None else None
-        ),
+        "reviewedByOfficerId": str(evidence.reviewed_by) if evidence.reviewed_by is not None else None,
         "reviewedAt": _iso(evidence.reviewed_at),
         "submittedAt": _iso(evidence.created_at),
     }

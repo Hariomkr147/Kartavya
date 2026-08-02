@@ -1,16 +1,14 @@
-"""Officer deltas — queue ordering and the cascade array, and nothing else.
-
-⚠ There is NO reporter field in this file and there never will be. If a ticket
-asks for "just the reporter's initials so officers can follow up", the answer is
-no: officers reach citizens through the progress-note channel, which is exactly
-why that channel exists.
-"""
+"""Officer response shapes with reporter identity structurally absent."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from app.api.shared.serializers import SerializationContext
+from app.api.shared.serializers import (
+    SerializationContext,
+    serialize_complaint,
+    serialize_complaint_detail,
+)
 from app.models import Complaint
 
 
@@ -21,9 +19,7 @@ def serialize_officer_complaint_detail(
     history_list: list[Any] | None = None,
     notes_list: list[Any] | None = None,
 ) -> dict[str, Any]:
-    """ComplaintDetail for officers — reporter identity is structurally absent."""
-    from app.api.shared.serializers import serialize_complaint_detail
-
+    """Return ComplaintDetail without any reporter identity."""
     return serialize_complaint_detail(
         complaint,
         ctx,
@@ -34,24 +30,25 @@ def serialize_officer_complaint_detail(
 
 
 def serialize_queue_item(complaint: Complaint, ctx: SerializationContext) -> dict[str, Any]:
-    """One row of the officer queue. TODO(phase 4)."""
-    raise NotImplementedError
+    """Return one compact row of the officer queue."""
+    return serialize_complaint(complaint, ctx)
 
 
 def serialize_status_update_result(
     complaint: Complaint, cascade: list[dict[str, Any]], ctx: SerializationContext
 ) -> dict[str, Any]:
-    """`StatusUpdateResult` {complaint, cascade?}. TODO(phase 4).
-
-    `cascade` is present ONLY when this update set a clustered complaint to
-    RESOLVED — absent for standalone complaints and for every non-RESOLVED
-    update. Each entry is {complaintId, outcome, previousStatus}.
-    """
-    raise NotImplementedError
+    """Return a status update and an optional clustered-resolution cascade."""
+    result: dict[str, Any] = {"complaint": serialize_complaint_detail(complaint, ctx)}
+    if complaint.status.value == "RESOLVED" and complaint.cluster_id is not None:
+        result["cascade"] = cascade
+    return result
 
 
 def serialize_batch_result(
     updated: list[Complaint], failures: list[dict[str, Any]], ctx: SerializationContext
 ) -> dict[str, Any]:
-    """`BatchStatusUpdateResult` {updated, failures}. TODO(phase 4)."""
-    raise NotImplementedError
+    """Return successful batch updates alongside per-item failures."""
+    return {
+        "updated": [serialize_complaint_detail(complaint, ctx) for complaint in updated],
+        "failures": failures,
+    }

@@ -148,6 +148,16 @@ class Complaint(TimestampMixin, db.Model):
         cascade="all, delete-orphan",
         order_by="ComplaintEvidence.sequence",
     )
+    status_history: Mapped[list["StatusHistory"]] = relationship(
+        back_populates="complaint",
+        cascade="all, delete-orphan",
+        order_by="StatusHistory.created_at",
+    )
+    notes: Mapped[list["ComplaintNote"]] = relationship(
+        back_populates="complaint",
+        cascade="all, delete-orphan",
+        order_by="ComplaintNote.created_at",
+    )
 
     __table_args__ = (
         Index("ix_complaints_zone_status", "zone_id", "status"),  # the officer queue

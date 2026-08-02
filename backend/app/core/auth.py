@@ -90,7 +90,7 @@ def _bearer_token() -> str:
 #: same app context in turn, and the second one inherits the first one's
 #: identity. The request object is the only thing in scope here whose lifetime
 #: really is a single request.
-_CURRENT_USER_ATTR = "kartavya_current_user"
+_CURRENT_USER_ENV_KEY = "kartavya.current_user"
 
 
 def load_current_user() -> User:
@@ -98,7 +98,7 @@ def load_current_user() -> User:
 
     Cached for the life of one request only — never across requests.
     """
-    cached = getattr(request, _CURRENT_USER_ATTR, None)
+    cached = request.environ.get(_CURRENT_USER_ENV_KEY)
     if cached is not None:
         return cast(User, cached)
 
@@ -114,13 +114,13 @@ def load_current_user() -> User:
         # indistinguishable to the caller.
         raise AuthError("Your account is no longer active.")
 
-    setattr(request, _CURRENT_USER_ATTR, user)
+    request.environ[_CURRENT_USER_ENV_KEY] = user
     return user
 
 
 def current_user() -> User:
     """The authenticated caller. Only valid inside a @require_auth route."""
-    user = getattr(request, _CURRENT_USER_ATTR, None)
+    user = request.environ.get(_CURRENT_USER_ENV_KEY)
     if user is None:
         raise AuthError("Authentication required.")
     return cast(User, user)

@@ -13,6 +13,7 @@ Only `app/api/admin/serializers.py` may ever emit reporter identity.
 """
 
 from __future__ import annotations
+from dataclasses import dataclass, field
 
 from typing import Any
 

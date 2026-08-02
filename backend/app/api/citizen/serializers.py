@@ -1,41 +1,44 @@
-"""Citizen deltas on top of the neutral shapes.
+"""Citizen audience serializers.
 
-A citizen sees their own complaint in full — but never another citizen's
-identity, and never an officer's name.
+Strict privacy rule: the `reporter` identity field is STRUCTURALLY ABSENT
+from every serializer in this module. Not null, not masked, ABSENT.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from app.api.shared.serializers import SerializationContext
-from app.models import Complaint
+from app.core.context import SerializationContext
+from app.models.complaints import Complaint
 
 
-def serialize_own_complaint(complaint: Complaint, ctx: SerializationContext) -> dict[str, Any]:
-    """The shared ComplaintDetail plus `citizenActionNeeded`. TODO(phase 3).
+def serialize_feed_item(
+    complaint: Complaint,
+    ctx: SerializationContext,
+    citizen_upvoted_ids: set[int] | None = None,
+) -> dict[str, Any]:
+    """`FeedItem` — anonymized matching openapi.yaml schema."""
+    from app.api.shared.serializers import serialize_category
+    from app.core.signing import sign_photo_url
+    from app.domain import severity as severity_domain
 
-    `citizenActionNeeded` is CONFIRM_FIX when the complaint is RESOLVED and
-    PROVIDE_MORE_EVIDENCE when it is NEEDS_MORE_EVIDENCE — derived from status,
-    never stored, and emitted only to the owner.
-    """
-    raise NotImplementedError
+    cat = ctx.categories[complaint.category_id]
+    sev_lbl = severity_domain.label(complaint.severity_score).value
+    upvote_count = ctx.upvote_counts.get(complaint.id, 0)
+    first_ev = ctx.first_evidence.get(complaint.id)
+    photo_url = sign_photo_url(first_ev.id) if first_ev else ""
+    has_upvoted = (complaint.id in citizen_upvoted_ids) if citizen_upvoted_ids else False
+    created_at_str = complaint.created_at.isoformat() + "Z" if complaint.created_at else None
 
-
-def serialize_feed_item(complaint: Complaint, ctx: SerializationContext) -> dict[str, Any]:
-    """`FeedItem` — anonymized. TODO(phase 3).
-
-    Reuses the compact shape, which structurally has no reporter field. Location
-    IS included (the client shows a nearby-landmark hint from it); identity
-    never is.
-    """
-    raise NotImplementedError
-
-
-def serialize_leaderboard_entry(row: Any) -> dict[str, Any]:
-    """`LeaderboardEntry`. TODO(phase 6).
-
-    The handle is `display_name` or a server-generated masked fallback
-    ("Citizen #1042"). Never `full_name`, under any circumstance.
-    """
-    raise NotImplementedError
+    return {
+        "id": str(complaint.id),
+        "category": serialize_category(cat),
+        "status": complaint.status.value,
+        "severityLabel": sev_lbl,
+        "upvoteCount": upvote_count,
+        "hasUpvoted": has_upvoted,
+        "photoUrl": photo_url,
+        "latitude": complaint.latitude,
+        "longitude": complaint.longitude,
+        "createdAt": created_at_str,
+    }

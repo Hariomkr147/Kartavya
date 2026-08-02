@@ -87,11 +87,13 @@ def load_current_user() -> User:
 
     Cached on `g` for the life of one request only — never across requests.
     """
-    cached = getattr(g, "current_user", None)
-    if cached is not None:
-        return cast(User, cached)
+    token = _bearer_token()
+    cached_token = getattr(g, "_current_token", None)
+    cached_user = getattr(g, "current_user", None)
+    if cached_user is not None and cached_token == token:
+        return cast(User, cached_user)
 
-    claims = decode_token(_bearer_token())
+    claims = decode_token(token)
     try:
         user_id = int(claims.get("sub", ""))
     except (TypeError, ValueError) as exc:
@@ -104,6 +106,7 @@ def load_current_user() -> User:
         raise AuthError("Your account is no longer active.")
 
     g.current_user = user
+    g._current_token = token
     return user
 
 

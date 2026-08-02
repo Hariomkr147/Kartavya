@@ -114,4 +114,13 @@ def upvote_counts(*, complaint_ids: list[int]) -> dict[int, int]:
     queries — and `GET /feed` and the officer queue serialize a full page on
     every call.
     """
-    raise NotImplementedError
+    if not complaint_ids:
+        return {}
+    return {
+        complaint_id: int(count)
+        for complaint_id, count in db.session.execute(
+            select(ComplaintUpvote.complaint_id, func.count(ComplaintUpvote.id))
+            .where(ComplaintUpvote.complaint_id.in_(complaint_ids))
+            .group_by(ComplaintUpvote.complaint_id)
+        ).all()
+    }

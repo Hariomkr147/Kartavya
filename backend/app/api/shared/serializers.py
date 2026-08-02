@@ -76,7 +76,9 @@ def serialize_complaint_detail(
 ) -> dict[str, Any]:
     """Return ComplaintDetail, using explicit rows or preloaded context rows."""
     complaint_id = complaint.id
-    evidence = evidence_list if evidence_list is not None else ctx.evidence_rows.get(complaint_id, [])
+    evidence = (
+        evidence_list if evidence_list is not None else ctx.evidence_rows.get(complaint_id, [])
+    )
     history = history_list if history_list is not None else ctx.history_rows.get(complaint_id, [])
     notes = notes_list if notes_list is not None else ctx.note_rows.get(complaint_id, [])
 
@@ -131,7 +133,9 @@ def serialize_evidence(evidence: Any, ctx: SerializationContext) -> dict[str, An
         },
         "verdict": evidence.verdict.value if evidence.verdict else None,
         "verdictReason": evidence.verdict_reason,
-        "reviewedByOfficerId": str(evidence.reviewed_by) if evidence.reviewed_by is not None else None,
+        "reviewedByOfficerId": str(evidence.reviewed_by)
+        if evidence.reviewed_by is not None
+        else None,
         "reviewedAt": _iso(evidence.reviewed_at),
         "submittedAt": _iso(evidence.created_at),
     }
@@ -200,8 +204,7 @@ def serialize_cluster(cluster: Any, ctx: SerializationContext) -> dict[str, Any]
 def serialize_cluster_detail(cluster: Any, ctx: SerializationContext) -> dict[str, Any]:
     payload = serialize_cluster(cluster, ctx)
     payload["complaints"] = [
-        serialize_complaint(member, ctx)
-        for member in ctx.cluster_members.get(cluster.id, [])
+        serialize_complaint(member, ctx) for member in ctx.cluster_members.get(cluster.id, [])
     ]
     return payload
 

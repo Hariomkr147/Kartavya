@@ -43,10 +43,34 @@ def lifetime_points(*, citizen_id: int) -> int:
 
 
 def monthly_points(*, citizen_id: int, year: int, month: int) -> int:
-    """Return one calendar month's points. Implemented with Phase 6."""
-    raise NotImplementedError
+    """Return one calendar month's points."""
+    start = datetime(year, month, 1)
+    end = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
+    total = db.session.execute(
+        select(func.coalesce(func.sum(PointsLedger.points_change), 0)).where(
+            PointsLedger.citizen_id == citizen_id,
+            PointsLedger.created_at >= start,
+            PointsLedger.created_at < end,
+        )
+    ).scalar_one()
+    return int(total)
 
 
 def history(*, citizen_id: int, page: int, page_size: int) -> tuple[list[PointsLedger], int]:
-    """Return the paginated points ledger. Implemented with Phase 6."""
-    raise NotImplementedError
+    """Return the newest-first paginated points ledger."""
+    from app.services.queries import clamp_page_args
+
+    page, page_size = clamp_page_args(page, page_size, max_page_size=100)
+    total = db.session.execute(
+        select(func.count(PointsLedger.id)).where(PointsLedger.citizen_id == citizen_id)
+    ).scalar_one()
+    rows = list(
+        db.session.execute(
+            select(PointsLedger)
+            .where(PointsLedger.citizen_id == citizen_id)
+            .order_by(PointsLedger.created_at.desc(), PointsLedger.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        ).scalars()
+    )
+    return rows, int(total)

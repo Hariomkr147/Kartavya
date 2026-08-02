@@ -17,6 +17,8 @@ from flask import Blueprint, jsonify, request
 from app.api.citizen.schemas import (
     ComplaintListQuery,
     CreateComplaintForm,
+    FeedQuery,
+    LeaderboardQuery,
 )
 from app.api.citizen.serializers import serialize_own_complaint
 from app.api.shared.context import detail_context
@@ -256,14 +258,29 @@ def dispute_resolution(complaint_id: str):
 
 @bp.get("/feed")
 @require_role(CITIZEN)
-def get_feed_route():
+@validate_query(FeedQuery)
+def get_feed_route(query: FeedQuery):
     """200 FeedListResponse — the anonymized zone feed.
 
     TODO(phase 6). A citizen sees complaints in their home zone only (403 for
     any other zone). Excludes REJECTED and DELETED. The `reporter` object is
     STRUCTURALLY ABSENT from every item.
     """
-    todo("Public feed")
+    from app.api.citizen.serializers import serialize_feed_item
+    from app.services.complaints.feed import get_public_feed
+
+    now = datetime.now(UTC)
+    items, pagination, ctx, upvoted_ids = get_public_feed(
+        citizen=current_user(), query_params=query, now=now
+    )
+    return jsonify(
+        {
+            "data": [
+                serialize_feed_item(item, ctx, citizen_upvoted_ids=upvoted_ids) for item in items
+            ],
+            "pagination": pagination.to_dict(),
+        }
+    )
 
 
 # --- Gamification -------------------------------------------------------------
@@ -277,7 +294,34 @@ def get_my_points():
     TODO(phase 6). Lifetime and monthly totals are SUMs over points_ledger.
     There is no stored total anywhere.
     """
-    todo("Points summary")
+    from app.services.gamification.ledger import history, lifetime_points, monthly_points
+    from app.services.queries import Pagination, clamp_page_args
+
+    page, page_size = clamp_page_args(
+        request.args.get("page", 1, type=int),
+        request.args.get("pageSize", 20, type=int),
+        max_page_size=100,
+    )
+    user = current_user()
+    now = datetime.now(UTC)
+    rows, total = history(citizen_id=user.id, page=page, page_size=page_size)
+    return jsonify(
+        {
+            "totalLifetimeCsp": lifetime_points(citizen_id=user.id),
+            "currentMonthCsp": monthly_points(citizen_id=user.id, year=now.year, month=now.month),
+            "ledger": [
+                {
+                    "id": str(row.id),
+                    "complaintId": str(row.complaint_id) if row.complaint_id else None,
+                    "reason": row.reason.value,
+                    "pointsChange": row.points_change,
+                    "createdAt": row.created_at.isoformat() + "Z",
+                }
+                for row in rows
+            ],
+            "pagination": Pagination(page, page_size, total).to_dict(),
+        }
+    )
 
 
 @bp.get("/gamification/badges")
@@ -287,16 +331,58 @@ def get_my_badges():
 
     TODO(phase 6).
     """
-    todo("Badges")
+    from sqlalchemy import select
+
+    from app.extensions import db
+    from app.models import Badge, CitizenBadge
+
+    rows = db.session.execute(
+        select(Badge, CitizenBadge.earned_at)
+        .join(CitizenBadge, CitizenBadge.badge_id == Badge.id)
+        .where(CitizenBadge.citizen_id == current_user().id)
+        .order_by(CitizenBadge.earned_at)
+    ).all()
+    return jsonify(
+        [
+            {
+                "code": badge.badge_code.value,
+                "name": badge.badge_name,
+                "description": badge.description,
+                "earnedAt": earned_at.isoformat() + "Z",
+            }
+            for badge, earned_at in rows
+        ]
+    )
 
 
 @bp.get("/leaderboard")
 @require_role(CITIZEN)
-def get_leaderboard_route():
+@validate_query(LeaderboardQuery)
+def get_leaderboard_route(query: LeaderboardQuery):
     """200 LeaderboardResponse.
 
     TODO(phase 6). Sequential ranks, total order (points, then account age, then id),
     DEACTIVATED citizens excluded, zero-point citizens included.
     Handles are `display_name` or a masked fallback — never `full_name`.
     """
-    todo("Leaderboard")
+    from app.services.gamification.leaderboard import get_leaderboard_service
+
+    now = datetime.now(UTC)
+    current, entries, pagination = get_leaderboard_service(
+        caller=current_user(),
+        scope=query.scope,
+        period=query.period,
+        page=query.page,
+        page_size=query.pageSize,
+        now=now,
+    )
+    return jsonify(
+        {
+            "scope": query.scope,
+            "period": query.period,
+            "generatedAt": now.isoformat().replace("+00:00", "Z"),
+            "currentUser": current,
+            "data": entries,
+            "pagination": pagination.to_dict(),
+        }
+    )

@@ -297,7 +297,7 @@ These exist only in the browser's mock database and mean nothing to the real API
 | Variable | Default | Notes |
 |---|---|---|
 | `KARTAVYA_ENV` | `development` | `development` \| `testing` \| `production` |
-| `DATABASE_URL` | `sqlite:///instance/kartavya.sqlite3` | Swapping to Postgres is a URL change |
+| `DATABASE_URL` | `sqlite:///instance/kartavya.sqlite3` | Point at a hosted Postgres to survive restarts — see [Deployment](#deployment). Paste the provider's string verbatim; the driver prefix is normalised for you |
 | `JWT_SECRET` | dev placeholder | **Required** outside development; startup fails without it |
 | `PHOTO_SIGNING_KEY` | dev placeholder | **Required** outside development. Deliberately a *different* secret — leaking the photo key must not let anyone mint an admin JWT |
 | `JWT_TTL_HOURS` | `24` | |
@@ -399,6 +399,32 @@ creates the real zones via **Admin → Zones**. This matters because the contrac
 a zone — only rename and deactivate — so a zone that gets seeded can never be fully removed.
 Until an admin creates one, the catch-all `UNASSIGNED` is the only zone a citizen can register
 against.
+
+**Database — Neon, so data survives a restart.** Without `DATABASE_URL`, the app falls back to
+SQLite on the container's disk, which is ephemeral on Render's free plan: every deploy and every
+restart wipes the database and re-seeds it. Pointing it at a hosted Postgres fixes that, and
+Neon's free tier needs no credit card.
+
+1. **neon.tech** → new project → **Connection string** → copy the **Pooled connection** (not the
+   direct one — 8 gunicorn threads open more connections than a free direct endpoint is meant to
+   hold).
+2. Render → your service → **Environment** → set `DATABASE_URL` to that string, pasted verbatim.
+   `app/settings.py` rewrites `postgres://` and `postgresql://` to name the psycopg driver, so
+   there is nothing to hand-edit — SQLAlchemy 2 dropped the first alias, and the second selects
+   psycopg2, which this project does not install.
+3. Redeploy. The start command runs `alembic upgrade head` and `flask --app app seed` against the
+   new database, so it comes up migrated and seeded.
+
+Nothing else changes: the enums render as `CHECK` constraints on both engines, the catch-all index
+declares `sqlite_where` **and** `postgresql_where`, and the SQLite `PRAGMA`s are skipped on any
+other driver. SQLite stays the default for local work and CI.
+
+> ⚠ **This does not save uploaded photos.** They live on the ephemeral disk, so after a restart the
+> surviving complaints have evidence images that answer `403` and render as the broken-image
+> placeholder. Persisting photos needs object storage, which is a separate change.
+
+Keep `--workers 1`: with Postgres more workers are finally safe from the database's point of view,
+but each one starts its own APScheduler, so the auto-close sweeper would run once per worker.
 
 **AI — one secret to paste in.** The deployment runs the `remote` provider against OpenRouter, so
 both AI features call a real model instead of returning `stub`'s canned text. `AI_API_KEY` is

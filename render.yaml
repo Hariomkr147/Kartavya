@@ -33,6 +33,25 @@ services:
         value: production
       - key: PYTHON_VERSION
         value: 3.12.9
+      # ⚠ SECRET, and the thing that makes data survive a restart.
+      #
+      # Unset, the app falls back to SQLite on the container's disk — which is
+      # ephemeral on the free plan, so every deploy and every restart wipes the
+      # database and re-seeds it. Point this at a hosted Postgres (Neon's free
+      # tier needs no card) and complaints, users and history outlive the
+      # container.
+      #
+      # Paste Neon's POOLED connection string verbatim: app/settings.py
+      # rewrites `postgres://` / `postgresql://` to name the psycopg driver, so
+      # no hand-editing. Use the pooled endpoint, not the direct one — a free
+      # instance with 8 gunicorn threads opens more connections than the direct
+      # endpoint is meant to hold.
+      #
+      # ⚠ This does NOT save uploaded photos. They stay on the ephemeral disk,
+      # so after a restart surviving complaints have evidence images that
+      # answer 403 and render as the broken-image placeholder.
+      - key: DATABASE_URL
+        sync: false
       - key: JWT_SECRET
         generateValue: true
       - key: PHOTO_SIGNING_KEY

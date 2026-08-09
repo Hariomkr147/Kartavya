@@ -1,8 +1,12 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Loader2, MapPin, Search, X } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Crosshair, Loader2, MapPin, Search, X } from "lucide-react";
 import { useGeocodeSearch } from "@/hooks/useGeocodeSearch";
-import type { PlaceResult } from "@/services/geocoding";
 import { cn } from "@/lib/utils";
+import { formatCoordinates, parseCoordinates } from "@/lib/coordinates";
+import { decodePlusCode, parsePlusCode } from "@/lib/plusCode";
+import { searchPlaces, type PlaceResult } from "@/services/geocoding";
+import { reverseGeocodeLandmark } from "@/lib/reverseGeocode";
 
 export interface MapSearchBoxProps {
   onSelect: (place: PlaceResult) => void;
@@ -22,7 +26,7 @@ export interface MapSearchBoxProps {
 export function MapSearchBox({
   onSelect,
   near = null,
-  placeholder = "Search a place, address or landmark…",
+  placeholder = "Search a place, or paste coordinates or a plus code…",
   className,
 }: MapSearchBoxProps) {
   const listId = useId();
@@ -31,15 +35,70 @@ export function MapSearchBox({
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // A coordinate pair or a plus code IS the location — there is nothing to
+  // geocode, so the place-search request is skipped rather than sent and
+  // discarded.
+  const coordinates = parseCoordinates(query);
+  const plusCode = coordinates ? null : parsePlusCode(query);
+
   const { results, isSearching, isEmpty, failed } = useGeocodeSearch(query, {
     near,
-    enabled: open,
+    enabled: open && !coordinates && !plusCode,
   });
+
+  // A SHORT plus code recovers to the nearest matching cell, so it needs a
+  // reference point near the intended one. Google prints a locality after the
+  // code precisely for this; when it is there, resolve it rather than assuming
+  // the map happens to be pointed at the right city.
+  const needsLocality = !!plusCode && !plusCode.isFull && !!plusCode.locality;
+  const { data: localityPoint, isFetching: resolvingLocality } = useQuery({
+    queryKey: ["plus-code-locality", plusCode?.locality],
+    queryFn: async () => {
+      const [top] = await searchPlaces(plusCode!.locality!, { limit: 1 });
+      return top ? { lat: top.lat, lng: top.lng } : null;
+    },
+    enabled: open && needsLocality,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+
+  const plusPoint = plusCode
+    ? decodePlusCode(
+        plusCode,
+        plusCode.isFull ? null : needsLocality ? (localityPoint ?? null) : near,
+      )
+    : null;
+
+  const point = coordinates ?? plusPoint;
+
+  // Best-effort "what is actually here", so a mistyped digit is visible before
+  // committing to it. Never blocks: the option is offered immediately and this
+  // only fills in the second line if and when it arrives.
+  const { data: pointLabel } = useQuery({
+    queryKey: ["reverse-geocode", point?.lat, point?.lng],
+    queryFn: () => reverseGeocodeLandmark(point!.lat, point!.lng),
+    enabled: !!point && open,
+    staleTime: Infinity,
+    retry: false,
+  });
+
+  const options: PlaceResult[] = point
+    ? [
+        {
+          id: `point:${point.lat},${point.lng}`,
+          name: plusCode ? plusCode.code : formatCoordinates(point),
+          address: pointLabel ?? formatCoordinates(point),
+          kind: plusCode ? "plus code" : "coordinates",
+          lat: point.lat,
+          lng: point.lng,
+        },
+      ]
+    : results;
 
   // Clamped rather than reset from an effect: a stale index left over from a
   // previous, longer result set must not highlight (or Enter-select) the wrong
   // row, and resetting it in an effect would cost a cascading render.
-  const highlighted = activeIndex < results.length ? activeIndex : -1;
+  const highlighted = activeIndex < options.length ? activeIndex : -1;
 
   // Clicking the map (or anything else) should dismiss the list.
   useEffect(() => {
@@ -63,25 +122,25 @@ export function MapSearchBox({
       setOpen(false);
       return;
     }
-    if (!results.length) return;
+    if (!options.length) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setOpen(true);
-      setActiveIndex(() => (highlighted + 1) % results.length);
+      setActiveIndex(() => (highlighted + 1) % options.length);
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      setActiveIndex(() => (highlighted <= 0 ? results.length - 1 : highlighted - 1));
+      setActiveIndex(() => (highlighted <= 0 ? options.length - 1 : highlighted - 1));
     } else if (event.key === "Enter") {
       // Only swallow Enter when a result is highlighted — otherwise this box
       // would eat the submit of the form it is embedded in.
       if (highlighted >= 0) {
         event.preventDefault();
-        choose(results[highlighted]);
+        choose(options[highlighted]);
       }
     }
   }
 
-  const showList = open && query.trim().length >= 3;
+  const showList = open && (!!coordinates || !!plusCode || query.trim().length >= 3);
 
   return (
     <div ref={containerRef} className={cn("relative", className)}>
@@ -110,7 +169,7 @@ export function MapSearchBox({
             "border-line text-ink focus-visible:border-brand focus-visible:outline-none",
           )}
         />
-        {isSearching ? (
+        {isSearching || resolvingLocality ? (
           <Loader2
             className="text-ink-faint absolute top-1/2 right-3 size-4 -translate-y-1/2 animate-spin"
             aria-hidden="true"
@@ -135,7 +194,7 @@ export function MapSearchBox({
       {showList && (
         <div className="absolute inset-x-0 top-full z-[1100] mt-1 overflow-hidden rounded-md border border-line bg-surface shadow-md">
           <ul id={listId} role="listbox" className="max-h-64 overflow-auto py-1">
-            {results.map((place, index) => (
+            {options.map((place, index) => (
               <li key={place.id} role="option" aria-selected={index === highlighted}>
                 <button
                   type="button"
@@ -146,10 +205,17 @@ export function MapSearchBox({
                     index === highlighted ? "bg-surface-hover" : "hover:bg-surface-hover",
                   )}
                 >
-                  <MapPin
-                    className="text-ink-faint mt-0.5 size-4 shrink-0"
-                    aria-hidden="true"
-                  />
+                  {place.kind === "coordinates" || place.kind === "plus code" ? (
+                    <Crosshair
+                      className="text-ink-faint mt-0.5 size-4 shrink-0"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <MapPin
+                      className="text-ink-faint mt-0.5 size-4 shrink-0"
+                      aria-hidden="true"
+                    />
+                  )}
                   <span className="min-w-0">
                     <span className="text-ink block truncate font-medium">
                       {place.name}
@@ -167,15 +233,25 @@ export function MapSearchBox({
               </li>
             ))}
 
-            {!results.length && (
+            {!options.length && (
               <li className="text-ink-muted px-3 py-3 text-sm">
-                {isSearching
-                  ? "Searching…"
-                  : failed
-                    ? "Place search is unavailable right now — you can still tap the map."
-                    : isEmpty
-                      ? "No places found. Try a landmark or a nearby road."
-                      : null}
+                {resolvingLocality
+                  ? `Looking up ${plusCode?.locality}…`
+                  : plusCode && plusCode.locality
+                    ? // The code is valid; the place named after it is not one
+                      // Nominatim knows, so there is no reference to recover from.
+                      `Couldn't find “${plusCode.locality}”. Try a nearby town, or paste the full code.`
+                    : plusCode
+                      ? // A short code alone is ambiguous — the same one exists
+                        // in every ~100 km cell on Earth.
+                        "Short plus code. Add the town or city after it, or paste the full code."
+                      : isSearching
+                        ? "Searching…"
+                        : failed
+                          ? "Place search is unavailable right now — you can still tap the map."
+                          : isEmpty
+                            ? "No places found. Try a landmark or a nearby road."
+                            : null}
               </li>
             )}
           </ul>

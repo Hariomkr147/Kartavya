@@ -310,7 +310,11 @@ These exist only in the browser's mock database and mean nothing to the real API
 | `AI_MODEL_NAME` | `gpt-4o-mini` | Must be **vision-capable**, or photo pre-screening degrades to `UNAVAILABLE` |
 | `AI_API_KEY` | — | Required by `remote`. Never commit it; on Render it is a dashboard-only secret (`sync: false`) |
 | `AI_TIMEOUT_SECONDS` | `10` | Raise for hosted models — free-tier calls measured 4-9s |
-| `AI_SCREENING_ENABLED` | `true` | Turn pre-screening off without changing provider |
+| `AI_SCREENING_ENABLED` | `true` | Turn pre-screening off without changing provider. Also disables the retry sweeper |
+| `AI_SCREENING_RETRY_MINUTES` | `10` | How often the sweeper re-queues screening that never landed |
+| `AI_SCREENING_RETRY_WINDOW_HOURS` | `6` | How long a row stays eligible for retry. Past this it is abandoned |
+| `AI_SCREENING_RETRY_BATCH` | `25` | Caps what one sweep can cost against a rate-limited provider |
+| `AI_SCREENING_STALE_PENDING_MINUTES` | `60` | How long a row may sit `PENDING` before its task is assumed dead |
 | `CLUSTER_RADIUS_METERS` | `100` | |
 | `AUTO_CLOSE_SWEEP_MINUTES` | `15` | How often the auto-close sweeper runs |
 | `CORS_ORIGINS` | `http://localhost:5173` | The Vite dev server |

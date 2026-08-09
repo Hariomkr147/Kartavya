@@ -56,9 +56,23 @@ def init_scheduler(app: Flask) -> None:
         coalesce=True,
         max_instances=1,
     )
+    from app.jobs.screening import sweep_screening_retries
+
+    scheduler.add_job(
+        func=lambda: sweep_screening_retries(app),
+        trigger="interval",
+        minutes=app.config["AI_SCREENING_RETRY_MINUTES"],
+        id="ai_screening_retry_sweeper",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+    )
+
     scheduler.start()
     atexit.register(lambda: scheduler.shutdown(wait=False))
     logger.info(
-        "Scheduler started; auto-close sweep every %s minutes.",
+        "Scheduler started; auto-close sweep every %s minutes, "
+        "AI screening retry sweep every %s minutes.",
         app.config["AUTO_CLOSE_SWEEP_MINUTES"],
+        app.config["AI_SCREENING_RETRY_MINUTES"],
     )

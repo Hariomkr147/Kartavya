@@ -91,7 +91,7 @@ MAY2026-Team-040/
 │   │   ├── infra/                # photo storage, AI provider adapter (circuit-breakered)
 │   │   ├── jobs/                 # AI screening, zone reports, auto-close sweeper, scheduler
 │   │   └── seed.py               # mandatory reference data
-│   ├── migrations/               # Alembic (no revisions checked in — you generate the first)
+│   ├── migrations/               # Alembic — the initial schema revision is checked in
 │   └── tests/                    # domain / services / api / contract / unit / jobs
 ├── frontend/
 │   └── src/
@@ -104,6 +104,7 @@ MAY2026-Team-040/
 │       └── mocks/                # MSW handlers + a TS port of the business rules
 ├── docs/                         # architecture, API and database references
 ├── shared/contracts/             # reserved (currently empty)
+├── render.yaml                   # Render blueprint for deploying the backend
 ├── CONTRIBUTING.md               # branching, commits, PR rules — read before your first PR
 └── CLAUDE.md                     # working notes for AI assistants
 ```
@@ -143,7 +144,6 @@ cd backend
 python -m venv .venv && source .venv/bin/activate     # Windows PowerShell: .venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
 cp .env.example .env                                  # Windows PowerShell: copy .env.example .env
-alembic revision --autogenerate -m "initial schema"   # ⚠ then read migrations/README.md
 alembic upgrade head
 flask --app app seed --demo
 flask --app app run
@@ -192,21 +192,20 @@ set — the app refuses to start rather than sign with a dev default. Never comm
 
 **3. Database**
 
-No migration revisions are checked in; you generate the first one.
+The initial schema revision is checked in, so applying it is all you need:
 
 ```bash
-alembic revision --autogenerate -m "initial schema"
 alembic upgrade head
 ```
 
-⚠ **Read `backend/migrations/README.md` before running `upgrade`.** Autogenerate gets two things
-wrong, and both matter:
+⚠ **If you ever write a new migration, read `backend/migrations/README.md` first.** Autogenerate
+gets the catch-all zone index wrong: it must come out **partial**
+(`... WHERE is_catch_all = 1`), because a plain unique index would also cap the table at one
+non-catch-all row, blocking every real zone after the first.
 
-1. The catch-all zone index must come out **partial** (`... WHERE is_catch_all = 1`). A plain
-   unique index would also cap the table at one non-catch-all row, blocking every real zone
-   after the first.
-2. Every enum column must render as a `CHECK (col IN (...))`. If one comes out a bare `VARCHAR`,
-   a typo'd status becomes storable.
+The other historical trap — enum columns rendering as a bare `VARCHAR` instead of
+`CHECK (col IN (...))`, which made a typo'd status storable — is now fixed at source by
+`create_constraint=True` in `app/models/base.py`, so autogenerate carries it through on its own.
 
 **4. Seed — mandatory**
 
@@ -273,7 +272,7 @@ Restart `npm run dev` afterwards — Vite reads env files at startup. The backen
 |---|---|
 | **Citizen** | Self-service — the sign-up page (`POST /auth/register`). The only self-service signup in the system. |
 | **Officer** | Created by an admin (Admin → Officers), then assigned to exactly one zone. |
-| **Admin** | Seeded only. `flask --app app seed` creates `admin@kartavya.gov` with password `changeme123` unless you set `KARTAVYA_ADMIN_EMAIL` / `KARTAVYA_ADMIN_PASSWORD` first. Change it before running this anywhere real. |
+| **Admin** | Seeded only. `flask --app app seed` creates `admin@kartavya.gov` with password `changeme123` unless you set `KARTAVYA_ADMIN_EMAIL` / `KARTAVYA_ADMIN_PASSWORD` first. Change it before running this anywhere real — `render.yaml` generates a random one for deployed instances, readable from the service's Environment tab. |
 
 ### Mock accounts (frontend only)
 
@@ -384,7 +383,7 @@ Two schema principles you will run into immediately:
 | Startup aborts complaining about a secret | `KARTAVYA_ENV` isn't `development` and `JWT_SECRET` / `PHOTO_SIGNING_KEY` are unset. That check is deliberate. |
 | Every request 500s, or the app has no categories/zones | You skipped `flask --app app seed`. It is mandatory. |
 | Second real zone fails to insert | The catch-all index came out non-partial. See `migrations/README.md`. |
-| A typo'd status saves successfully | An enum column rendered as bare `VARCHAR`. Same file. |
+| A typo'd status saves successfully | An enum column rendered as bare `VARCHAR` instead of a `CHECK`. `enum_column()` in `app/models/base.py` must keep `create_constraint=True`. |
 | Foreign keys appear not to be enforced | `PRAGMA foreign_keys=ON` isn't on — without it every FK rule in the schema is inert. |
 | Frontend still shows demo data after pointing at the API | `.env.local` wasn't picked up. Vite reads env files at startup — restart `npm run dev`. |
 | CORS errors in the browser console | Add the origin you're serving from to `CORS_ORIGINS` in `backend/.env`. |

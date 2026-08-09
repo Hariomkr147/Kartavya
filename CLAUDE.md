@@ -33,10 +33,9 @@ python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\act
 pip install -e ".[dev]"
 cp .env.example .env                  # dev defaults work as-is
 
-# No migrations are checked in (migrations/versions/ holds only .gitkeep) —
-# generate the first one yourself, and read migrations/README.md: two pieces of
-# DDL need hand-editing (the partial catch-all index and the SQLite PRAGMAs).
-alembic revision --autogenerate -m "initial schema"
+# The initial migration is checked in — just apply it. If you WRITE a new one,
+# read migrations/README.md first: the partial catch-all index is the piece
+# autogenerate still gets wrong.
 alembic upgrade head
 flask --app app seed --demo           # mandatory: 12 categories, 6 badges, catch-all zone, settings, admin
 

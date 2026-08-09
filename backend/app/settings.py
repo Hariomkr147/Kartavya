@@ -20,6 +20,28 @@ _DEV_JWT_SECRET = "dev-only-jwt-secret-change-me"
 _DEV_PHOTO_KEY = "dev-only-photo-signing-key-change-me"
 
 
+def normalize_database_url(url: str) -> str:
+    """Make a hosted Postgres URL usable by SQLAlchemy 2 as-is.
+
+    Two long-standing footguns, both of which look like a broken deployment
+    rather than a URL problem:
+
+    1. Several providers still hand out `postgres://`. SQLAlchemy 2 removed
+       that alias and raises `Can't load plugin: sqlalchemy.dialects:postgres`.
+    2. A bare `postgresql://` selects psycopg2, which is not a dependency here.
+       This project installs psycopg 3, so the driver has to be named.
+
+    Anything already carrying an explicit driver (`postgresql+psycopg://`,
+    `postgresql+psycopg2://`, …) and every non-Postgres URL is left untouched,
+    so pasting Neon's connection string verbatim just works.
+    """
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://") :]
+    if url.startswith("postgresql://"):
+        url = "postgresql+psycopg://" + url[len("postgresql://") :]
+    return url
+
+
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.environ.get(name)
     if raw is None:
@@ -46,11 +68,21 @@ class BaseConfig:
 
     def __init__(self) -> None:
         # --- Persistence ---
-        self.SQLALCHEMY_DATABASE_URI = os.environ.get(
-            "DATABASE_URL", f"sqlite:///{BACKEND_ROOT / 'instance' / 'kartavya.sqlite3'}"
+        self.SQLALCHEMY_DATABASE_URI = normalize_database_url(
+            os.environ.get(
+                "DATABASE_URL", f"sqlite:///{BACKEND_ROOT / 'instance' / 'kartavya.sqlite3'}"
+            )
         )
         self.SQLALCHEMY_TRACK_MODIFICATIONS = False
         self.SQLALCHEMY_ECHO = _env_bool("SQLALCHEMY_ECHO", False)
+        # Postgres only. Neon (and any pooler) drops idle connections, and a
+        # pooled connection that died while the free instance was asleep
+        # otherwise surfaces as a failed request on the next wake-up.
+        if self.SQLALCHEMY_DATABASE_URI.startswith("postgresql"):
+            self.SQLALCHEMY_ENGINE_OPTIONS = {
+                "pool_pre_ping": True,
+                "pool_recycle": 300,
+            }
 
         # --- Secrets ---
         # Two separate secrets on purpose: leaking the photo key must not hand

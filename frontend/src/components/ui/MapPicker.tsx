@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
@@ -6,6 +6,7 @@ import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import { LocateFixed } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MapSearchBox } from "@/components/ui/MapSearchBox";
 
 // Vite rewrites these image imports to hashed URLs; Leaflet's default icon
 // otherwise resolves marker images against relative paths that break under
@@ -32,6 +33,9 @@ export interface MapPickerProps {
   zoom?: number;
   className?: string;
   height?: number;
+  /** Show the place/landmark search box above the map. */
+  searchable?: boolean;
+  searchPlaceholder?: string;
 }
 
 const BENGALURU_CENTER: LatLng = { lat: 12.9716, lng: 77.5946 };
@@ -75,6 +79,17 @@ function RecenterOnValue({ value }: { value: LatLng | null }) {
   return null;
 }
 
+/** Fly to a searched place. Separate from RecenterOnValue, which holds the
+ *  current zoom — picking a landmark should also zoom in to street level. */
+function FlyToTarget({ target }: { target: (LatLng & { zoom: number }) | null }) {
+  const map = useMap();
+  useEffect(() => {
+    if (target) map.flyTo({ lat: target.lat, lng: target.lng }, target.zoom);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
+  return null;
+}
+
 /** Bespoke click/drag map picker built on Leaflet + OpenStreetMap tiles — no API key. */
 export function MapPicker({
   value,
@@ -83,15 +98,31 @@ export function MapPicker({
   zoom = 13,
   className,
   height = 320,
+  searchable = true,
+  searchPlaceholder,
 }: MapPickerProps) {
+  const [flyTarget, setFlyTarget] = useState<(LatLng & { zoom: number }) | null>(null);
+
   return (
-    <div
-      className={cn(
-        "relative isolate overflow-hidden rounded-md border border-line",
-        className,
+    <div className="space-y-2">
+      {searchable && (
+        <MapSearchBox
+          placeholder={searchPlaceholder}
+          // Bias towards the pin, or the map's starting point before one exists.
+          near={value ?? defaultCenter}
+          onSelect={(place) => {
+            onChange({ lat: place.lat, lng: place.lng });
+            setFlyTarget({ lat: place.lat, lng: place.lng, zoom: 16 });
+          }}
+        />
       )}
-      style={{ height }}
-    >
+      <div
+        className={cn(
+          "relative isolate overflow-hidden rounded-md border border-line",
+          className,
+        )}
+        style={{ height }}
+      >
       <MapContainer
         center={value ?? defaultCenter}
         zoom={zoom}
@@ -104,6 +135,7 @@ export function MapPicker({
         />
         <ClickHandler onChange={onChange} />
         <RecenterOnValue value={value} />
+        <FlyToTarget target={flyTarget} />
         {value && (
           <Marker
             position={value}
@@ -118,8 +150,9 @@ export function MapPicker({
             }}
           />
         )}
-        <RecenterButton onLocate={onChange} />
-      </MapContainer>
+          <RecenterButton onLocate={onChange} />
+        </MapContainer>
+      </div>
     </div>
   );
 }

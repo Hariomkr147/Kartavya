@@ -412,7 +412,12 @@ function CreateZoneModal({ open, onClose }: { open: boolean; onClose: () => void
         </div>
         <div>
           <Label required>Centre point</Label>
-          <MapPicker value={center} onChange={setCenter} height={280} />
+          <MapPicker
+            value={center}
+            onChange={setCenter}
+            height={280}
+            searchPlaceholder="Search the ward, area or landmark to centre on…"
+          />
           {center && (
             <p className="text-ink-faint mt-1.5 text-xs">
               {center.lat.toFixed(5)}, {center.lng.toFixed(5)}

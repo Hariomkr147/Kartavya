@@ -38,6 +38,16 @@ services:
         value: admin@kartavya.gov
       - key: AI_PROVIDER
         value: stub
+      # ⚠ ONE EDIT REQUIRED: replace <your-project> with the real Vercel domain
+      # once the frontend is deployed, then push - Render re-syncs the blueprint
+      # and redeploys. Until then the browser blocks every request from Vercel.
+      #
+      # Comma-separated, and app/settings.py matches each origin EXACTLY: no
+      # wildcards, no subdomain matching, and the scheme and any port count. So
+      # Vercel *preview* deployments, which get a unique URL per commit, are not
+      # covered - add one explicitly if you need to demo from a preview.
+      #
+      # localhost stays listed so you can run `npm run dev` against the
+      # deployed API without another redeploy.
       - key: CORS_ORIGINS
-        # Placeholder - update once the frontend is deployed (e.g. to Vercel).
-        value: http://localhost:5173
+        value: https://<your-project>.vercel.app,http://localhost:5173

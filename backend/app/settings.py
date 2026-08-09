@@ -123,6 +123,40 @@ class BaseConfig:
         # the switch for that — not `TESTING`, so a test can still turn the real
         # submission path on and assert it queues.
         self.AI_SCREENING_ENABLED = _env_bool("AI_SCREENING_ENABLED", True)
+        # Screening that never landed is otherwise permanent: an UNAVAILABLE
+        # row is never retried, and a PENDING row whose task died with its
+        # process is never picked up at all. The sweeper re-queues both.
+        self.AI_SCREENING_RETRY_MINUTES = _env_int("AI_SCREENING_RETRY_MINUTES", 10)
+        # Bounded by AGE rather than a per-row attempt count, which would need a
+        # column complaint_evidence does not have. Past this, a row is never
+        # retried again.
+        #
+        # 6 hours, not 24: the failures worth recovering from are transient — a
+        # rate-limit burst clears in minutes, a provider outage in hours. The
+        # window also sets the worst case, since a row that keeps failing stays
+        # eligible for all of it. At a 10-minute cadence that is ~36 attempts
+        # for a photo the model will never accept (a corrupt file, say), which
+        # is the price of not having an attempts column to count against.
+        self.AI_SCREENING_RETRY_WINDOW_HOURS = _env_int(
+            "AI_SCREENING_RETRY_WINDOW_HOURS", 6
+        )
+        # Caps what one sweep can cost against a rate-limited provider.
+        self.AI_SCREENING_RETRY_BATCH = _env_int("AI_SCREENING_RETRY_BATCH", 25)
+        # How long a row may sit PENDING before it is assumed orphaned — its
+        # task died with the process — and re-queued.
+        #
+        # Deliberately generous. There is no "last attempted" timestamp on
+        # complaint_evidence (it is append-only and carries only created_at),
+        # so staleness is measured from creation. A row re-queued by an earlier
+        # sweep therefore still looks old, and if its task has not finished the
+        # next sweep would queue it again. In practice screening resolves in
+        # seconds, but a burst can back up the three screening threads, so this
+        # sits far beyond any plausible queue wait. A duplicate is harmless
+        # anyway — screening only rewrites advisory fields — but it wastes a
+        # call against a rate-limited provider.
+        self.AI_SCREENING_STALE_PENDING_MINUTES = _env_int(
+            "AI_SCREENING_STALE_PENDING_MINUTES", 60
+        )
 
         # --- Domain tuning ---
         # Cluster radius is config, not a domain constant: it is a tuning knob,

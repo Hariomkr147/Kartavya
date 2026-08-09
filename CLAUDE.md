@@ -4,100 +4,212 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-Kartavya is a gamified civic grievance platform (citizens report infrastructure problems, officers resolve them, admins run the system, points/badges reward participation). The repository is **contract-first and currently scaffold-only**:
+Kartavya is a gamified civic grievance platform (citizens report infrastructure problems, officers resolve them, admins run the system, points/badges reward participation). It is a monorepo with a **contract-first** design: `backend/api/openapi.yaml` (OpenAPI 3.0.3, `info.version` 3.0.0, 45 paths) and `backend/database/schema.dbml` are the single source of truth for the whole system.
 
-- `backend/api/openapi.yaml` and `backend/database/schema.dbml` are fully designed and are the single source of truth for the whole system.
-- `backend/app/` is **scaffolded, not implemented** (a separate team owns the backend). The layering follows `docs/backend/architecture.md`; the old `config/controllers/middlewares/routes/views` scaffold has been dropped. What exists: `app/domain/` (all pure rules — state machine, SLA, severity, points, badges, geo — ported from the frontend mock and covered by passing tests), `app/models/` (all 14 tables), `app/core/` (auth, scoping, errors, validation, photo-URL signing), the app factory, config, and `app/seed.py`. What does not: every `app/services/` function and every `app/api/` route body — the 45 contract paths are registered and answer `501 NOT_IMPLEMENTED`. Read `backend/README.md` for commands and the build order. Run everything from `backend/`: `pip install -e ".[dev]"`, `flask --app app run`, `pytest`, `lint-imports --config .importlinter`, `ruff check .`.
-- `frontend/` now has a real toolchain: React 19 + Vite + TypeScript + Tailwind CSS v4, no UI component library (all interactive components are bespoke, under `frontend/src/components/ui/`). Because the backend doesn't exist yet, the app runs against an MSW mock layer (`frontend/src/mocks/`) by default (`VITE_USE_MOCKS=true` in `.env.development`) — this is purely client-side TypeScript, not a backend implementation. Run everything from `frontend/`:
-  - `npm run dev` — start the Vite dev server.
-  - `npm run build` — typecheck (`tsc -b`) then production build.
-  - `npm run lint` / `npm run format` — ESLint / Prettier.
-  - `npm test` — Vitest + React Testing Library, single run (`npm run test:watch` for watch mode).
-  - `npm run gen:types` — regenerates `frontend/src/types/api.generated.ts` from `backend/api/openapi.yaml` via `openapi-typescript`; re-run any time the contract changes.
+Both halves are now implemented:
 
-**Before writing any implementation code, read `backend/api/openapi.yaml` and `backend/database/schema.dbml` in full.** If a field, endpoint, or behavior isn't in one of these two files, do not invent it — raise it instead of guessing.
+- **`backend/`** — Flask + SQLAlchemy + SQLite, fully built out through all 8 phases (auth, complaint core, officer flow, clusters, gamification, admin, AI + jobs). All 45 contract paths have real handlers; no route returns `501` any more. `app/api/shared/responses.py` still defines the `NotImplementedYet` / `todo()` helper but nothing calls it — it is dead scaffolding.
+- **`frontend/`** — React 19 + Vite + TypeScript + Tailwind CSS v4, no UI component library (all interactive components are bespoke, under `frontend/src/components/ui/`). ~52 hooks, each exercising a real endpoint. Ships with an MSW mock layer (`frontend/src/mocks/`) that is still the **default** (`VITE_USE_MOCKS=true` in `.env.development`).
 
-## Architecture (from the contract + schema)
+**Before writing any implementation code, read `backend/api/openapi.yaml` and `backend/database/schema.dbml`.** If a field, endpoint, or behavior isn't in one of these two files, do not invent it — raise it instead of guessing.
+
+### ⚠ Stale documentation
+
+Several docs predate the backend implementation and will actively mislead you. Trust the code and the contract over them:
+
+- `docs/start_here.md` — describes both halves as "scaffold-only" with an MVC `controllers/views/middlewares` layout, and cites contract version 2.0.0. All wrong.
+- `backend/README.md` — says "Scaffolded, not implemented," with a `what is written / what is not` table and a build-order roadmap that is now entirely complete. Its *rules* and *frontend-mock-as-spec* sections are still good; its status claims are not.
+- `CONTRIBUTING.md` §10 — says frontend types are mirrored "manually until a code generator is set up." One exists: `npm run gen:types`.
+- `old_test.py` at the repo root is orphaned cruft — it imports `app.*` but sits outside `backend/`, so pytest never collects it.
+
+## Commands
+
+Run backend commands from `backend/`, frontend commands from `frontend/`.
+
+### Backend
+
+```bash
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+cp .env.example .env                  # dev defaults work as-is
+
+# No migrations are checked in (migrations/versions/ holds only .gitkeep) —
+# generate the first one yourself, and read migrations/README.md: two pieces of
+# DDL need hand-editing (the partial catch-all index and the SQLite PRAGMAs).
+alembic revision --autogenerate -m "initial schema"
+alembic upgrade head
+flask --app app seed --demo           # mandatory: 12 categories, 6 badges, catch-all zone, settings, admin
+
+flask --app app run                   # http://localhost:5000, health at /health
+```
+
+Checks:
+
+```bash
+pytest                                        # whole suite
+pytest tests/domain                           # fast half — no database, milliseconds
+pytest tests/api/test_privacy.py              # a single file
+pytest tests/api/test_privacy.py::test_name   # a single test
+pytest -m domain                              # by marker
+pytest --cov                                  # coverage (source = app)
+lint-imports --config .importlinter            # layering rules — see below
+ruff check . && ruff format .
+```
+
+`pip install -e ".[contract]"` adds schemathesis for property-based fuzzing of the whole surface. It is deliberately opt-in and heavy; `tests/contract/` (PyYAML + jsonschema) is in the default dev install and validates live responses against `openapi.yaml` directly.
+
+### Frontend
+
+```bash
+npm install
+npm run dev            # Vite dev server, http://localhost:5173
+npm run build          # tsc -b, then production build
+npm run lint           # ESLint
+npm run format         # Prettier (format:check to verify only)
+npm test               # Vitest + React Testing Library, single run
+npm run test:watch     # watch mode (test:ui for the Vitest UI)
+npm test -- src/lib/categoryMatcher.test.ts    # a single file
+npm test -- -t "<test name substring>"         # a single test by name
+npm run gen:types      # regenerate src/types/api.generated.ts from ../backend/api/openapi.yaml
+```
+
+Re-run `gen:types` any time the contract changes.
+
+### Running the frontend against the real backend
+
+The frontend defaults to mocks. To point it at a live backend, create `frontend/.env.local`:
+
+```
+VITE_USE_MOCKS=false
+VITE_API_BASE_URL=http://localhost:5000/api/v1
+```
+
+Backend `CORS_ORIGINS` already allows `http://localhost:5173`. "The whole app works with mocks off" is the integration gate worth aiming at — it exercises the contract in a way unit tests cannot.
+
+## Architecture
+
+### Backend layering (`docs/backend/architecture.md` is the design doc — read it before backend work)
+
+Imports flow in exactly one direction, and this is **enforced in CI** by `.importlinter`, which defines four contracts:
+
+```
+app.api  →  app.services  →  app.models  →  app.domain
+```
+
+1. **Layered architecture** — the chain above, no upward imports.
+2. **Domain is pure** — `app/domain/` may not import flask, sqlalchemy, `app.models`, `app.services`, `app.api`, `app.core`, or `app.infra`. No clock, no I/O. This is what keeps `tests/domain/` in the millisecond range.
+3. **Serializers never touch the ORM session** — no serializer may import `app.extensions` or `app.services`.
+4. **Reporter identity is admin-only** — `citizen`/`officer`/`shared` serializers may not import `app.api.admin.serializers`.
+
+Package roles:
+
+- `app/domain/` — pure rules: the state machine, SLA arithmetic, severity, points, badges, geo, the 11 enums.
+- `app/models/` — SQLAlchemy ORM, all 14 tables, one shared package (not split per feature).
+- `app/services/` — the write side, grouped by aggregate (`complaints/`, `accounts/`, `gamification/`, `analytics/`), plus most of the read side (`complaints/reads.py`, `views.py`, `feed.py`, `cluster_reads.py`) and shared query builders in `queries.py`.
+- `app/api/` — HTTP surface + serialization, grouped **by audience** (`citizen/`, `officer/`, `admin/`, `account/`, `auth/`, `reference/`, `shared/`) because privacy is the risk. Every blueprint mounts under `/api/v1`; `/health` deliberately sits outside it.
+- `app/core/` — auth (JWT), zone scoping, error envelope, Pydantic validation, photo-URL signing, transaction helper.
+- `app/infra/` — photo storage and the AI provider adapter (`local` / `stub` / `remote` / `null`, behind a circuit breaker).
+- `app/jobs/` — AI screening, zone reports, the auto-close sweeper, and an APScheduler-based scheduler.
+
+There is no `app/api/ai/` package — contract 3.0.0 has no `/ai/*` paths. The zone report lives at `/admin/zones/{id}/ai-report`, and the AI *adapter* is in `app/infra/ai/`.
 
 ### Roles
-Three roles with strictly separated views — enforce this in both backend authorization and frontend routing:
+
+Three roles with strictly separated views — enforced in both backend authorization and frontend routing:
+
 - **Citizen** — files complaints, tracks their own, upvotes, confirms fixes, earns points/badges. Sees only their own data plus the anonymized public `/feed`.
-- **Officer** — scoped to exactly one assigned zone (`users.zone_id`). Reviews evidence, drives the complaint lifecycle, posts progress notes. Never sees who filed a complaint (citizen identity is stripped), never sees other zones or admin data.
+- **Officer** — scoped to exactly one assigned zone (`users.zone_id`). Reviews evidence, drives the lifecycle, posts progress notes. Never sees who filed a complaint, never sees other zones or admin data.
 - **Admin** — full cross-zone access: user/zone/SLA management, analytics, CSV export, AI zone reports. Invisible to citizens/officers.
 
-Auth is JWT bearer (`Authorization: Bearer <token>`) on every endpoint except `/auth/register`, `/auth/login`, and the public reference lookups (`/categories`, `/zones`) needed for the registration form.
+Auth is JWT bearer on every endpoint except `/auth/register`, `/auth/login`, and the public reference lookups (`/categories`, `/zones`) needed by the registration form.
 
 ### Complaint lifecycle (server-enforced state machine)
-`complaint_status` in `schema.dbml` is the authority: `SUBMITTED → EVIDENCE_UNDER_REVIEW → (NEEDS_MORE_EVIDENCE | REJECTED | UNDER_REVIEW) → IN_PROGRESS → UNDER_RESOLUTION → RESOLVED → (CLOSED | REOPENED) ...`, plus terminal `UNRESOLVABLE`. `REJECTED`, `CLOSED`, `UNRESOLVABLE` are terminal. Every transition is recorded as an append-only row in `status_history` (never mutate/delete history rows). The SLA timer starts at `UNDER_REVIEW` and pauses while a complaint sits in `NEEDS_MORE_EVIDENCE` (`sla_paused_seconds`/`sla_paused_at`) — paused time must never count against the SLA.
+
+`complaint_status` in `schema.dbml` is the authority: `SUBMITTED → EVIDENCE_UNDER_REVIEW → (NEEDS_MORE_EVIDENCE | REJECTED | UNDER_REVIEW) → IN_PROGRESS → UNDER_RESOLUTION → RESOLVED → (CLOSED | REOPENED) ...`, plus terminal `UNRESOLVABLE`. `REJECTED`, `CLOSED`, `UNRESOLVABLE` are terminal.
+
+Every transition is an append-only row in `status_history`. The SLA timer starts at `UNDER_REVIEW` and pauses while a complaint sits in `NEEDS_MORE_EVIDENCE` (`sla_paused_seconds`/`sla_paused_at`) — paused time must never count against the SLA.
 
 ### Derived-not-stored fields
-Never add a stored column/field for something computable — this is a deliberate schema principle so values can't drift out of sync:
-- `severity_label` is derived from `complaints.severity_score` on read (LOW 0-4, MEDIUM 5-14, HIGH 15-29, CRITICAL 30+), never stored.
-- `sla_label` (`ON_TIME` / `DELAYED` / `OVERDUE`) is derived on read from `sla_target_hours`, `sla_started_at`, `sla_paused_seconds` — never stored.
-- Lifetime/monthly citizen points are `SUM(points_ledger.points_change)`, never a stored total.
+
+Never add a stored column/field for something computable — a deliberate schema principle so values can't drift:
+
+- `severity_label` derived from `complaints.severity_score` on read (LOW 0-4, MEDIUM 5-14, HIGH 15-29, CRITICAL 30+).
+- `sla_label` (`ON_TIME`/`DELAYED`/`OVERDUE`) derived from `sla_target_hours`, `sla_started_at`, `sla_paused_seconds`.
+- Lifetime/monthly citizen points are `SUM(points_ledger.points_change)`.
 - `upvoteCount` is `COUNT(*)` on `complaint_upvotes`.
 
 ### Append-only ledgers
-`status_history`, `points_ledger`, and `complaint_evidence` (each re-submission is a new row via `sequence`, old rows kept) are append-only audit trails. Insert new rows; do not update or delete historical ones.
 
-### AI features fail soft
-There are exactly two AI features: photo pre-screening (`complaint_evidence.ai_screen_status`) and zone health reports (`ai_zone_reports`). Both must degrade gracefully when the local AI model is unavailable — the app must keep working with fields flagged `UNAVAILABLE`/`aiAvailable: false` rather than erroring. Never block a core flow on AI availability.
-
-Category suggestion is deliberately **not** an AI feature and has no endpoint. Because the 12 categories are seeded once and never change, the client matches the description against a fixed keyword lexicon offline in `frontend/src/lib/categoryMatcher.ts`, keyed on `Category.code`. It abstains unless the top category clears both an absolute score floor and a margin over the runner-up — a wrong pre-selection is worse than none, since the citizen confirms the category either way. `complaints.category_suggested_by_matcher` records whether they accepted it, for analytics only; the server never re-derives it.
+`status_history`, `points_ledger`, and `complaint_evidence` (each re-submission is a new row via `sequence`) are audit trails. Insert new rows; never update or delete historical ones.
 
 ### Zones
-Zones are admin-managed areas defined only by a centre point (`center_lat`/`center_lng`); a location belongs to whichever zone's centre is nearest (nearest-centroid / Voronoi-style — no radius, no polygon GIS, and every coordinate maps to exactly one zone with no gaps or overlaps). Exactly one zone has `is_catch_all = true`, used when every real zone's centre is a poor match (e.g. far outside the city). Zone routing on a complaint is always citizen-confirmed at submission time (client auto-fills via `/zones/suggest` from photo EXIF GPS, or the citizen picks manually — `CreateComplaintRequest.zoneId` is required, never silently derived from location by the server) and can be admin-overridden, but is otherwise immutable — an admin editing a zone's centre does not retroactively move existing complaints.
 
-### Privacy rules (enforce on both backend and frontend)
-- Complaint reporter identity is never exposed to officers, admins-as-viewed-by-others, or the public feed — the API strips it; don't reintroduce it via frontend local state or joins.
+Zones are admin-managed areas defined only by a centre point (`center_lat`/`center_lng`); a location belongs to whichever zone's centre is nearest (nearest-centroid / Voronoi — no radius, no polygon GIS, every coordinate maps to exactly one zone with no gaps or overlaps). Exactly one zone has `is_catch_all = true`, used when every real zone's centre is a poor match. **This constraint is a partial unique index, not a column constraint** — Alembic will not autogenerate it.
+
+Zone routing is always citizen-confirmed at submission (client auto-fills via `/zones/suggest` from photo EXIF GPS, or the citizen picks manually — `CreateComplaintRequest.zoneId` is required, never silently derived by the server) and can be admin-overridden, but is otherwise immutable: editing a zone's centre does not retroactively move existing complaints.
+
+### AI features fail soft
+
+Exactly two AI features: photo pre-screening (`complaint_evidence.ai_screen_status`) and zone health reports (`ai_zone_reports`). Both degrade gracefully when the model is unavailable — fields flagged `UNAVAILABLE` / `aiAvailable: false` rather than erroring. AI never raises and never blocks a core flow; its failure mode is `None`.
+
+Category suggestion is deliberately **not** an AI feature and has no endpoint. The 12 categories are seeded once and never change, so the client matches the description against a fixed keyword lexicon offline in `frontend/src/lib/categoryMatcher.ts`, keyed on `Category.code`. It abstains unless the top category clears both an absolute score floor and a margin over the runner-up — a wrong pre-selection is worse than none, since the citizen confirms either way. `complaints.category_suggested_by_matcher` records acceptance for analytics only; the server never re-derives it.
+
+### Privacy rules (enforce on backend and frontend)
+
+- Reporter identity is never exposed to officers, other citizens, or the public feed. The API strips it; don't reintroduce it via frontend local state or joins.
 - Officers are identified to citizens by ID, not name.
 - `users.full_name` is never shown to other citizens or officers; `display_name` (with a masked fallback) is the only public handle.
+- Photo URLs are minted only by a serializer, after the visibility check. The photo route verifies the signature alone and answers `403` — never `404` — for anything it won't serve.
 
-## Repository layout
+## The rules most likely to bite you
 
-```
-backend/
-  api/openapi.yaml        # canonical API contract — read first
-  database/schema.dbml     # DBML schema, designed 1:1 against the API contract
-  app/                      # Flask app (scaffolded; services + routes are stubs):
-                            #   domain/   pure business rules (no Flask, no SQLAlchemy, no I/O)
-                            #   models/   SQLAlchemy ORM mirroring schema.dbml
-                            #   services/ write side, grouped by aggregate
-                            #   api/      read side + routes, grouped by audience (citizen/officer/admin)
-                            #   core/     auth, zone scoping, error envelope, validation
-                            #   infra/    photo storage, AI providers
-                            #   jobs/     AI screening, zone reports, auto-close sweeper
-  tests/                    # domain/ (written, passing) services/ api/ contract/
-frontend/
-  src/                      # React SPA (implemented): assets, components, hooks, pages, routes, services, types
-shared/contracts/          # reserved for cross-cutting contracts; currently empty
-docs/
-  start_here.md             # repo overview / current status
-  backend/architecture.md   # backend design: layering, domain rules, concurrency, build order
-  backend/database.md       # detailed schema reference (backend/api.md is currently empty)
-  backend/complaints/CLUSTERED_COMPLAINT_LIFECYCLE.MD  # cluster cascade / dispute / reward rules
-```
+The full list of fourteen is in `docs/backend/architecture.md` §16.4. These cause silent data corruption rather than a visible error:
 
-**Before writing backend code, read `docs/backend/architecture.md`.** It is the design plan for
-`backend/app/` and supersedes the older `config/controllers/middlewares/routes/views` layout that
-`CONTRIBUTING.md` used to describe. Key invariants it establishes: `app/domain/` must stay pure
-(enforced in CI via import-linter), every complaint status write goes through one lifecycle service,
-status transitions are guarded with conditional `UPDATE ... WHERE status = <expected>`, and reporter
-identity is emitted only by `app/api/admin/`.
+1. **Every status write goes through `app/services/complaints/lifecycle.py`.** Nothing else may assign `complaint.status`. The `status_history` row is written inside `apply_transition()`, which is what makes an unaudited status change structurally impossible.
+2. **Guard every transition with a conditional `UPDATE ... WHERE status = <expected>`.** `rowcount` is the decision, not a preceding `if`. Two officers *will* claim the same complaint at the same moment.
+3. **The cluster's +50 reward is an atomic test-and-set on `reward_granted`**, in the same transaction as the close. A read-then-write pays it twice.
+4. `REJECTED` is legal only on a complaint's first evidence round (`sla_started_at IS NULL`).
+5. `REOPENED` may only be moved by the admin dispute-review endpoint — never by the status, batch, or cascade paths.
+6. **Re-load the user row on every request.** Never authorize from JWT claims alone: a deactivated user and a reassigned officer must both take effect immediately.
+7. `PRAGMA foreign_keys=ON` must be on, or every FK rule in the schema is inert.
+8. Auto-close and admin-rejected disputes credit **zero** points.
+9. `avgResolutionHours` is `resolved_at − sla_started_at − sla_paused_seconds` in all three dashboards. The frontend mock computes it three other ways; the contract wins.
 
-Frontend folder conventions (per `CONTRIBUTING.md`, apply once code exists):
+Two more places the mock disagrees with the contract, where the contract wins: the leaderboard must filter out deactivated citizens (the mock includes them), and `AuthResponse.expiresAt` is required (the mock omits it).
+
+## Testing layout
+
+- `tests/domain/` — pure rules, no database, must stay in the millisecond range (marker: `domain`).
+- `tests/services/` — in-memory SQLite, aggregate behavior and regression locks.
+- `tests/api/` — Flask test client, including explicit privacy assertions (`test_privacy.py`) and JWT security (`test_jwt_security.py`).
+- `tests/contract/` — validates live responses against `openapi.yaml` itself rather than hand-copied expectations. This layer exists because three contract violations shipped while it was optional; it is now in the default dev install.
+- `tests/unit/`, `tests/jobs/` — AI providers and background jobs.
+
+A cheap, high-value test for any officer route: `assert "reporter" not in response.get_json()`.
+
+## Frontend conventions
+
 - `components/` — presentational only, must not call the API directly.
-- `hooks/` — state + side effects, including API calls.
-- `pages/` — one folder per route, composes components/hooks.
-- `services/` — the only place raw fetch/axios calls live.
-- `types/` — TS interfaces mirrored manually from `components/schemas` in `openapi.yaml`.
+- `hooks/` — state + side effects, including API calls (TanStack Query).
+- `pages/` — one folder per route, grouped by audience (`citizen/`, `officer/`, `admin/`, `account/`, `public/`).
+- `services/` — the only place raw fetch calls live (`http.ts` is the shared client).
+- `types/` — `api.generated.ts` is generated by `npm run gen:types`; do not hand-edit it. `api.ts` holds hand-written types on top.
+- `lib/` — pure client-side logic (category matching, SLA progress, geo, EXIF GPS, CSV export). Mirrors several `app/domain/` rules.
+- `mocks/` — MSW handlers plus a TypeScript port of the business rules, with its own integration suite.
 
 ## Workflow rules (from `CONTRIBUTING.md`)
 
-- **Never commit directly to `main`** — it's protected; all changes go through a reviewed PR from a feature branch.
-- Branch naming: `<type>/<short-description>` (types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`), e.g. `feat/complaint-submission`.
-- Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/): `<type>(<scope>): <imperative summary>`, summary line ≤72 chars, no trailing period. Scope is the touched area (`auth`, `complaints`, `evidence`, `gamification`, `schema`, `openapi`, `frontend`, ...).
-- Update your branch with **rebase**, not merge (`git rebase origin/main` or `git rebase upstream/main` for forks), then force-push with `--force-with-lease` (never plain `--force`).
+Two long-lived branches, **both protected**:
+
+- **`development`** — the integration branch. All feature branches are cut from here and PR'd back into here.
+- **`main`** — the release branch. It only ever receives merges from `development`, at checkpoints the repo owner decides.
+
+Never commit directly to either. Never open a feature PR against `main` — the base branch is always `development`.
+
+- Branch naming: `<type>/<short-description>` (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`), e.g. `feat/complaint-submission`.
+- Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/): `<type>(<scope>): <imperative summary>`, summary line ≤72 chars, lowercase, no trailing period. Scope is the touched area (`auth`, `complaints`, `evidence`, `gamification`, `schema`, `openapi`, `frontend`, ...).
+- Update your branch with **rebase**, not merge (`git rebase origin/development`, or `git rebase upstream/development` for forks), then force-push with `--force-with-lease` (never plain `--force`).
 - One concern per PR; keep backend and frontend changes in separate PRs unless tightly coupled.
-- Any change to `openapi.yaml` or `schema.dbml` must keep the other in sync — they're designed 1:1.
+- Any change to `openapi.yaml` or `schema.dbml` must keep the other in sync — they're designed 1:1. Re-run `npm run gen:types` afterwards.
 - Do not merge your own PR; at least one other team member must approve.
+- Never commit `.env` or `*.sqlite3` — both are already in `.gitignore`.

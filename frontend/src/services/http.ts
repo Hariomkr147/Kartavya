@@ -5,6 +5,34 @@ type ErrorDetails = ApiError["error"]["details"];
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
 const TOKEN_STORAGE_KEY = "kartavya-auth-token";
 
+/**
+ * Point a root-relative API link at the API's own host.
+ *
+ * `photoUrl` arrives as "/api/v1/evidence/{id}/photo?exp=…&sig=…" — the
+ * contract calls it root-relative, which silently assumes the SPA and the API
+ * share an origin. Deployed they do not, and an `<img src>` resolves against
+ * the *site's* origin: on Vercel the SPA rewrite answers that path with
+ * index.html and a 200, so every thumbnail renders as a broken image.
+ *
+ * The link itself stays opaque — nothing here reads the signature or the
+ * expiry. This only supplies the origin a same-origin deployment would have
+ * supplied for free.
+ *
+ * Anything that is not root-relative is returned untouched, which keeps the
+ * mock layer's `blob:` URLs and any future absolute URL working as-is.
+ */
+export function resolveApiAssetUrl(src: string): string;
+export function resolveApiAssetUrl(src: null | undefined): null | undefined;
+export function resolveApiAssetUrl(
+  src: string | null | undefined,
+): string | null | undefined;
+export function resolveApiAssetUrl(
+  src: string | null | undefined,
+): string | null | undefined {
+  if (!src || !src.startsWith("/")) return src;
+  return new URL(BASE_URL, window.location.origin).origin + src;
+}
+
 export function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_STORAGE_KEY);
 }

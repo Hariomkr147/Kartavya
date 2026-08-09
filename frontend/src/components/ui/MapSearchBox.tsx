@@ -1,8 +1,11 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Loader2, MapPin, Search, X } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Crosshair, Loader2, MapPin, Search, X } from "lucide-react";
 import { useGeocodeSearch } from "@/hooks/useGeocodeSearch";
 import type { PlaceResult } from "@/services/geocoding";
 import { cn } from "@/lib/utils";
+import { formatCoordinates, parseCoordinates } from "@/lib/coordinates";
+import { reverseGeocodeLandmark } from "@/lib/reverseGeocode";
 
 export interface MapSearchBoxProps {
   onSelect: (place: PlaceResult) => void;
@@ -22,7 +25,7 @@ export interface MapSearchBoxProps {
 export function MapSearchBox({
   onSelect,
   near = null,
-  placeholder = "Search a place, address or landmark…",
+  placeholder = "Search a place, or paste coordinates…",
   className,
 }: MapSearchBoxProps) {
   const listId = useId();
@@ -31,15 +34,43 @@ export function MapSearchBox({
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // A pasted coordinate pair needs no geocoding, so the request is skipped
+  // entirely rather than sent and discarded.
+  const coordinates = parseCoordinates(query);
+
   const { results, isSearching, isEmpty, failed } = useGeocodeSearch(query, {
     near,
-    enabled: open,
+    enabled: open && !coordinates,
   });
+
+  // Best-effort "what is actually here", so the user can tell a mistyped digit
+  // from the point they meant. Never blocks: the coordinate option is offered
+  // immediately and this only fills in the second line if and when it arrives.
+  const { data: coordinateLabel } = useQuery({
+    queryKey: ["reverse-geocode", coordinates?.lat, coordinates?.lng],
+    queryFn: () => reverseGeocodeLandmark(coordinates!.lat, coordinates!.lng),
+    enabled: !!coordinates && open,
+    staleTime: Infinity,
+    retry: false,
+  });
+
+  const options: PlaceResult[] = coordinates
+    ? [
+        {
+          id: `coordinates:${coordinates.lat},${coordinates.lng}`,
+          name: formatCoordinates(coordinates),
+          address: coordinateLabel ?? "Go to these exact coordinates",
+          kind: "coordinates",
+          lat: coordinates.lat,
+          lng: coordinates.lng,
+        },
+      ]
+    : results;
 
   // Clamped rather than reset from an effect: a stale index left over from a
   // previous, longer result set must not highlight (or Enter-select) the wrong
   // row, and resetting it in an effect would cost a cascading render.
-  const highlighted = activeIndex < results.length ? activeIndex : -1;
+  const highlighted = activeIndex < options.length ? activeIndex : -1;
 
   // Clicking the map (or anything else) should dismiss the list.
   useEffect(() => {
@@ -63,25 +94,25 @@ export function MapSearchBox({
       setOpen(false);
       return;
     }
-    if (!results.length) return;
+    if (!options.length) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setOpen(true);
-      setActiveIndex(() => (highlighted + 1) % results.length);
+      setActiveIndex(() => (highlighted + 1) % options.length);
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      setActiveIndex(() => (highlighted <= 0 ? results.length - 1 : highlighted - 1));
+      setActiveIndex(() => (highlighted <= 0 ? options.length - 1 : highlighted - 1));
     } else if (event.key === "Enter") {
       // Only swallow Enter when a result is highlighted — otherwise this box
       // would eat the submit of the form it is embedded in.
       if (highlighted >= 0) {
         event.preventDefault();
-        choose(results[highlighted]);
+        choose(options[highlighted]);
       }
     }
   }
 
-  const showList = open && query.trim().length >= 3;
+  const showList = open && (!!coordinates || query.trim().length >= 3);
 
   return (
     <div ref={containerRef} className={cn("relative", className)}>
@@ -135,7 +166,7 @@ export function MapSearchBox({
       {showList && (
         <div className="absolute inset-x-0 top-full z-[1100] mt-1 overflow-hidden rounded-md border border-line bg-surface shadow-md">
           <ul id={listId} role="listbox" className="max-h-64 overflow-auto py-1">
-            {results.map((place, index) => (
+            {options.map((place, index) => (
               <li key={place.id} role="option" aria-selected={index === highlighted}>
                 <button
                   type="button"
@@ -146,10 +177,17 @@ export function MapSearchBox({
                     index === highlighted ? "bg-surface-hover" : "hover:bg-surface-hover",
                   )}
                 >
-                  <MapPin
-                    className="text-ink-faint mt-0.5 size-4 shrink-0"
-                    aria-hidden="true"
-                  />
+                  {place.kind === "coordinates" ? (
+                    <Crosshair
+                      className="text-ink-faint mt-0.5 size-4 shrink-0"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <MapPin
+                      className="text-ink-faint mt-0.5 size-4 shrink-0"
+                      aria-hidden="true"
+                    />
+                  )}
                   <span className="min-w-0">
                     <span className="text-ink block truncate font-medium">
                       {place.name}
@@ -167,7 +205,7 @@ export function MapSearchBox({
               </li>
             ))}
 
-            {!results.length && (
+            {!options.length && (
               <li className="text-ink-muted px-3 py-3 text-sm">
                 {isSearching
                   ? "Searching…"

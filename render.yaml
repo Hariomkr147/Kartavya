@@ -1,0 +1,43 @@
+# Render Blueprint for the Kartavya backend.
+# Deploy: Render dashboard -> New + -> Blueprint -> select this repo.
+# Free tier: no persistent disk, so SQLite resets on redeploy/restart -
+# acceptable for a demo/test deployment, not for data you need to keep.
+services:
+  - type: web
+    name: kartavya-backend
+    # `runtime` is the current field name; older Render docs call it `env`.
+    # If the blueprint validator rejects this, rename it to `env: python`.
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -e .
+    # workers=1 + gthread/threads (not multiple processes) because several
+    # gunicorn processes hitting one SQLite file produce SQLITE_BUSY under
+    # write contention - see app/__init__.py and app/jobs/scheduler.py.
+    # `seed --demo` is idempotent, so re-running it on every restart is safe.
+    startCommand: >-
+      alembic upgrade head &&
+      flask --app app seed --demo &&
+      gunicorn --workers 1 --worker-class gthread --threads 8 --bind 0.0.0.0:$PORT "app:create_app()"
+    healthCheckPath: /health
+    envVars:
+      - key: KARTAVYA_ENV
+        value: production
+      - key: PYTHON_VERSION
+        value: 3.12.9
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PHOTO_SIGNING_KEY
+        generateValue: true
+      # Without this, app/seed.py falls back to the hardcoded "changeme123",
+      # which is readable by anyone with repo access. Render generates a random
+      # value - read it from the service's Environment tab to log in as admin.
+      - key: KARTAVYA_ADMIN_PASSWORD
+        generateValue: true
+      - key: KARTAVYA_ADMIN_EMAIL
+        value: admin@kartavya.gov
+      - key: AI_PROVIDER
+        value: stub
+      - key: CORS_ORIGINS
+        # Placeholder - update once the frontend is deployed (e.g. to Vercel).
+        value: http://localhost:5173

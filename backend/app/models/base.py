@@ -41,6 +41,10 @@ def enum_column(enum_type: type[E]) -> SAEnum:
     return SAEnum(
         enum_type,
         native_enum=False,
+        # SQLAlchemy 1.4+ defaults this to False, which renders a BARE VARCHAR
+        # and silently drops the CHECK this function exists to produce. It must
+        # stay explicit — see migrations/README.md, hand-check 2.
+        create_constraint=True,
         validate_strings=True,
         length=40,
         values_callable=lambda e: [member.value for member in e],

@@ -416,7 +416,7 @@ function CreateZoneModal({ open, onClose }: { open: boolean; onClose: () => void
             value={center}
             onChange={setCenter}
             height={280}
-            searchPlaceholder="Search a ward or landmark, or paste coordinates…"
+            searchPlaceholder="Search a ward, or paste coordinates or a plus code…"
           />
           {center && (
             <p className="text-ink-faint mt-1.5 text-xs">

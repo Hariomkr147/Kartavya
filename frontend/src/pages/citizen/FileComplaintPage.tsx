@@ -615,7 +615,7 @@ export function FileComplaintPage() {
                   setLocation(next);
                   setLocationSource("manual");
                 }}
-                searchPlaceholder="Search a landmark or road, or paste coordinates…"
+                searchPlaceholder="Search a landmark, or paste coordinates or a plus code…"
               />
             )}
           </div>

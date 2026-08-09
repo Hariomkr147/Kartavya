@@ -2,9 +2,10 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Crosshair, Loader2, MapPin, Search, X } from "lucide-react";
 import { useGeocodeSearch } from "@/hooks/useGeocodeSearch";
-import type { PlaceResult } from "@/services/geocoding";
 import { cn } from "@/lib/utils";
 import { formatCoordinates, parseCoordinates } from "@/lib/coordinates";
+import { decodePlusCode, parsePlusCode } from "@/lib/plusCode";
+import { searchPlaces, type PlaceResult } from "@/services/geocoding";
 import { reverseGeocodeLandmark } from "@/lib/reverseGeocode";
 
 export interface MapSearchBoxProps {
@@ -25,7 +26,7 @@ export interface MapSearchBoxProps {
 export function MapSearchBox({
   onSelect,
   near = null,
-  placeholder = "Search a place, or paste coordinates…",
+  placeholder = "Search a place, or paste coordinates or a plus code…",
   className,
 }: MapSearchBoxProps) {
   const listId = useId();
@@ -34,35 +35,62 @@ export function MapSearchBox({
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // A pasted coordinate pair needs no geocoding, so the request is skipped
-  // entirely rather than sent and discarded.
+  // A coordinate pair or a plus code IS the location — there is nothing to
+  // geocode, so the place-search request is skipped rather than sent and
+  // discarded.
   const coordinates = parseCoordinates(query);
+  const plusCode = coordinates ? null : parsePlusCode(query);
 
   const { results, isSearching, isEmpty, failed } = useGeocodeSearch(query, {
     near,
-    enabled: open && !coordinates,
+    enabled: open && !coordinates && !plusCode,
   });
 
-  // Best-effort "what is actually here", so the user can tell a mistyped digit
-  // from the point they meant. Never blocks: the coordinate option is offered
-  // immediately and this only fills in the second line if and when it arrives.
-  const { data: coordinateLabel } = useQuery({
-    queryKey: ["reverse-geocode", coordinates?.lat, coordinates?.lng],
-    queryFn: () => reverseGeocodeLandmark(coordinates!.lat, coordinates!.lng),
-    enabled: !!coordinates && open,
+  // A SHORT plus code recovers to the nearest matching cell, so it needs a
+  // reference point near the intended one. Google prints a locality after the
+  // code precisely for this; when it is there, resolve it rather than assuming
+  // the map happens to be pointed at the right city.
+  const needsLocality = !!plusCode && !plusCode.isFull && !!plusCode.locality;
+  const { data: localityPoint, isFetching: resolvingLocality } = useQuery({
+    queryKey: ["plus-code-locality", plusCode?.locality],
+    queryFn: async () => {
+      const [top] = await searchPlaces(plusCode!.locality!, { limit: 1 });
+      return top ? { lat: top.lat, lng: top.lng } : null;
+    },
+    enabled: open && needsLocality,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+
+  const plusPoint = plusCode
+    ? decodePlusCode(
+        plusCode,
+        plusCode.isFull ? null : needsLocality ? (localityPoint ?? null) : near,
+      )
+    : null;
+
+  const point = coordinates ?? plusPoint;
+
+  // Best-effort "what is actually here", so a mistyped digit is visible before
+  // committing to it. Never blocks: the option is offered immediately and this
+  // only fills in the second line if and when it arrives.
+  const { data: pointLabel } = useQuery({
+    queryKey: ["reverse-geocode", point?.lat, point?.lng],
+    queryFn: () => reverseGeocodeLandmark(point!.lat, point!.lng),
+    enabled: !!point && open,
     staleTime: Infinity,
     retry: false,
   });
 
-  const options: PlaceResult[] = coordinates
+  const options: PlaceResult[] = point
     ? [
         {
-          id: `coordinates:${coordinates.lat},${coordinates.lng}`,
-          name: formatCoordinates(coordinates),
-          address: coordinateLabel ?? "Go to these exact coordinates",
-          kind: "coordinates",
-          lat: coordinates.lat,
-          lng: coordinates.lng,
+          id: `point:${point.lat},${point.lng}`,
+          name: plusCode ? plusCode.code : formatCoordinates(point),
+          address: pointLabel ?? formatCoordinates(point),
+          kind: plusCode ? "plus code" : "coordinates",
+          lat: point.lat,
+          lng: point.lng,
         },
       ]
     : results;
@@ -112,7 +140,7 @@ export function MapSearchBox({
     }
   }
 
-  const showList = open && (!!coordinates || query.trim().length >= 3);
+  const showList = open && (!!coordinates || !!plusCode || query.trim().length >= 3);
 
   return (
     <div ref={containerRef} className={cn("relative", className)}>
@@ -141,7 +169,7 @@ export function MapSearchBox({
             "border-line text-ink focus-visible:border-brand focus-visible:outline-none",
           )}
         />
-        {isSearching ? (
+        {isSearching || resolvingLocality ? (
           <Loader2
             className="text-ink-faint absolute top-1/2 right-3 size-4 -translate-y-1/2 animate-spin"
             aria-hidden="true"
@@ -177,7 +205,7 @@ export function MapSearchBox({
                     index === highlighted ? "bg-surface-hover" : "hover:bg-surface-hover",
                   )}
                 >
-                  {place.kind === "coordinates" ? (
+                  {place.kind === "coordinates" || place.kind === "plus code" ? (
                     <Crosshair
                       className="text-ink-faint mt-0.5 size-4 shrink-0"
                       aria-hidden="true"
@@ -207,13 +235,23 @@ export function MapSearchBox({
 
             {!options.length && (
               <li className="text-ink-muted px-3 py-3 text-sm">
-                {isSearching
-                  ? "Searching…"
-                  : failed
-                    ? "Place search is unavailable right now — you can still tap the map."
-                    : isEmpty
-                      ? "No places found. Try a landmark or a nearby road."
-                      : null}
+                {resolvingLocality
+                  ? `Looking up ${plusCode?.locality}…`
+                  : plusCode && plusCode.locality
+                    ? // The code is valid; the place named after it is not one
+                      // Nominatim knows, so there is no reference to recover from.
+                      `Couldn't find “${plusCode.locality}”. Try a nearby town, or paste the full code.`
+                    : plusCode
+                      ? // A short code alone is ambiguous — the same one exists
+                        // in every ~100 km cell on Earth.
+                        "Short plus code. Add the town or city after it, or paste the full code."
+                      : isSearching
+                        ? "Searching…"
+                        : failed
+                          ? "Place search is unavailable right now — you can still tap the map."
+                          : isEmpty
+                            ? "No places found. Try a landmark or a nearby road."
+                            : null}
               </li>
             )}
           </ul>

@@ -73,6 +73,7 @@ Core mechanics:
 | **Backend** | Python 3.11+, Flask 3, SQLAlchemy 2, SQLite, Alembic, Pydantic, PyJWT, APScheduler |
 | **Frontend** | React 19, Vite, TypeScript, Tailwind CSS v4, TanStack Query, React Router 7, React Hook Form + Zod, Leaflet, Recharts, Framer Motion |
 | **Maps** | OpenStreetMap tiles, plus Nominatim for place search — both keyless. Nominatim's public instance is donation-funded and rate-limited (~1 req/sec); `useGeocodeSearch` debounces to stay inside its policy. `src/services/geocoding.ts` is the only file to change if it ever needs a self-hosted or keyed provider |
+| **Location input** | The map search box also accepts a latitude/longitude pair or a plus code. Both are resolved on the client — `open-location-code` (Google's reference implementation, Apache-2.0, no dependencies) decodes plus codes offline, because Nominatim does not resolve them |
 | **Contract** | OpenAPI 3.0.3 + DBML, with TypeScript types generated from the spec |
 | **Testing** | pytest (domain / services / api / contract / jobs), Vitest + React Testing Library, MSW |
 | **Quality** | Ruff, import-linter (layering enforced in CI), ESLint, Prettier |

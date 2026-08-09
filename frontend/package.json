@@ -26,6 +26,7 @@
     "framer-motion": "^12.42.2",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.25.0",
+    "open-location-code": "^1.0.3",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-hook-form": "^7.82.0",

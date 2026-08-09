@@ -53,7 +53,18 @@ function buildUrl(path: string, query?: RequestOptions["query"]): string {
       }
     }
   }
-  return url.pathname + url.search;
+  // The FULL url, not `pathname + search`. When VITE_API_BASE_URL is absolute
+  // — which it must be once the SPA and the API live on different hosts —
+  // dropping the origin silently rewrites every request to the site's own
+  // domain. On Vercel that is not even a 404: the SPA rewrite answers
+  // /api/v1/* with index.html and a 200, so apiFetch sees non-JSON, falls
+  // through to response.text(), and hands each caller an HTML string. The
+  // symptom is a `.map is not a function` crash far away from the cause.
+  //
+  // Same-origin behaviour is unchanged: for a relative base this resolves
+  // against window.location.origin, which is what MSW's relative handlers
+  // match against too.
+  return url.toString();
 }
 
 /**

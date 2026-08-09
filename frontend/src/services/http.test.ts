@@ -35,6 +35,52 @@ function stubFetch() {
   return spy;
 }
 
+describe("resolveApiAssetUrl", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  async function load(baseUrl: string) {
+    vi.resetModules();
+    vi.stubEnv("VITE_API_BASE_URL", baseUrl);
+    return (await import("./http")).resolveApiAssetUrl;
+  }
+
+  it("sends a root-relative photo link to the API host, not the site's", async () => {
+    const resolve = await load("https://api.example.com/api/v1");
+    expect(resolve("/api/v1/evidence/7/photo?exp=1&sig=abc")).toBe(
+      "https://api.example.com/api/v1/evidence/7/photo?exp=1&sig=abc",
+    );
+  });
+
+  it("leaves the signature and expiry untouched", async () => {
+    const resolve = await load("https://api.example.com/api/v1");
+    const signed = "/api/v1/evidence/7/photo?exp=1786280000&sig=Ab-_9zZ";
+    expect(resolve(signed).endsWith(signed)).toBe(true);
+  });
+
+  it("passes blob: and absolute URLs through unchanged", async () => {
+    const resolve = await load("https://api.example.com/api/v1");
+    expect(resolve("blob:http://localhost:5173/9f-3a")).toBe("blob:http://localhost:5173/9f-3a");
+    expect(resolve("https://cdn.example.com/x.jpg")).toBe("https://cdn.example.com/x.jpg");
+    expect(resolve("data:image/png;base64,iVBOR")).toBe("data:image/png;base64,iVBOR");
+  });
+
+  it("keeps same-origin behaviour for a relative base (mock/dev mode)", async () => {
+    const resolve = await load("/api/v1");
+    expect(resolve("/api/v1/evidence/7/photo")).toBe(
+      `${window.location.origin}/api/v1/evidence/7/photo`,
+    );
+  });
+
+  it("returns null/undefined as-is so the caller can show its fallback", async () => {
+    const resolve = await load("https://api.example.com/api/v1");
+    expect(resolve(null)).toBeNull();
+    expect(resolve(undefined)).toBeUndefined();
+  });
+});
+
 describe("apiFetch request URL", () => {
   beforeEach(() => {
     vi.stubGlobal("localStorage", {

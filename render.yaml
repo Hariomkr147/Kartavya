@@ -59,16 +59,16 @@ services:
       # future, since build_provider passes this value to both.
       - key: AI_TIMEOUT_SECONDS
         value: "45"
-      # ⚠ ONE EDIT REQUIRED: replace <your-project> with the real Vercel domain
-      # once the frontend is deployed, then push - Render re-syncs the blueprint
-      # and redeploys. Until then the browser blocks every request from Vercel.
+      # app/settings.py matches each origin EXACTLY: no wildcards, no subdomain
+      # matching, and the scheme and any port count. Vercel gives the project
+      # three stable production aliases and any of them can be the link someone
+      # actually opens, so all three are listed - a missing one fails as a
+      # browser-side CORS error while the API itself still answers 200.
       #
-      # Comma-separated, and app/settings.py matches each origin EXACTLY: no
-      # wildcards, no subdomain matching, and the scheme and any port count. So
-      # Vercel *preview* deployments, which get a unique URL per commit, are not
-      # covered - add one explicitly if you need to demo from a preview.
+      # Vercel *preview* deployments get a unique URL per commit and are
+      # therefore NOT covered; add one explicitly to demo from a preview.
       #
-      # localhost stays listed so you can run `npm run dev` against the
-      # deployed API without another redeploy.
+      # localhost stays listed so `npm run dev` can hit the deployed API
+      # without another redeploy.
       - key: CORS_ORIGINS
-        value: https://<your-project>.vercel.app,http://localhost:5173
+        value: https://kartavya-ten.vercel.app,https://kartavya-thethinkmachines-projects.vercel.app,https://kartavya-thethinkmachine-thethinkmachines-projects.vercel.app,http://localhost:5173

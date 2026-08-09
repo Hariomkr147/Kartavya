@@ -14,10 +14,18 @@ services:
     # workers=1 + gthread/threads (not multiple processes) because several
     # gunicorn processes hitting one SQLite file produce SQLITE_BUSY under
     # write contention - see app/__init__.py and app/jobs/scheduler.py.
-    # `seed --demo` is idempotent, so re-running it on every restart is safe.
+    #
+    # `seed` WITHOUT --demo: the deployment gets the reference data it cannot
+    # start without (12 categories, 6 badges, the catch-all zone, the settings
+    # row, one admin) and nothing else. --demo would add three fictional
+    # Bengaluru wards, which is wrong here for two reasons: real testers would
+    # be filing real complaints against made-up zones, and zones have no DELETE
+    # in the contract - only rename/deactivate - so a seeded zone can never be
+    # fully removed once it exists. Admins create the real zones via
+    # POST /admin/zones instead. Idempotent either way.
     startCommand: >-
       alembic upgrade head &&
-      flask --app app seed --demo &&
+      flask --app app seed &&
       gunicorn --workers 1 --worker-class gthread --threads 8 --bind 0.0.0.0:$PORT "app:create_app()"
     healthCheckPath: /health
     envVars:

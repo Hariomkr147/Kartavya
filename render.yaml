@@ -36,8 +36,29 @@ services:
         generateValue: true
       - key: KARTAVYA_ADMIN_EMAIL
         value: admin@kartavya.gov
+      # --- AI: OpenRouter, via the OpenAI-compatible `remote` provider --------
+      # `stub` returns hardcoded text (identical for every zone, every photo).
+      # `local` needs Ollama on localhost, which does not exist on Render.
+      # `remote` speaks OpenAI chat-completions, which is what OpenRouter serves.
       - key: AI_PROVIDER
-        value: stub
+        value: remote
+      - key: AI_API_URL
+        value: https://openrouter.ai/api/v1/chat/completions
+      # Vision-capable (input modalities: image, text, video), which the photo
+      # pre-screening path requires - a text-only model would degrade every
+      # screen to UNAVAILABLE.
+      - key: AI_MODEL_NAME
+        value: google/gemma-4-26b-a4b-it:free
+      # ⚠ SECRET - deliberately NOT stored in this file. `sync: false` makes
+      # Render prompt for the value in the dashboard on first sync; it is then
+      # held there, never in git. Set it under the service's Environment tab.
+      - key: AI_API_KEY
+        sync: false
+      # Measured 4-9s per call against the :free tier, so the 10s default would
+      # time out intermittently. Governs both the HTTP read and the guard's
+      # future, since build_provider passes this value to both.
+      - key: AI_TIMEOUT_SECONDS
+        value: "45"
       # ⚠ ONE EDIT REQUIRED: replace <your-project> with the real Vercel domain
       # once the frontend is deployed, then push - Render re-syncs the blueprint
       # and redeploys. Until then the browser blocks every request from Vercel.

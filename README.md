@@ -404,18 +404,26 @@ without calling out at all. That is the fail-soft design working as intended, no
 means AI output is best-effort, and a paid model or your own upstream key is the fix if a demo
 needs it to be reliable.
 
-**Frontend — Vercel.** Dashboard → **Add New** → **Project** → import the repository, and set
-**Root Directory** to `frontend`. The rest (framework, build command, output directory) comes
-from `frontend/vercel.json`; the SPA rewrite in that file is what stops a refresh on a deep link
-from 404ing. `frontend/.env.production` points the build at the deployed API and forces
-`VITE_USE_MOCKS=false`.
+**Frontend — Vercel.** The project already exists and is live at
+<https://kartavya-ten.vercel.app>, connected to this repository. Framework, build command and
+output directory come from `frontend/vercel.json`; the SPA rewrite in that file is what stops a
+refresh on a deep link from 404ing, and `frontend/.env.production` points the build at the
+deployed API with `VITE_USE_MOCKS=false`.
 
-**Then connect them.** Take the Vercel domain, put it in `CORS_ORIGINS` in `render.yaml`, and
-push — Render re-syncs and redeploys. Until you do, every request from the browser is blocked.
-That failure is easy to misread: the API answers `200` normally, and only the *browser* rejects
-the response for a missing header, so it looks like a frontend bug. `CORS_ORIGINS` is matched
-**exactly** — no wildcards, no subdomain matching — so Vercel preview deployments, which get a
-unique URL per commit, are not covered unless you add one explicitly.
+Two project settings are not expressible in `vercel.json` and live in the dashboard instead — if
+you ever recreate the project, both have to be set by hand:
+
+| Setting | Value | Why |
+|---|---|---|
+| **Root Directory** | `frontend` | The repo is a monorepo. Left at `.`, a Git-triggered build looks for `package.json` at the root and fails. |
+| **Production Branch** | `development` | Vercel defaults this to the repo's default branch (`main`). Left alone, pushes to `development` produce *preview* deployments and production never updates. |
+
+**Then connect them.** `CORS_ORIGINS` in `render.yaml` lists the Vercel production aliases; a push
+makes Render re-sync and redeploy. If an origin is missing, every request from that origin is
+blocked — and the failure is easy to misread, because the API answers `200` normally and only the
+*browser* rejects the response for a missing header, so it presents as a frontend bug. Matching is
+**exact** — no wildcards, no subdomain matching — which is why all three production aliases are
+listed, and why preview deployments (a unique URL per commit) are not covered unless added.
 
 Two consequences of Render's free tier worth knowing before a demo:
 

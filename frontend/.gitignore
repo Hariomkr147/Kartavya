@@ -1,0 +1,8 @@
+# Vercel CLI project link + the OIDC token it writes into .env.local.
+.vercel
+.env.local
+
+# NOTE: deliberately NOT the `.env*` the Vercel CLI writes here by default.
+# This project commits .env.development, .env.production and .env.example on
+# purpose - none holds a secret, and .env.production is what points a build at
+# the deployed API. A blanket .env* silently excludes all three.

@@ -11,11 +11,61 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, TypeVar
 
-from sqlalchemy import Select, case, func, select
+from sqlalchemy import DateTime, Float, Numeric, Select, case, cast, extract, func, literal, select
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.sql.functions import FunctionElement
 
 from app.domain.enums import ComplaintStatus, SeverityLabel, SlaLabel
 
 T = TypeVar("T")
+
+
+class seconds_between(FunctionElement):  # noqa: N801 - SQL constructs are lowercase
+    """Wall-clock seconds from `start` to `end`, rounded to milliseconds.
+
+    `seconds_between(end, start)`. There is no portable SQL for the difference
+    between two timestamps, so each dialect gets its own rendering: SQLite has
+    `julianday()` (days, as a float) and Postgres has `EXTRACT(EPOCH ...)`
+    (seconds). Emitting either one directly is what broke the officer queue in
+    production — `julianday` does not exist in Postgres, so every request that
+    sorted by urgency or filtered by slaLabel answered 500.
+
+    Rounding lives in here rather than at the call sites because it is a
+    SQLite-specific correction that Postgres does not need: SQLite's raw
+    julianday delta lands just under an exact boundary for some timestamps (100h
+    can come back as 99.999999996h), which puts a complaint on the wrong side of
+    an integer-second SLA threshold and makes SQL filtering disagree with
+    `domain.sla.label()`. Both dialects round so the two agree with each other
+    as well as with the domain.
+    """
+
+    inherit_cache = True
+    type = Float()
+    name = "seconds_between"
+
+
+@compiles(seconds_between)
+def _seconds_between_unsupported(element, compiler, **kw):
+    raise NotImplementedError(
+        f"seconds_between() has no rendering for the {compiler.dialect.name!r} dialect. "
+        "Add one here rather than emitting dialect-specific SQL at the call site."
+    )
+
+
+@compiles(seconds_between, "sqlite")
+def _seconds_between_sqlite(element, compiler, **kw):
+    end, start = list(element.clauses)
+    days = func.julianday(end) - func.julianday(start)
+    return compiler.process(func.round(days * 86400.0, 3), **kw)
+
+
+@compiles(seconds_between, "postgresql")
+def _seconds_between_postgresql(element, compiler, **kw):
+    end, start = list(element.clauses)
+    # `round(double precision, int)` does not exist in Postgres — only
+    # `round(numeric, int)` — so the cast is load-bearing, not decorative.
+    seconds = cast(extract("epoch", end - start), Numeric)
+    return compiler.process(cast(func.round(seconds, 3), Float), **kw)
 
 #: openapi.yaml: Sort. A leading '-' means descending.
 SORTABLE_FIELDS = ("createdAt", "updatedAt", "severity", "sla", "upvotes")
@@ -68,20 +118,22 @@ def sla_ratio_expression(now: datetime | None = None):
     The same arithmetic as `domain.sla.percent_consumed`, expressed so the
     database can ORDER BY it — sorting a page in Python would only order that
     page. Complaints with no clock yet sort as 0 (never accepted, so never
-    overdue) rather than NULL, which SQLite would sort unpredictably.
+    overdue) rather than NULL, which the two engines order differently: SQLite
+    puts NULLs first ascending, Postgres puts them last.
     """
     from app.models import Complaint
 
-    ref_time = now if now is not None else datetime.now()
-    now_jd = func.julianday(ref_time.isoformat())
-    paused_jd = func.julianday(Complaint.sla_paused_at)
-    started_jd = func.julianday(Complaint.sla_started_at)
+    # Bound as a timestamp, not an ISO string: Postgres cannot subtract text.
+    ref_time = literal(now if now is not None else datetime.now(), DateTime)
     ongoing_pause = case(
-        (Complaint.sla_paused_at.isnot(None), (now_jd - paused_jd) * 86400.0),
+        (
+            Complaint.sla_paused_at.isnot(None),
+            seconds_between(ref_time, Complaint.sla_paused_at),
+        ),
         else_=0.0,
     )
     total_paused = Complaint.sla_paused_seconds + ongoing_pause
-    elapsed_secs = (now_jd - started_jd) * 86400.0 - total_paused
+    elapsed_secs = seconds_between(ref_time, Complaint.sla_started_at) - total_paused
     target_secs = Complaint.sla_target_hours * 3600.0
     return case(
         (
@@ -172,18 +224,12 @@ def apply_filters(
     if sla_label is not None:
         if now is None:
             raise ValueError("now is required when filtering by slaLabel")
-        now_jd = func.julianday(now.isoformat())
-        started_jd = func.julianday(Complaint.sla_started_at)
-        paused_jd = func.julianday(Complaint.sla_paused_at)
-        # SQLite's raw julianday delta is slightly below an exact boundary for
-        # some timestamps (for example 100 h can become 99.999999996 h). Round
-        # wall-clock spans to milliseconds before applying the integer-second
-        # SLA thresholds so SQL filtering agrees with domain.sla.label().
-        wall_seconds = func.round((now_jd - started_jd) * 86400.0, 3)
+        ref_time = literal(now, DateTime)
+        wall_seconds = seconds_between(ref_time, Complaint.sla_started_at)
         open_pause = case(
             (
                 Complaint.sla_paused_at.isnot(None),
-                func.round((now_jd - paused_jd) * 86400.0, 3),
+                seconds_between(ref_time, Complaint.sla_paused_at),
             ),
             else_=0.0,
         )

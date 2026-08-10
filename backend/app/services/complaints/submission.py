@@ -80,7 +80,9 @@ def create_complaint(
     created_complaint_dir: Path | None = None
 
     try:
-        temp_code = f"TEMP-{uuid.uuid4()}"
+        # Placeholder only: the real code needs the autoincrement id, assigned
+        # after the flush below. Must fit complaint_code's varchar(30).
+        temp_code = f"TEMP-{uuid.uuid4().hex[:20]}"
         initial_severity = severity_domain.score(unique_reporter_count=1, upvotes=0)
 
         complaint = Complaint(

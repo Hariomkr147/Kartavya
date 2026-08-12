@@ -1063,11 +1063,11 @@ export interface paths {
          * Get the leaderboard
          * @description Returns ranked citizens for either the **zone** or the **city** scope. Monthly rankings reset at the start of each month; lifetime totals never reset. The response also includes the caller's own rank, so the dashboard can show "you are #7" even if they are not in the visible top slice. The top 3 are flagged for highlighting.
          *
-         *     **Who is on the board.** Active citizens only: `role = CITIZEN` and `is_active = true`. Officers and admins never appear — they earn no points. A deactivated citizen is dropped from the rankings entirely and everyone below them moves up; the account keeps its `points_ledger` history, so reactivating restores its place. Citizens with a zero (or negative) total for the period **do** appear, at the bottom — a new citizen seeing themselves ranked last is the nudge the feature exists for. Under `scope=zone` the board covers the caller's own `zoneId` only.
+         *     **Who is on the board, and who may read it.** Active citizens only: `role = CITIZEN` and `is_active = true`. Officers and admins never appear — they earn no points — and the board is **citizen-only to read** as well: an officer or admin calling this gets `403`, the same as every other endpoint in this group (`/complaints/my`, `/gamification/points`, `/gamification/badges`). A deactivated citizen is dropped from the rankings entirely and everyone below them moves up; the account keeps its `points_ledger` history, so reactivating restores its place. Citizens with a zero (or negative) total for the period **do** appear, at the bottom — a new citizen seeing themselves ranked last is the nudge the feature exists for. Under `scope=zone` the board covers the caller's own `zoneId` only.
          *
          *     **Ordering and ties.** Sort by `points` descending, then by account age (older account first), then by `citizenId` ascending as a final tiebreak so the order is total and stable across pages — the same request twice must never interleave rows differently. Ranks are **sequential, never shared**: tied citizens get consecutive numbers in that order, so `rank` is always `1..N` with no gaps or repeats and `isTopThree` is exactly `rank <= 3`. Pagination applies after ranking, so a citizen's `rank` does not depend on which page it is read from.
          *
-         *     **`currentUser`.** The caller's own row, computed against the full ranking rather than the returned page, so it is correct no matter which page was requested. `null` only when the caller has no row on this board at all — i.e. they are not a ranked citizen.
+         *     **`currentUser`.** The caller's own row, computed against the full ranking rather than the returned page, so it is correct no matter which page was requested. Given the `403` above, every caller who reaches a `200` is an active citizen, and every active citizen is ranked — including at zero, and including one with no `zoneId` under `scope=zone`, who ranks among the other zone-less citizens. So no current path returns `null` here. The field stays nullable rather than required because that is a property of who may call the endpoint, not of the ranking itself: widening access later (to let an officer see their ward's board, say) would reintroduce the case without touching this schema. Clients should keep handling `null`.
          */
         get: operations["getLeaderboard"];
         put?: never;
@@ -2211,6 +2211,15 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            /** @description Only citizens have a personal complaint dashboard. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     getComplaintById: {
@@ -3578,6 +3587,15 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            /** @description Only citizens earn CSP, so only citizens have a ledger. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     getMyBadges: {
@@ -3599,6 +3617,15 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            /** @description Only citizens earn badges. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     getLeaderboard: {
@@ -3638,6 +3665,15 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            /** @description Only citizens can read the leaderboard. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
 }

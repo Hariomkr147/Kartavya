@@ -116,9 +116,7 @@ class TestEvidenceReview:
         "verdict", [EvidenceVerdict.NEEDS_MORE_EVIDENCE, EvidenceVerdict.REJECTED]
     )
     def test_negative_verdicts_require_a_reason(self, verdict):
-        result = lifecycle.validate_evidence_review(
-            S.EVIDENCE_UNDER_REVIEW, None, verdict, None
-        )
+        result = lifecycle.validate_evidence_review(S.EVIDENCE_UNDER_REVIEW, None, verdict, None)
         assert isinstance(result, Err)
         assert result.http_status == 400
 
@@ -151,9 +149,7 @@ class TestCitizenAndAdminDoors:
 
 
 class TestCascadeEligibility:
-    @pytest.mark.parametrize(
-        "status", [S.UNDER_REVIEW, S.IN_PROGRESS, S.UNDER_RESOLUTION]
-    )
+    @pytest.mark.parametrize("status", [S.UNDER_REVIEW, S.IN_PROGRESS, S.UNDER_RESOLUTION])
     def test_working_stages_cascade(self, status):
         assert lifecycle.is_cascade_eligible(status)
 

@@ -852,10 +852,10 @@ def review_dispute(
 ) -> Complaint:
     """The ONLY exit from REOPENED, and it belongs to the admin.
 
-      * UPHELD   -> IN_PROGRESS (back to the officer).
-      * REJECTED -> CLOSED with ZERO points — same as an auto-close. A citizen
-        must not be able to use a losing dispute to manufacture a second shot at
-        the reward they gave up by disputing instead of confirming.
+    * UPHELD   -> IN_PROGRESS (back to the officer).
+    * REJECTED -> CLOSED with ZERO points — same as an auto-close. A citizen
+      must not be able to use a losing dispute to manufacture a second shot at
+      the reward they gave up by disputing instead of confirming.
     """
     with transaction():
         complaint = db.session.get(Complaint, complaint_id)

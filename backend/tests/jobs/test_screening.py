@@ -300,9 +300,7 @@ def test_screen_evidence_never_changes_complaint_status(seeded_app):
         assert evidence.verdict is None
         assert (
             db.session.execute(
-                select(func.count(PointsLedger.id)).where(
-                    PointsLedger.complaint_id == complaint.id
-                )
+                select(func.count(PointsLedger.id)).where(PointsLedger.complaint_id == complaint.id)
             ).scalar_one()
             == 0
         )

@@ -52,9 +52,7 @@ def test_public_feed_never_exposes_the_reporter(client, auth_header, citizen_use
 
 @pytest.mark.skip(reason="TODO(phase 5): enable once cluster detail is implemented")
 def test_cluster_detail_never_exposes_a_reporter(client, auth_header, officer_user, cluster):
-    response = client.get(
-        f"{API_PREFIX}/clusters/{cluster.id}", headers=auth_header(officer_user)
-    )
+    response = client.get(f"{API_PREFIX}/clusters/{cluster.id}", headers=auth_header(officer_user))
     assert_no_identity(response.get_json())
 
 

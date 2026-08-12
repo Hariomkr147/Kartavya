@@ -159,13 +159,10 @@ def test_batch_requires_a_json_object_body(seeded_app, auth_header, officer_data
     client = seeded_app.test_client()
     headers = auth_header(officer_data["officer"])
     assert (
-        client.post("/api/v1/officer/complaints/batch-status", headers=headers).status_code
-        == 400
+        client.post("/api/v1/officer/complaints/batch-status", headers=headers).status_code == 400
     )
     assert (
-        client.post(
-            "/api/v1/officer/complaints/batch-status", json=[], headers=headers
-        ).status_code
+        client.post("/api/v1/officer/complaints/batch-status", json=[], headers=headers).status_code
         == 400
     )
 
@@ -490,9 +487,7 @@ def test_cluster_notes_return_403_for_inaccessible_cluster(
     assert response.status_code == 403
 
 
-def test_cluster_notes_roll_back_when_flush_fails(
-    seeded_app, session, auth_header, officer_data
-):
+def test_cluster_notes_roll_back_when_flush_fails(seeded_app, session, auth_header, officer_data):
     cluster = ComplaintCluster(
         category_id=officer_data["category"].id,
         zone_id=officer_data["zone"].id,

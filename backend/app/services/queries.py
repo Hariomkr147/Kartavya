@@ -67,6 +67,7 @@ def _seconds_between_postgresql(element, compiler, **kw):
     seconds = cast(extract("epoch", end - start), Numeric)
     return compiler.process(cast(func.round(seconds, 3), Float), **kw)
 
+
 #: openapi.yaml: Sort. A leading '-' means descending.
 SORTABLE_FIELDS = ("createdAt", "updatedAt", "severity", "sla", "upvotes")
 

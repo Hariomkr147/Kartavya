@@ -131,10 +131,6 @@ class OfficerAnalyticsQuery(BaseModel):
             date_from = date_from.astimezone(UTC).replace(tzinfo=None)
         if date_to is not None and date_to.tzinfo is not None:
             date_to = date_to.astimezone(UTC).replace(tzinfo=None)
-        if (
-            date_from is not None
-            and date_to is not None
-            and date_from > date_to
-        ):
+        if date_from is not None and date_to is not None and date_from > date_to:
             raise ValueError("dateFrom must be on or before dateTo.")
         return self

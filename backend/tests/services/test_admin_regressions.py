@@ -8,9 +8,7 @@ from app.services.accounts.auth import hash_password
 from app.services.analytics.officer import public_officer_stats
 
 
-def test_public_officer_stats_matches_contract_and_contains_no_identity(
-    seeded_app, session
-):
+def test_public_officer_stats_matches_contract_and_contains_no_identity(seeded_app, session):
     zone = Zone(
         zone_code="PUBLIC-STATS",
         zone_name="Public Stats",

@@ -129,9 +129,7 @@ def load_cluster(
     *, user: User, cluster_id: int, now: datetime
 ) -> tuple[ComplaintCluster, SerializationContext]:
     """GET /clusters/{id}. Scoped through `visible_clusters`, like the list."""
-    cluster = db.session.scalar(
-        visible_clusters(user).where(ComplaintCluster.id == cluster_id)
-    )
+    cluster = db.session.scalar(visible_clusters(user).where(ComplaintCluster.id == cluster_id))
     if cluster is None:
         raise NotFoundError("No such cluster.")
 

@@ -108,9 +108,7 @@ def make_complaint(
 def officer_setup(seeded_app, session, auth_header):
     zone = make_zone(session)
     officer = make_user(session, role=UserRole.OFFICER, email="ofc@example.com", zone_id=zone.id)
-    citizen = make_user(
-        session, role=UserRole.CITIZEN, email="cit@example.com", zone_id=zone.id
-    )
+    citizen = make_user(session, role=UserRole.CITIZEN, email="cit@example.com", zone_id=zone.id)
     return officer, citizen, zone, auth_header(officer)
 
 
@@ -201,9 +199,7 @@ def test_queue_honours_the_sort_parameter(seeded_app, client, session, officer_s
     ascending = client.get(f"{API}/officer/complaints?sort=createdAt", headers=headers).get_json()
     assert [row["id"] for row in ascending["data"]] == [str(older.id), str(newer.id)]
 
-    descending = client.get(
-        f"{API}/officer/complaints?sort=-createdAt", headers=headers
-    ).get_json()
+    descending = client.get(f"{API}/officer/complaints?sort=-createdAt", headers=headers).get_json()
     assert [row["id"] for row in descending["data"]] == [str(newer.id), str(older.id)]
 
 
@@ -292,9 +288,7 @@ def test_queue_paginates(seeded_app, client, session, officer_setup):
     officer, citizen, zone, headers = officer_setup
     cat = category(session)
     for index in range(5):
-        make_complaint(
-            session, citizen=citizen, zone=zone, category_row=cat, code=f"C-{index}"
-        )
+        make_complaint(session, citizen=citizen, zone=zone, category_row=cat, code=f"C-{index}")
 
     body = client.get(f"{API}/officer/complaints?page=2&pageSize=2", headers=headers).get_json()
     assert len(body["data"]) == 2
@@ -467,9 +461,7 @@ def test_progress_note_matches_the_detail_view_format(seeded_app, client, sessio
     assert detail["progressNotes"][0]["createdAt"] == posted["createdAt"]
 
 
-def test_notes_are_rejected_outside_the_working_stages(
-    seeded_app, client, session, officer_setup
-):
+def test_notes_are_rejected_outside_the_working_stages(seeded_app, client, session, officer_setup):
     officer, citizen, zone, headers = officer_setup
     complaint = make_complaint(session, citizen=citizen, zone=zone, category_row=category(session))
     response = client.post(

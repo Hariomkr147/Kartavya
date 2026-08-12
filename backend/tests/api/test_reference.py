@@ -8,10 +8,12 @@ def test_get_categories(client, seeded_app):
     assert res.status_code == 200
     assert len(res.get_json()) == 12
 
+
 def test_get_zones(client, seeded_app):
     res = client.get(f"{API_PREFIX}/zones")
     assert res.status_code == 200
     assert len(res.get_json()) >= 1  # at least the catch-all zone is seeded
+
 
 def test_suggest_zone(client, seeded_app, auth_header):
     from datetime import UTC, datetime
@@ -28,16 +30,15 @@ def test_suggest_zone(client, seeded_app, auth_header):
         password_hash=generate_password_hash("pass"),
         role=UserRole.CITIZEN,
         zone_id=1,
-        created_at=datetime.now(UTC)
+        created_at=datetime.now(UTC),
     )
     db.session.add(user)
     db.session.commit()
     headers = auth_header(user)
 
-    res = client.post(f"{API_PREFIX}/zones/suggest", headers=headers, json={
-        "latitude": 0.0,
-        "longitude": 0.0
-    })
+    res = client.post(
+        f"{API_PREFIX}/zones/suggest", headers=headers, json={"latitude": 0.0, "longitude": 0.0}
+    )
     assert res.status_code == 200
     assert "suggestedZone" in res.get_json()
 
@@ -94,6 +95,7 @@ class TestSuggestZoneContract:
 
 class TestSuggestZoneValidation:
     """Verify the Pydantic validation layer catches edge cases."""
+
     URL = f"{API_PREFIX}/zones/suggest"
 
     def _auth_user(self, db_session):
@@ -122,8 +124,7 @@ class TestSuggestZoneValidation:
         user = self._auth_user(session)
         headers = auth_header(user)
         res = client.post(
-            self.URL, headers=headers, data="[1,2,3]",
-            content_type="application/json"
+            self.URL, headers=headers, data="[1,2,3]", content_type="application/json"
         )
         assert res.status_code == 400
 
@@ -131,7 +132,12 @@ class TestSuggestZoneValidation:
         """extra=forbid should reject unknown fields like 'lattitude'."""
         user = self._auth_user(session)
         headers = auth_header(user)
-        res = client.post(self.URL, headers=headers, json={
-            "lattitude": 12.0, "longitude": 77.0,
-        })
+        res = client.post(
+            self.URL,
+            headers=headers,
+            json={
+                "lattitude": 12.0,
+                "longitude": 77.0,
+            },
+        )
         assert res.status_code == 400

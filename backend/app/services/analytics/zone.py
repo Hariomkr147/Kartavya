@@ -155,9 +155,7 @@ def zone_summary(*, zone_id: int) -> dict[str, Any]:
     rows = list(db.session.scalars(select(Complaint).where(Complaint.zone_id == zone_id)))
     active = [row for row in rows if row.status not in TERMINAL]
     resolved = [
-        row
-        for row in rows
-        if row.status in {ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED}
+        row for row in rows if row.status in {ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED}
     ]
 
     cluster_ids = {row.cluster_id for row in rows if row.cluster_id is not None}

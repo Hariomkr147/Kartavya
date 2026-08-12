@@ -39,48 +39,125 @@ from app.models import (
 #: (code, name, description, sla_hours). Seeded once and never edited in place —
 #: `category_code` is the key the client-side keyword matcher is written against.
 CATEGORIES: list[tuple[str, str, str, int]] = [
-    ("POTHOLE", "Pothole",
-     "A hole in the road surface that can damage vehicles or injure people.", 72),
-    ("OPEN_MANHOLE", "Open Manhole",
-     "An uncovered or missing manhole cover — a serious fall hazard.", 6),
-    ("BROKEN_STREETLIGHT", "Broken Street Light",
-     "A street light that is damaged, flickering, or not working.", 24),
-    ("GARBAGE_OVERFLOW", "Garbage Overflow",
-     "An overflowing public garbage bin or an uncollected waste pile.", 48),
-    ("WATER_LEAKAGE", "Water Leakage",
-     "A burst or leaking pipe wasting water on a public road.", 24),
-    ("DRAINAGE_OVERFLOW", "Drainage Overflow",
-     "A blocked or overflowing storm drain causing waterlogging.", 12),
+    (
+        "POTHOLE",
+        "Pothole",
+        "A hole in the road surface that can damage vehicles or injure people.",
+        72,
+    ),
+    (
+        "OPEN_MANHOLE",
+        "Open Manhole",
+        "An uncovered or missing manhole cover — a serious fall hazard.",
+        6,
+    ),
+    (
+        "BROKEN_STREETLIGHT",
+        "Broken Street Light",
+        "A street light that is damaged, flickering, or not working.",
+        24,
+    ),
+    (
+        "GARBAGE_OVERFLOW",
+        "Garbage Overflow",
+        "An overflowing public garbage bin or an uncollected waste pile.",
+        48,
+    ),
+    (
+        "WATER_LEAKAGE",
+        "Water Leakage",
+        "A burst or leaking pipe wasting water on a public road.",
+        24,
+    ),
+    (
+        "DRAINAGE_OVERFLOW",
+        "Drainage Overflow",
+        "A blocked or overflowing storm drain causing waterlogging.",
+        12,
+    ),
     ("SEWAGE_BLOCKAGE", "Sewage Blockage", "A blocked or overflowing sewage line.", 24),
-    ("DAMAGED_FOOTPATH", "Damaged Footpath",
-     "Broken, uneven, or missing footpath tiles or slabs.", 96),
-    ("FALLEN_TREE", "Fallen Tree or Branch",
-     "A fallen tree or branch obstructing a road or path.", 12),
-    ("STRAY_ANIMAL", "Stray Animal Nuisance",
-     "Aggressive or unmanaged stray animals posing a public risk.", 48),
-    ("ILLEGAL_DUMPING", "Illegal Dumping",
-     "Construction debris or waste dumped illegally in a public space.", 48),
-    ("TRAFFIC_SIGNAL_FAULT", "Traffic Signal Malfunction",
-     "A traffic signal that is stuck, dark, or malfunctioning.", 6),
+    (
+        "DAMAGED_FOOTPATH",
+        "Damaged Footpath",
+        "Broken, uneven, or missing footpath tiles or slabs.",
+        96,
+    ),
+    (
+        "FALLEN_TREE",
+        "Fallen Tree or Branch",
+        "A fallen tree or branch obstructing a road or path.",
+        12,
+    ),
+    (
+        "STRAY_ANIMAL",
+        "Stray Animal Nuisance",
+        "Aggressive or unmanaged stray animals posing a public risk.",
+        48,
+    ),
+    (
+        "ILLEGAL_DUMPING",
+        "Illegal Dumping",
+        "Construction debris or waste dumped illegally in a public space.",
+        48,
+    ),
+    (
+        "TRAFFIC_SIGNAL_FAULT",
+        "Traffic Signal Malfunction",
+        "A traffic signal that is stuck, dark, or malfunctioning.",
+        6,
+    ),
 ]
 
 #: (code, name, description, criteria_type, criteria_value, criteria_count).
 BADGES: list[tuple[BadgeCode, str, str, BadgeCriteriaType, int | None, int | None]] = [
-    (BadgeCode.KARTAVYA_INITIATE, "Kartavya Initiate", "Filed your first complaint.",
-     BadgeCriteriaType.FIRST_COMPLAINT, None, None),
-    (BadgeCode.STREET_GUARDIAN, "Street Guardian",
-     "Had 5 complaints resolved and confirmed fixed.",
-     BadgeCriteriaType.COMPLAINTS_CLOSED, 5, None),
-    (BadgeCode.ZONE_CHAMPION, "Zone Champion", "Ranked #1 on your zone's leaderboard.",
-     BadgeCriteriaType.ZONE_RANK_ONE, None, None),
-    (BadgeCode.CENTURY_REFORMER, "Century Reformer",
-     "Earned 100 lifetime Community Service Points.",
-     BadgeCriteriaType.LIFETIME_POINTS, 100, None),
-    (BadgeCode.CIVIC_HERO, "Civic Hero", "Earned 500 lifetime Community Service Points.",
-     BadgeCriteriaType.LIFETIME_POINTS, 500, None),
-    (BadgeCode.SWIFT_REPORTER, "Swift Reporter",
-     "Had 3 complaints closed within 7 days of each other.",
-     BadgeCriteriaType.CLOSED_WITHIN_DAYS, 7, 3),
+    (
+        BadgeCode.KARTAVYA_INITIATE,
+        "Kartavya Initiate",
+        "Filed your first complaint.",
+        BadgeCriteriaType.FIRST_COMPLAINT,
+        None,
+        None,
+    ),
+    (
+        BadgeCode.STREET_GUARDIAN,
+        "Street Guardian",
+        "Had 5 complaints resolved and confirmed fixed.",
+        BadgeCriteriaType.COMPLAINTS_CLOSED,
+        5,
+        None,
+    ),
+    (
+        BadgeCode.ZONE_CHAMPION,
+        "Zone Champion",
+        "Ranked #1 on your zone's leaderboard.",
+        BadgeCriteriaType.ZONE_RANK_ONE,
+        None,
+        None,
+    ),
+    (
+        BadgeCode.CENTURY_REFORMER,
+        "Century Reformer",
+        "Earned 100 lifetime Community Service Points.",
+        BadgeCriteriaType.LIFETIME_POINTS,
+        100,
+        None,
+    ),
+    (
+        BadgeCode.CIVIC_HERO,
+        "Civic Hero",
+        "Earned 500 lifetime Community Service Points.",
+        BadgeCriteriaType.LIFETIME_POINTS,
+        500,
+        None,
+    ),
+    (
+        BadgeCode.SWIFT_REPORTER,
+        "Swift Reporter",
+        "Had 3 complaints closed within 7 days of each other.",
+        BadgeCriteriaType.CLOSED_WITHIN_DAYS,
+        7,
+        3,
+    ),
 ]
 
 #: Example zones for local development only. Bengaluru coordinates, matching the
@@ -139,9 +216,7 @@ def seed_all(*, include_demo_zones: bool = False) -> dict[str, int]:
 
     # 2. The 12 categories.
     for code, name, description, sla_hours in CATEGORIES:
-        existing = (
-            db.session.query(ComplaintCategory).filter_by(category_code=code).one_or_none()
-        )
+        existing = db.session.query(ComplaintCategory).filter_by(category_code=code).one_or_none()
         if existing is None:
             db.session.add(
                 ComplaintCategory(
@@ -210,7 +285,9 @@ def seed_all(*, include_demo_zones: bool = False) -> dict[str, int]:
 
 @click.command("seed")
 @click.option(
-    "--demo", "include_demo_zones", is_flag=True,
+    "--demo",
+    "include_demo_zones",
+    is_flag=True,
     help="Also create three example zones, for local development.",
 )
 @with_appcontext

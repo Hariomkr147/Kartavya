@@ -38,9 +38,8 @@ class RemoteApiProvider:
         timeout_seconds: float = 10.0,
     ) -> None:
         self._api_key = api_key or os.environ.get("AI_API_KEY", "")
-        self._api_url = (
-            api_url
-            or os.environ.get("AI_API_URL", "https://api.openai.com/v1/chat/completions")
+        self._api_url = api_url or os.environ.get(
+            "AI_API_URL", "https://api.openai.com/v1/chat/completions"
         )
         self._model_name = model_name or os.environ.get("AI_MODEL_NAME", "gpt-4o-mini")
         self._timeout_seconds = timeout_seconds

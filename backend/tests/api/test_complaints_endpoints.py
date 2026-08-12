@@ -258,16 +258,12 @@ def test_get_complaint_by_id_access(seeded_app, client, session, auth_header):
     complaint_id = res_create.get_json()["id"]
 
     # 1. Owner gets 200 OK without reporter field
-    res_owner = client.get(
-        f"{API_PREFIX}/complaints/{complaint_id}", headers=auth_header(owner)
-    )
+    res_owner = client.get(f"{API_PREFIX}/complaints/{complaint_id}", headers=auth_header(owner))
     assert res_owner.status_code == 200
     assert "reporter" not in res_owner.get_json()
 
     # 2. Other citizen gets 403 Forbidden
-    res_other = client.get(
-        f"{API_PREFIX}/complaints/{complaint_id}", headers=auth_header(other)
-    )
+    res_other = client.get(f"{API_PREFIX}/complaints/{complaint_id}", headers=auth_header(other))
     assert res_other.status_code == 403
 
     # 3. Officer in same zone gets 200 OK without reporter field
@@ -312,9 +308,7 @@ def test_admin_gets_reporter_identity(seeded_app, client, session, auth_header):
     complaint_id = res_create.get_json()["id"]
 
     # Admin gets 200 OK WITH reporter field
-    res_admin = client.get(
-        f"{API_PREFIX}/complaints/{complaint_id}", headers=auth_header(admin)
-    )
+    res_admin = client.get(f"{API_PREFIX}/complaints/{complaint_id}", headers=auth_header(admin))
     assert res_admin.status_code == 200
     admin_json = res_admin.get_json()
     assert "reporter" in admin_json

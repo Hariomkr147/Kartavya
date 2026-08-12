@@ -57,9 +57,7 @@ class ComplaintCluster(TimestampMixin, db.Model):
     #: the CLOSED write — a read-then-write pays +50 twice under a race.
     reward_granted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
-    updated_at: Mapped[datetime] = mapped_column(
-        nullable=False, default=utcnow, onupdate=utcnow
-    )
+    updated_at: Mapped[datetime] = mapped_column(nullable=False, default=utcnow, onupdate=utcnow)
 
     members: Mapped[list[Complaint]] = relationship(back_populates="cluster")
 
@@ -138,9 +136,7 @@ class Complaint(TimestampMixin, db.Model):
     #: Non-null means currently paused; folded into sla_paused_seconds on resume.
     sla_paused_at: Mapped[datetime | None] = mapped_column()
 
-    updated_at: Mapped[datetime] = mapped_column(
-        nullable=False, default=utcnow, onupdate=utcnow
-    )
+    updated_at: Mapped[datetime] = mapped_column(nullable=False, default=utcnow, onupdate=utcnow)
     #: Always names the LATEST resolution — overwritten, not appended, when a
     #: disputed complaint is re-resolved. status_history keeps the earlier ones.
     resolved_at: Mapped[datetime | None] = mapped_column()
@@ -211,9 +207,7 @@ class ComplaintEvidence(TimestampMixin, db.Model):
     #: lives on status_history, not here.
     verdict: Mapped[EvidenceVerdict | None] = mapped_column(enum_column(EvidenceVerdict))
     verdict_reason: Mapped[str | None] = mapped_column(Text)
-    reviewed_by: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
-    )
+    reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     reviewed_at: Mapped[datetime | None] = mapped_column()
 
     complaint: Mapped[Complaint] = relationship(back_populates="evidence")

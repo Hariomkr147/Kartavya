@@ -106,6 +106,6 @@ class TestResolutionHours:
         assert sla.average_resolution_hours([4.0, None, 8.0]) == 6.0
 
     def test_empty_sample_is_none_not_zero(self):
-        """"Nothing resolved yet" must not be readable as "resolved instantly"."""
+        """ "Nothing resolved yet" must not be readable as "resolved instantly"."""
         assert sla.average_resolution_hours([]) is None
         assert sla.average_resolution_hours([None, None]) is None

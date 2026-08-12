@@ -25,12 +25,8 @@ class AiZoneReport(TimestampMixin, db.Model):
     __tablename__ = "ai_zone_reports"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    zone_id: Mapped[int] = mapped_column(
-        ForeignKey("zones.id", ondelete="CASCADE"), nullable=False
-    )
-    requested_by: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
-    )
+    zone_id: Mapped[int] = mapped_column(ForeignKey("zones.id", ondelete="CASCADE"), nullable=False)
+    requested_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
     status: Mapped[AiReportStatus] = mapped_column(
         enum_column(AiReportStatus), nullable=False, default=AiReportStatus.PENDING
@@ -63,10 +59,6 @@ class AppSettings(db.Model):
     #: pass and closes everything where resolved_at + this <= now. Lowering it
     #: can close a backlog on the next pass; raising it hands time back. Nothing
     #: already CLOSED is ever reopened by a change here.
-    auto_close_timeout_hours: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=168
-    )
+    auto_close_timeout_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=168)
     updated_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
-    updated_at: Mapped[datetime] = mapped_column(
-        nullable=False, default=utcnow, onupdate=utcnow
-    )
+    updated_at: Mapped[datetime] = mapped_column(nullable=False, default=utcnow, onupdate=utcnow)

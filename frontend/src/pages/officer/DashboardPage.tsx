@@ -11,10 +11,8 @@ import {
   Clock,
   Radio,
   RefreshCcw,
-  RefreshCw,
   UserCheck,
 } from "lucide-react";
-import { Button } from "@/components/ui/Button";
 import { Combobox } from "@/components/ui/Combobox";
 import { LinkButton } from "@/components/ui/LinkButton";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -26,7 +24,6 @@ import { OfficerUpdatesCard } from "@/components/dashboard/OfficerUpdatesCard";
 import { HorizontalBarChart } from "@/components/charts/HorizontalBarChart";
 import { formatFullDate } from "@/lib/greeting";
 import { staggerContainer, staggerItem } from "@/lib/motionVariants";
-import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOfficerAnalytics } from "@/hooks/useOfficerAnalytics";
 import { useZoneSummary } from "@/hooks/useZoneSummary";
@@ -100,12 +97,7 @@ export function OfficerDashboardPage() {
     refetch: refetchAnalytics,
   } = useOfficerAnalytics(analyticsParams);
   const { data: zoneSummary } = useZoneSummary(user?.zoneId);
-  const {
-    data: queueData,
-    isLoading: queueLoading,
-    isFetching: queueFetching,
-    refetch: refetchQueue,
-  } = useOfficerQueue({
+  const { data: queueData, isLoading: queueLoading } = useOfficerQueue({
     status: ATTENTION_STATUSES,
     pageSize: FETCH_SIZE,
   });
@@ -140,12 +132,9 @@ export function OfficerDashboardPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-ink-faint text-sm font-medium">{formatFullDate()}</p>
-          <div className="flex items-center gap-2">
-            <h1 className="font-display text-display-sm mt-0.5 font-semibold text-ink">
-              {analytics?.zoneName ?? "Zone"} Dashboard
-            </h1>
-            <RefreshButton onRefresh={refetchQueue} refreshing={queueFetching} what="this dashboard" />
-          </div>
+          <h1 className="font-display text-display-sm mt-0.5 font-semibold text-ink">
+            {analytics?.zoneName ?? "Zone"} Dashboard
+          </h1>
           <p className="text-ink-muted mt-1 text-sm">
             Live status for your assigned zone — most urgent complaints first.
           </p>
@@ -164,18 +153,11 @@ export function OfficerDashboardPage() {
               options={PERIOD_OPTIONS}
             />
           </div>
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label="Refresh now"
-            onClick={() => refetchAnalytics()}
-            className="size-8"
-          >
-            <RefreshCw
-              className={cn("size-4", analyticsFetching && "animate-spin")}
-              aria-hidden="true"
-            />
-          </Button>
+          <RefreshButton
+            onRefresh={refetchAnalytics}
+            refreshing={analyticsFetching}
+            what="this dashboard"
+          />
         </div>
       </div>
 

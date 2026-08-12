@@ -1,5 +1,5 @@
-import { RotateCw } from "lucide-react";
-import { Button, type ButtonSize, type ButtonVariant } from "@/components/ui/Button";
+import { RefreshCw } from "lucide-react";
+import { Button, type ButtonVariant } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { cn } from "@/lib/utils";
 
@@ -10,8 +10,8 @@ export interface RefreshButtonProps {
   refreshing?: boolean;
   /** Names the thing being refreshed, e.g. "complaints". Used in the tooltip and the accessible name. */
   what?: string;
+  /** Ghost by default — see the note on styling below. */
   variant?: ButtonVariant;
-  size?: ButtonSize;
   /** Show a text label beside the icon instead of an icon-only control. */
   withLabel?: boolean;
   className?: string;
@@ -26,6 +26,14 @@ export interface RefreshButtonProps {
  * ask for a fresh copy short of reloading the whole page (which also throws
  * away their filters and their scroll position).
  *
+ * **Styling.** Ghost, 32px, muted icon — deliberately quiet. This is a
+ * secondary affordance sitting next to a page heading or among filter
+ * controls, and the first version of it used the bordered `outline` variant,
+ * which read as a primary control and drew the eye away from the heading it
+ * was attached to. It matches the icon buttons the dashboards already used
+ * (which now share this component) so there is one refresh control in the app
+ * rather than two that look different.
+ *
  * While a refresh is in flight the control disables itself, so a frustrated
  * double-click cannot queue a second request, but the icon keeps spinning so
  * the click is visibly acknowledged.
@@ -34,8 +42,7 @@ export function RefreshButton({
   onRefresh,
   refreshing = false,
   what,
-  variant = "outline",
-  size = "sm",
+  variant = "ghost",
   withLabel = false,
   className,
 }: RefreshButtonProps) {
@@ -45,13 +52,16 @@ export function RefreshButton({
     <Button
       type="button"
       variant={variant}
-      size={withLabel ? size : "sm"}
+      size={withLabel ? "sm" : "icon"}
       onClick={() => onRefresh()}
       disabled={refreshing}
       aria-label={label}
-      className={cn(!withLabel && "w-8 px-0", className)}
+      className={cn(
+        withLabel ? "gap-1.5" : "text-ink-faint hover:text-ink size-8 shrink-0",
+        className,
+      )}
     >
-      <RotateCw
+      <RefreshCw
         className={cn("size-4 shrink-0", refreshing && "animate-spin")}
         aria-hidden="true"
       />

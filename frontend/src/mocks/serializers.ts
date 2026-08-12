@@ -102,6 +102,7 @@ export function toComplaintCompact(
     zoneName: zone.zoneName,
     assignedOfficerId:
       row.assignedOfficerId != null ? toApiId(row.assignedOfficerId) : null,
+    clusterId: row.clusterId != null ? toApiId(row.clusterId) : null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     citizenActionNeeded: opts.forOwner ? citizenActionFor(row.status) : null,

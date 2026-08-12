@@ -52,6 +52,9 @@ def serialize_complaint(complaint: Complaint, ctx: SerializationContext) -> dict
             if complaint.assigned_officer_id is not None
             else None
         ),
+        # On the compact shape too, not only ComplaintDetail: the officer
+        # queue has to be able to show that a row belongs to a cluster.
+        "clusterId": str(complaint.cluster_id) if complaint.cluster_id else None,
         "createdAt": _iso(complaint.created_at),
         "updatedAt": _iso(complaint.updated_at),
     }

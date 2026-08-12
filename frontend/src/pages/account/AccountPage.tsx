@@ -60,11 +60,7 @@ export function AccountPage() {
     control: profileControl,
     handleSubmit: handleProfileSubmit,
     setError: setProfileError,
-    formState: {
-      errors: profileErrors,
-      isSubmitting: profileSubmitting,
-      isDirty: profileDirty,
-    },
+    formState: { errors: profileErrors, isSubmitting: profileSubmitting },
   } = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
     values: user
@@ -83,12 +79,11 @@ export function AccountPage() {
     handleSubmit: handlePasswordSubmit,
     setError: setPasswordError,
     reset: resetPasswordForm,
-    formState: {
-      errors: passwordErrors,
-      isSubmitting: passwordSubmitting,
-      isDirty: passwordDirty,
-    },
+    formState: { errors: passwordErrors, isSubmitting: passwordSubmitting },
   } = useForm<PasswordFormValues>({ resolver: zodResolver(passwordSchema) });
+
+  const newPasswordValue =
+    useWatch({ control: passwordControl, name: "newPassword" }) ?? "";
 
   // One guard covering both forms — react-router only expects a single
   // active navigation blocker per component, so this combines both dirty
@@ -96,16 +91,36 @@ export function AccountPage() {
   // form actually has unsaved input; a half-typed password never had
   // anywhere it could autosave to, so it's just as much at risk of being
   // lost as the profile form is.
-  const passwordIsDirty = passwordDirty && !passwordSubmitting;
+  //
+  // Both flags are computed from the VALUES rather than from react-hook-form's
+  // `isDirty`. RHF marks a field dirty the moment its value stops being
+  // identical to the default, and "identical" is strict: the password form
+  // registers with no defaults at all, so every field goes `undefined -> ""`
+  // as soon as it is touched, and the profile form's optional fields go
+  // `null -> ""` the same way. Both then read as unsaved work and pop a
+  // confirm on the way out of a page where nothing was actually typed.
+  const passwordValues = useWatch({ control: passwordControl });
+  const passwordHasInput = [
+    passwordValues?.currentPassword,
+    passwordValues?.newPassword,
+    passwordValues?.confirmNewPassword,
+  ].some((field) => (field ?? "").length > 0);
+
+  const profileValues = useWatch({ control: profileControl });
+  const profileHasEdits =
+    user != null &&
+    ((profileValues?.name ?? "").trim() !== (user.name ?? "").trim() ||
+      (profileValues?.displayName ?? "").trim() !== (user.displayName ?? "").trim() ||
+      (profileValues?.email ?? "").trim() !== (user.email ?? "").trim() ||
+      (profileValues?.zoneId ?? "") !== (user.zoneId ?? ""));
+
+  const passwordIsDirty = passwordHasInput && !passwordSubmitting;
   useDirtyFormGuard(
-    (profileDirty && !profileSubmitting) || passwordIsDirty,
+    (profileHasEdits && !profileSubmitting) || passwordIsDirty,
     passwordIsDirty
       ? "Your password change hasn't been saved. Leave this page anyway?"
       : undefined,
   );
-
-  const newPasswordValue =
-    useWatch({ control: passwordControl, name: "newPassword" }) ?? "";
 
   if (!user) return null;
 

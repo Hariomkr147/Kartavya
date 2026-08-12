@@ -2,6 +2,10 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  useAnchoredPlacement,
+  useDismissOnViewportChange,
+} from "@/hooks/useAnchoredPlacement";
 
 export interface ComboboxOption {
   value: string;
@@ -43,6 +47,9 @@ export function Combobox({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ top: 0, left: 0, width: 0 });
+  const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null);
+  const placement = useAnchoredPlacement(open, triggerRect, listRef, 0);
+  useDismissOnViewportChange(open, listRef, () => setOpen(false));
 
   const selectable = options.filter((o) => !(placeholderDisabled && o.value === ""));
   // Matched by value alone — including the empty-value option — so a filter's
@@ -111,6 +118,7 @@ export function Combobox({
     );
     if (triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
+      setTriggerRect(rect);
       setPosition({
         top: rect.bottom + window.scrollY + 4,
         left: rect.left + window.scrollX,
@@ -156,11 +164,17 @@ export function Combobox({
               role="listbox"
               style={{
                 position: "absolute",
-                top: position.top,
+                top: placement.measured ? placement.top : position.top,
                 left: position.left,
                 width: position.width,
+                // Never taller than the room actually available below (or
+                // above, if it flipped) — see useAnchoredPlacement.
+                maxHeight: placement.measured
+                  ? Math.min(256, placement.maxHeight)
+                  : undefined,
+                visibility: placement.measured ? undefined : "hidden",
               }}
-              className="animate-in fade-in zoom-in-95 z-50 max-h-64 overflow-auto rounded-md border border-line bg-surface py-1 shadow-md duration-100"
+              className="animate-in fade-in zoom-in-95 z-50 max-h-64 overflow-auto overscroll-contain rounded-md border border-line bg-surface py-1 shadow-md duration-100"
             >
               {options.map((option) => {
                 const disabled = placeholderDisabled && option.value === "";

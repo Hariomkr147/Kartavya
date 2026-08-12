@@ -152,7 +152,8 @@ export function FileComplaintPage() {
   // reconciles them — see the hook for the single/consensus/inconsistent
   // rules. Reordering doesn't retrigger a scan (it's the same Files), so
   // dragging photos around never flashes "checking" again.
-  const { resolution: gpsResolution, scanning: gpsScanning } = usePhotoGpsLocation(photos);
+  const { resolution: gpsResolution, scanning: gpsScanning } =
+    usePhotoGpsLocation(photos);
   const exifStatus: "idle" | "checking" | "found" | "not-found" | "inconsistent" =
     photos.length === 0
       ? "idle"
@@ -308,6 +309,20 @@ export function FileComplaintPage() {
           categoryId === matcherSuggestedId && matcherSuggestedId !== null,
       });
       setSubmitted(complaint);
+      // Empty the in-memory draft as well as the stored one. The complaint is
+      // filed; nothing about it should still be sitting in the wizard when the
+      // citizen comes back to file another, whether they get there via "File
+      // another" or by navigating away and returning later.
+      setDraft(EMPTY_DRAFT);
+      setPhotos([]);
+      setLocation(null);
+      setLocationSource(null);
+      setZoneId("");
+      setZoneManuallySet(false);
+      setShowManualMap(false);
+      setMatcherSuggestedId(null);
+      setMatchedKeywords([]);
+      setSecondGuessId(null);
       clearDraft();
     } catch (error) {
       setFormError(
@@ -594,9 +609,9 @@ export function FileComplaintPage() {
               <p className="text-status-rejected mt-1 mb-3 flex items-start gap-1.5 text-sm">
                 <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
                 <span>
-                  Inconsistent location data found — your photos suggest different
-                  spots, marked with a pin below. Remove the one that doesn&rsquo;t
-                  belong, or set the correct location on the map yourself.
+                  Inconsistent location data found — your photos suggest different spots,
+                  each marked below. Tap the right one, remove the photo that
+                  doesn&rsquo;t belong, or set the location on the map yourself.
                 </span>
               </p>
             )}
@@ -615,6 +630,18 @@ export function FileComplaintPage() {
                   setLocation(next);
                   setLocationSource("manual");
                 }}
+                // The disagreeing readings, one pin each. The message above
+                // promises these; without them the citizen is told to compare
+                // spots the map never shows.
+                referenceMarkers={
+                  gpsResolution.status === "inconsistent"
+                    ? gpsResolution.candidates.map((candidate) => ({
+                        lat: candidate.gps.lat,
+                        lng: candidate.gps.lng,
+                        label: `Photo ${candidate.index + 1}`,
+                      }))
+                    : undefined
+                }
                 searchPlaceholder="Search a landmark, or paste coordinates or a plus code…"
               />
             )}
@@ -913,7 +940,9 @@ function ReorderablePhotoList({
             hasGps={gpsPhotoIndices.has(i)}
             inconsistentLocation={inconsistentLocation}
             dragging={draggedIndex === i}
-            dropTarget={dragOverIndex === i && draggedIndex !== null && draggedIndex !== i}
+            dropTarget={
+              dragOverIndex === i && draggedIndex !== null && draggedIndex !== i
+            }
             onMoveUp={() => move(i, -1)}
             onMoveDown={() => move(i, 1)}
             onDragStart={(e) => {
@@ -991,10 +1020,7 @@ function PhotoReorderRow({
         dropTarget && "border-brand",
       )}
     >
-      <GripVertical
-        className="text-ink-faint size-4 shrink-0"
-        aria-hidden="true"
-      />
+      <GripVertical className="text-ink-faint size-4 shrink-0" aria-hidden="true" />
       <img src={url} alt="" className="size-8 shrink-0 rounded object-cover" />
       <span className="text-ink-muted flex flex-1 items-center gap-1 text-xs">
         Photo {index + 1}
@@ -1093,8 +1119,6 @@ function SubmittedView({
                     <Bot className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
                     <span>
                       {evidence.aiConfidenceNote?.note}
-                      {evidence.aiConfidenceNote?.confidence != null &&
-                        ` (${Math.round(evidence.aiConfidenceNote.confidence * 100)}% confidence)`}
                     </span>
                   </>
                 ) : (

@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  useAnchoredPlacement,
+  useDismissOnViewportChange,
+} from "@/hooks/useAnchoredPlacement";
 
 export interface DatePickerProps {
   value?: Date;
@@ -50,6 +54,9 @@ export function DatePicker({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ top: 0, left: 0 });
+  const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null);
+  const placement = useAnchoredPlacement(open, triggerRect, popoverRef, 0);
+  useDismissOnViewportChange(open, popoverRef, () => setOpen(false));
 
   useEffect(() => {
     if (!open) return;
@@ -116,6 +123,7 @@ export function DatePicker({
           setViewMonth(value ?? new Date());
           if (triggerRef.current) {
             const rect = triggerRef.current.getBoundingClientRect();
+            setTriggerRect(rect);
             setPosition({
               top: rect.bottom + window.scrollY + 4,
               left: rect.left + window.scrollX,
@@ -139,8 +147,14 @@ export function DatePicker({
             ref={popoverRef}
             role="dialog"
             aria-label="Choose date"
-            style={{ position: "absolute", top: position.top, left: position.left }}
-            className="animate-in fade-in zoom-in-95 z-50 w-64 rounded-md border border-line bg-surface p-3 shadow-md duration-100"
+            style={{
+              position: "absolute",
+              top: placement.measured ? placement.top : position.top,
+              left: position.left,
+              maxHeight: placement.measured ? placement.maxHeight : undefined,
+              visibility: placement.measured ? undefined : "hidden",
+            }}
+            className="animate-in fade-in zoom-in-95 z-50 w-64 overflow-y-auto overscroll-contain rounded-md border border-line bg-surface p-3 shadow-md duration-100"
           >
             <div className="mb-2 flex items-center justify-between">
               <button

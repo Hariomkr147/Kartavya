@@ -158,7 +158,11 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
               aria-label={opts.collapsedRail ? item.label : undefined}
               className={({ isActive }) =>
                 cn(
-                  "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  "flex w-full items-center gap-3 rounded-md py-2 text-sm font-medium transition-colors",
+                  // Collapsed: centre the icon on the rail's axis instead of
+                  // padding it in from the left, so the brand mark, every nav
+                  // icon, and the collapse toggle all sit on one vertical line.
+                  opts.collapsedRail ? "justify-center px-0" : "px-3",
                   isActive
                     ? "bg-brand/10 text-brand"
                     : "text-ink-muted hover:bg-surface-hover hover:text-ink",
@@ -190,7 +194,10 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
             type="button"
             onClick={toggleCollapsed}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="text-ink-faint hover:bg-surface-hover hover:text-ink flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors"
+            className={cn(
+              "text-ink-faint hover:bg-surface-hover hover:text-ink flex w-full items-center gap-3 rounded-md py-2 text-sm font-medium transition-colors",
+              collapsed ? "justify-center px-0" : "px-3",
+            )}
           >
             {collapsed ? (
               <PanelLeftOpen className="size-5 shrink-0" aria-hidden="true" />
@@ -330,8 +337,21 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
 
         <OfflineBanner />
 
-        <main className="flex flex-1 flex-col overflow-y-auto p-4 md:p-6">
-          <AnimatedOutlet />
+        {/*
+          The padding lives on an inner wrapper, not on the scroll container.
+          A flex column that scrolls its own overflow does not include its
+          `padding-bottom` in the scrollable extent, so the last element sat
+          flush against the bottom edge of the window once you scrolled all the
+          way down — the padding was there, but only above the fold. As part of
+          the content it scrolls like everything else.
+
+          `min-h-full` keeps a short page filling the viewport, which is what
+          the old `flex-1` on <main> was doing.
+        */}
+        <main className="flex-1 overflow-y-auto">
+          <div className="flex min-h-full flex-col p-4 md:p-6">
+            <AnimatedOutlet />
+          </div>
         </main>
       </div>
     </div>
@@ -350,7 +370,11 @@ function Brand({
   return (
     <div
       className={cn(
-        "flex h-16 shrink-0 items-center gap-2 px-4",
+        "flex h-16 shrink-0 items-center gap-2",
+        // The collapsed rail is 72px and the nav below pads 12px + 12px, so a
+        // flat px-4 here left the shield 8px to the left of every nav icon.
+        // Centring both puts them on the same axis at any rail width.
+        iconOnly ? "justify-center px-0" : "px-4",
         bordered && "border-b border-line",
       )}
     >

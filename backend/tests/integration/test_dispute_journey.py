@@ -228,8 +228,11 @@ def test_a_disputed_member_stays_in_its_cluster_and_is_skipped_by_the_cascade(pl
     assert reopened["status"] == "REOPENED"
     assert reopened["clusterId"] == cluster_id
 
+    # B's complaint CLOSED, so it has left the cluster — a finished complaint
+    # is not part of the work the cluster represents. The disputed one is still
+    # a member, which is what keeps the cluster alive and visible at all.
     cluster = officer.get(f"/clusters/{cluster_id}").get_json()
-    assert cluster["statusSummary"] == {"REOPENED": 1, "CLOSED": 1}
+    assert cluster["statusSummary"] == {"REOPENED": 1}
 
     # An admin upholds it, the officer re-fixes it, and A confirms — the +50 is
     # already spent, so A gets the consolation and nothing more.

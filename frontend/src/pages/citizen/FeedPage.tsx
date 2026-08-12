@@ -24,6 +24,7 @@ import { useSearchParamState } from "@/hooks/useSearchParamState";
 import { ApiRequestError } from "@/services/http";
 import { cn } from "@/lib/utils";
 import type { FeedItem, SeverityLabel, UpvoteResult } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 const PAGE_SIZE = 12;
 // Bumped only while the (client-only) severity filter is active — the API
@@ -95,7 +96,7 @@ export function FeedPage() {
 
   const hasSeverityFilter = severity !== "";
 
-  const { data, isLoading } = useFeed({
+  const { data, isLoading, isFetching, refetch } = useFeed({
     page: hasSeverityFilter ? 1 : page,
     pageSize: hasSeverityFilter ? FETCH_SIZE : PAGE_SIZE,
     sort,
@@ -197,7 +198,10 @@ export function FeedPage() {
     <div className="mx-auto w-full max-w-6xl space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-display-sm font-semibold text-ink">Feed</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="font-display text-display-sm font-semibold text-ink">Feed</h1>
+            <RefreshButton onRefresh={refetch} refreshing={isFetching} what="the feed" />
+          </div>
           <p className="text-ink-muted mt-1 flex items-center gap-1.5 text-sm">
             <MapPin className="size-4" aria-hidden="true" />
             {zoneName

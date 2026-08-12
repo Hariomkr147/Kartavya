@@ -20,6 +20,7 @@ import { useZones } from "@/hooks/useZones";
 import { iconForCategory } from "@/lib/categoryIcons";
 import { relativeTime } from "@/lib/datetime";
 import type { ComplaintStatus } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 const STATUS_ORDER: ComplaintStatus[] = [
   "SUBMITTED",
@@ -45,7 +46,13 @@ function humanStatusLabel(status: ComplaintStatus): string {
 
 export function AdminClusterDetailPage() {
   const { clusterId } = useParams<{ clusterId: string }>();
-  const { data: cluster, isLoading, isError } = useCluster(clusterId);
+  const {
+    data: cluster,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useCluster(clusterId);
   const { data: zones } = useZones();
 
   if (isLoading) {
@@ -103,9 +110,12 @@ export function AdminClusterDetailPage() {
             />
           </span>
           <div>
-            <h1 className="font-display text-xl font-semibold text-ink">
-              {cluster.category.name}
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="font-display text-xl font-semibold text-ink">
+                {cluster.category.name}
+              </h1>
+              <RefreshButton onRefresh={refetch} refreshing={isFetching} what="this cluster" />
+            </div>
             <p className="text-ink-faint font-mono text-xs">
               {cluster.id} · {zoneName} · formed {relativeTime(cluster.createdAt)}
             </p>

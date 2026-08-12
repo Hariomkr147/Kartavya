@@ -19,7 +19,12 @@ import { Modal } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { MapPicker, type LatLng } from "@/components/ui/MapPicker";
 import { useToast } from "@/components/ui/Toast";
-import { Dropdown, DropdownTrigger, DropdownMenu, DropdownItem } from "@/components/ui/Dropdown";
+import {
+  Dropdown,
+  DropdownTrigger,
+  DropdownMenu,
+  DropdownItem,
+} from "@/components/ui/Dropdown";
 import {
   Table,
   TableHead,
@@ -41,17 +46,24 @@ import { useAssignOfficerToZone } from "@/hooks/useAssignOfficerToZone";
 import { useUpdateSla } from "@/hooks/useUpdateSla";
 import { ApiRequestError } from "@/services/http";
 import type { Zone } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 export function AdminZonesPage() {
   const [tab, setTab] = useState("zones");
+  // Same query key as ZonesTab's own `useZones`, so this shares the cache
+  // and refetching here updates the table below.
+  const { isFetching, refetch } = useZones();
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="font-display text-display-sm font-semibold text-ink">
-            Zones &amp; SLAs
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="font-display text-display-sm font-semibold text-ink">
+              Zones &amp; SLAs
+            </h1>
+            <RefreshButton onRefresh={refetch} refreshing={isFetching} what="zones" />
+          </div>
           <p className="text-ink-muted mt-1 text-sm">
             Manage zones, category SLA targets, and per-zone AI health reports.
           </p>
@@ -97,7 +109,8 @@ function ZonesTab() {
   const metricsByZone = useMemo(() => {
     const map = new Map<string, { pending: number; overdue: number }>();
     for (const z of analytics?.zones ?? []) {
-      if (z.zoneId) map.set(z.zoneId, { pending: z.pending ?? 0, overdue: z.overdue ?? 0 });
+      if (z.zoneId)
+        map.set(z.zoneId, { pending: z.pending ?? 0, overdue: z.overdue ?? 0 });
     }
     return map;
   }, [analytics]);
@@ -174,7 +187,9 @@ function ZonesTab() {
                         type="button"
                         onClick={() => setExpandedZoneId(expanded ? null : zone.id)}
                         aria-expanded={expanded}
-                        aria-label={expanded ? "Collapse zone detail" : "Expand zone detail"}
+                        aria-label={
+                          expanded ? "Collapse zone detail" : "Expand zone detail"
+                        }
                         className="text-ink-muted hover:text-ink flex size-6 items-center justify-center rounded"
                       >
                         {expanded ? (

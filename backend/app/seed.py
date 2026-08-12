@@ -302,3 +302,50 @@ def seed_command(include_demo_zones: bool) -> None:
         if count:
             click.echo(f"  + {count} {table}")
     click.echo(click.style(f"Seeded {total} rows.", fg="green"))
+
+
+@click.command("verify-clusters")
+@click.option(
+    "--repair",
+    is_flag=True,
+    help="Fix what is fixable (terminal members still in a cluster, stale aggregates).",
+)
+@with_appcontext
+def verify_clusters_command(repair: bool) -> None:
+    """Check every cluster against its members.
+
+    Read-only without `--repair`, so it is safe to run against production to
+    see what is there before deciding to change anything.
+    """
+    from app.services.complaints.cluster_health import cluster_counts, verify_clusters
+
+    report = verify_clusters(repair=repair)
+    counts = cluster_counts()
+
+    click.echo(
+        f"{counts['total']} cluster(s): {counts['live']} live, "
+        f"{counts['dissolved']} dissolved (hidden from the cluster endpoints)."
+    )
+
+    if report.ok:
+        click.echo(click.style("No problems found.", fg="green"))
+        return
+
+    by_kind: dict[str, int] = {}
+    for finding in report.findings:
+        by_kind[finding.kind] = by_kind.get(finding.kind, 0) + 1
+    for kind, count in sorted(by_kind.items()):
+        click.echo(f"  {kind}: {count}")
+
+    for finding in report.findings[:20]:
+        where = f"cluster {finding.cluster_id}" if finding.cluster_id else "unassigned"
+        click.echo(f"    - [{finding.kind}] {where}: {finding.detail}")
+    if len(report.findings) > 20:
+        click.echo(f"    … and {len(report.findings) - 20} more")
+
+    if report.repaired:
+        for line in report.repaired[:20]:
+            click.echo(click.style(f"  + {line}", fg="green"))
+        click.echo(click.style(f"Repaired {len(report.repaired)} row(s).", fg="green"))
+    elif any(f.kind in {"terminal_member", "stale_aggregates"} for f in report.findings):
+        click.echo(click.style("Re-run with --repair to fix the repairable findings.", fg="yellow"))

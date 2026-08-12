@@ -43,6 +43,7 @@ import type {
   OfficerTargetStatus,
   StatusUpdateResult,
 } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 type ActionModalType = "resolve" | "recall" | "unresolvable";
 
@@ -89,7 +90,13 @@ export function OfficerComplaintDetailPage() {
   const { complaintId } = useParams<{ complaintId: string }>();
   const { user } = useAuth();
   const { toast } = useToast();
-  const { data: complaint, isLoading, isError } = useComplaint(complaintId);
+  const {
+    data: complaint,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useComplaint(complaintId);
   const { data: cluster } = useCluster(complaint?.clusterId);
 
   const claim = useClaimComplaint();
@@ -348,9 +355,12 @@ export function OfficerComplaintDetailPage() {
             />
           </span>
           <div>
-            <h1 className="font-display text-xl font-semibold text-ink">
-              {complaint.category.name}
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="font-display text-xl font-semibold text-ink">
+                {complaint.category.name}
+              </h1>
+              <RefreshButton onRefresh={refetch} refreshing={isFetching} what="this complaint" />
+            </div>
             <div className="text-ink-faint flex items-center gap-1.5 font-mono text-xs">
               {complaint.id} · filed {relativeTime(complaint.createdAt)}
               <button

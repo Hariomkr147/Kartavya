@@ -102,6 +102,13 @@ export function useLocalDraft<T>(
   });
 
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Set by `clearDraft`, cleared by the next `setValue`. Removing the stored
+  // draft is not enough on its own: the value still sits in React state, and
+  // the unmount/pagehide `flush` below would write it straight back — which is
+  // exactly how a submitted complaint's text reappeared in the form the next
+  // time the citizen opened it. "Cleared" has to mean "and do not re-persist
+  // what is currently held", right up until the value genuinely changes again.
+  const clearedRef = useRef(false);
   // Always holds the latest `value` so `flush` (called from an event
   // listener or an unmount cleanup, never from a render) can write it
   // without depending on — and re-subscribing to — `value` itself. Synced in
@@ -119,10 +126,12 @@ export function useLocalDraft<T>(
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
     }
+    if (clearedRef.current) return;
     writeDraft(key, version, valueRef.current);
   }, [key, version]);
 
   useEffect(() => {
+    if (clearedRef.current) return;
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => {
       timeoutRef.current = null;
@@ -159,6 +168,7 @@ export function useLocalDraft<T>(
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
     }
+    clearedRef.current = true;
     try {
       localStorage.removeItem(PREFIX + key);
     } catch {
@@ -167,5 +177,13 @@ export function useLocalDraft<T>(
     setHadDraft(false);
   }, [key]);
 
-  return [value, setValue, { hasDraft: hadDraft, clearDraft }] as const;
+  // Any genuine edit after a clear starts a new draft — otherwise a citizen
+  // who submits and then begins a second complaint would get no autosave at
+  // all for the rest of the session.
+  const setDraftValue = useCallback<typeof setValue>((next) => {
+    clearedRef.current = false;
+    setValue(next);
+  }, []);
+
+  return [value, setDraftValue, { hasDraft: hadDraft, clearDraft }] as const;
 }

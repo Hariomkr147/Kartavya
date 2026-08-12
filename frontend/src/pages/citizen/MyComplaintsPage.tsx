@@ -25,6 +25,7 @@ import { useZones } from "@/hooks/useZones";
 import { useSearchParamState } from "@/hooks/useSearchParamState";
 import { cn } from "@/lib/utils";
 import type { Complaint, ComplaintStatus } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 const STATUSES: ComplaintStatus[] = [
   "SUBMITTED",
@@ -127,7 +128,7 @@ export function MyComplaintsPage() {
     bucket !== "" ||
     search.trim() !== "";
 
-  const { data, isLoading } = useMyComplaints({
+  const { data, isLoading, isFetching, refetch } = useMyComplaints({
     page: hasClientOnlyFilter ? 1 : page,
     pageSize: hasClientOnlyFilter ? FETCH_SIZE : PAGE_SIZE,
     sort,
@@ -228,9 +229,16 @@ export function MyComplaintsPage() {
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="font-display text-display-sm font-semibold text-ink">
-          My Complaints
-        </h1>
+        <div className="flex items-center gap-2">
+          <h1 className="font-display text-display-sm font-semibold text-ink">
+            My Complaints
+          </h1>
+          <RefreshButton
+            onRefresh={refetch}
+            refreshing={isFetching}
+            what="my complaints"
+          />
+        </div>
         <LinkButton to="/citizen/file">
           <FilePlus2 className="size-4" aria-hidden="true" />
           File a complaint

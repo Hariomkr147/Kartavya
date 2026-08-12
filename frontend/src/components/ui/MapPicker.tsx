@@ -21,9 +21,28 @@ const defaultIcon = L.icon({
   shadowSize: [41, 41],
 });
 
+/**
+ * Amber, hollow-centred pin for read-only reference points, so a candidate
+ * reading is never mistaken for the pin the citizen has actually set.
+ */
+const referenceIcon = L.divIcon({
+  className: "",
+  html:
+    '<span style="display:block;width:18px;height:18px;border-radius:9999px;' +
+    'background:rgba(245,158,11,0.35);border:2px solid rgb(217,119,6);' +
+    'box-shadow:0 1px 3px rgba(0,0,0,0.35)"></span>',
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+});
+
 export interface LatLng {
   lat: number;
   lng: number;
+}
+
+export interface ReferenceMarker extends LatLng {
+  /** Shown as the marker's tooltip/title, e.g. "Photo 2". */
+  label?: string;
 }
 
 export interface MapPickerProps {
@@ -36,6 +55,12 @@ export interface MapPickerProps {
   /** Show the place/landmark search box above the map. */
   searchable?: boolean;
   searchPlaceholder?: string;
+  /**
+   * Read-only points drawn alongside the editable pin — used to show each
+   * photo's own GPS reading when they disagree with each other. Clicking one
+   * adopts it as the chosen location.
+   */
+  referenceMarkers?: ReferenceMarker[];
 }
 
 const BENGALURU_CENTER: LatLng = { lat: 12.9716, lng: 77.5946 };
@@ -90,6 +115,25 @@ function FlyToTarget({ target }: { target: (LatLng & { zoom: number }) | null })
   return null;
 }
 
+/**
+ * Frames every reference point at once. Without this the map opens at its
+ * default zoom over the first reading and the others sit off-screen, which is
+ * the whole thing the citizen is being asked to compare.
+ */
+function FitReferenceMarkers({ markers }: { markers: ReferenceMarker[] }) {
+  const map = useMap();
+  const signature = markers.map((m) => `${m.lat},${m.lng}`).join("|");
+  useEffect(() => {
+    if (markers.length < 2) return;
+    map.fitBounds(
+      L.latLngBounds(markers.map((m) => [m.lat, m.lng] as [number, number])),
+      { padding: [40, 40], maxZoom: 17 },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signature]);
+  return null;
+}
+
 /** Bespoke click/drag map picker built on Leaflet + OpenStreetMap tiles — no API key. */
 export function MapPicker({
   value,
@@ -100,6 +144,7 @@ export function MapPicker({
   height = 320,
   searchable = true,
   searchPlaceholder,
+  referenceMarkers,
 }: MapPickerProps) {
   const [flyTarget, setFlyTarget] = useState<(LatLng & { zoom: number }) | null>(null);
 
@@ -136,6 +181,23 @@ export function MapPicker({
         <ClickHandler onChange={onChange} />
         <RecenterOnValue value={value} />
         <FlyToTarget target={flyTarget} />
+        {referenceMarkers && referenceMarkers.length > 0 && (
+          <>
+            <FitReferenceMarkers markers={referenceMarkers} />
+            {referenceMarkers.map((marker, index) => (
+              <Marker
+                key={`${marker.lat},${marker.lng},${index}`}
+                position={{ lat: marker.lat, lng: marker.lng }}
+                icon={referenceIcon}
+                title={marker.label}
+                alt={marker.label}
+                eventHandlers={{
+                  click: () => onChange({ lat: marker.lat, lng: marker.lng }),
+                }}
+              />
+            ))}
+          </>
+        )}
         {value && (
           <Marker
             position={value}

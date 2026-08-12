@@ -14,6 +14,7 @@ import { useCategories } from "@/hooks/useCategories";
 import { iconForCategory } from "@/lib/categoryIcons";
 import { relativeTime } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 const PAGE_SIZE = 15;
 // A dispute left un-ruled for a long time is the thing this page exists to
@@ -40,7 +41,7 @@ export function AdminDisputesPage() {
   const { data: zones } = useZones();
   const { data: categories } = useCategories();
 
-  const { data, isLoading } = useAdminComplaints({
+  const { data, isLoading, isFetching, refetch } = useAdminComplaints({
     status: ["REOPENED"],
     zoneId: zoneId || undefined,
     categoryId: categoryId || undefined,
@@ -84,9 +85,12 @@ export function AdminDisputesPage() {
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6">
       <div>
-        <h1 className="font-display text-display-sm font-semibold text-ink">
-          Dispute Queue
-        </h1>
+        <div className="flex items-center gap-2">
+          <h1 className="font-display text-display-sm font-semibold text-ink">
+            Dispute Queue
+          </h1>
+          <RefreshButton onRefresh={refetch} refreshing={isFetching} what="disputes" />
+        </div>
         <p className="text-ink-muted mt-1 text-sm">
           Complaints a citizen disputed after resolution — each is waiting for your
           ruling.
@@ -175,7 +179,9 @@ export function AdminDisputesPage() {
                   to={`/admin/complaints/${c.id}`}
                   className={cn(
                     "flex items-center gap-4 rounded-lg border p-3 transition-colors hover:bg-surface-hover",
-                    overdue ? "border-sla-overdue/40 bg-sla-overdue-subtle" : "border-line bg-surface",
+                    overdue
+                      ? "border-sla-overdue/40 bg-sla-overdue-subtle"
+                      : "border-line bg-surface",
                   )}
                 >
                   <span className="bg-surface-hover flex size-11 shrink-0 items-center justify-center rounded-full">

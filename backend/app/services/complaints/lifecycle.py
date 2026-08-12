@@ -192,6 +192,21 @@ def apply_transition(
         remark=remark,
         now=now,
     )
+
+    # A complaint that has just finished leaves its cluster. Hooked here rather
+    # than at each of the half-dozen call sites that can end a complaint
+    # (confirm, auto-close, reject, unresolvable, dispute-review, admin
+    # override) because this function is already the one funnel every status
+    # write goes through — the same property that makes an unaudited status
+    # change structurally impossible makes a missed exit impossible too.
+    #
+    # Anything downstream that needs the cluster this complaint was in must
+    # read `cluster_id or former_cluster_id`; see `confirm_resolution`.
+    if new_status in lifecycle.TERMINAL:
+        from app.services.complaints.clusters import exit_cluster
+
+        exit_cluster(complaint=complaint, now=now)
+
     return complaint
 
 
@@ -719,8 +734,14 @@ def confirm_resolution(*, complaint_id: int, citizen: User, now: datetime) -> Co
             extra_values={"closed_at": now},
         )
 
+        # `apply_transition` has just taken this complaint terminal, which
+        # detached it from its cluster — so the reward decision has to look at
+        # where it *was*. Reading `cluster_id` alone here would make every
+        # closing member of a cluster look standalone and pay the full +50.
+        reward_cluster_id = complaint.cluster_id or complaint.former_cluster_id
+
         reward_reason: PointsReason | None
-        if complaint.cluster_id is None:
+        if reward_cluster_id is None:
             reward_reason = close_reward(
                 is_clustered=False,
                 cluster_reward_already_granted=False,
@@ -736,11 +757,11 @@ def confirm_resolution(*, complaint_id: int, citizen: User, now: datetime) -> Co
             # flag is still false. `frontend/src/mocks/handlers/complaints.ts`
             # orders it the same way.
             already_rewarded = citizen_already_rewarded_in_cluster(
-                cluster_id=complaint.cluster_id,
+                cluster_id=reward_cluster_id,
                 citizen_id=citizen.id,
             )
             won_cluster_reward = not already_rewarded and claim_cluster_reward(
-                cluster_id=complaint.cluster_id
+                cluster_id=reward_cluster_id
             )
             reward_reason = close_reward(
                 is_clustered=True,

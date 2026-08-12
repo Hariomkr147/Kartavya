@@ -11,7 +11,6 @@ import {
   Download,
   MapPinned,
   Radio,
-  RefreshCw,
 } from "lucide-react";
 import {
   Bar,
@@ -46,6 +45,7 @@ import { formatFullDate } from "@/lib/greeting";
 import { staggerContainer } from "@/lib/motionVariants";
 import { cn } from "@/lib/utils";
 import type { SeverityLabel, ZoneMetrics } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 const SEVERITY_ORDER: SeverityLabel[] = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
 const SEVERITY_VAR: Record<SeverityLabel, string> = {
@@ -165,18 +165,11 @@ export function AdminDashboardPage() {
               Live as of {generatedTime}
             </span>
           )}
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label="Refresh now"
-            onClick={() => refetch()}
-            className="size-8"
-          >
-            <RefreshCw
-              className={cn("size-4", isFetching && "animate-spin")}
-              aria-hidden="true"
-            />
-          </Button>
+          <RefreshButton
+            onRefresh={refetch}
+            refreshing={isFetching}
+            what="this dashboard"
+          />
         </div>
       </div>
 

@@ -188,3 +188,42 @@ describe("category keying", () => {
     expect(matchCategory("deep pothole in the road", unknown)).toBeNull();
   });
 });
+
+describe("matchCategory — romanised Indic input", () => {
+  // The lexicon cannot list every way an Indian-language word gets typed in
+  // Latin script, so these reach their category through the transliteration
+  // fold rather than through a literal lexicon entry.
+  it.each([
+    ["yahan bahut bada ghadda hai", "POTHOLE"],
+    ["sadak pe gadda", "POTHOLE"],
+    ["raste madhe khadda aahe", "POTHOLE"],
+    ["kacchra phaila hua hai", "GARBAGE_OVERFLOW"],
+    ["kooda jama hai", "GARBAGE_OVERFLOW"],
+    ["batti nahi jal rahi", "BROKEN_STREETLIGHT"],
+  ])("%s -> %s", (description, expected) => {
+    expect(match(description)).toBe(expected);
+  });
+
+  it.each([
+    ["ਸੜਕ ਵਿੱਚ ਟੋਆ ਹੈ", "POTHOLE"],
+    ["রাস্তায় গর্ত", "POTHOLE"],
+    ["ರಸ್ತೆಯಲ್ಲಿ ಗುಂಡಿ", "POTHOLE"],
+    ["రోడ్డులో గుంత", "POTHOLE"],
+  ])("native script still resolves: %s -> %s", (description, expected) => {
+    expect(match(description)).toBe(expected);
+  });
+
+  it("does not let a folded match outrank an exact one", () => {
+    // "ghadda" is a real spelling but not a lexicon entry, so it can only be
+    // reached through the fold. "garbage" is an exact hit, which means the
+    // folded tier never runs at all — POTHOLE must not appear in the ranking,
+    // let alone win it.
+    const ranked = rankCategories("garbage dumped near the ghadda", CATEGORIES);
+    expect(ranked[0].category.code).toBe("GARBAGE_OVERFLOW");
+    expect(ranked.map((r) => r.category.code)).not.toContain("POTHOLE");
+  });
+
+  it("still abstains on text that means nothing to the lexicon", () => {
+    expect(match("kuch bhi likh raha hoon yahan")).toBeNull();
+  });
+});

@@ -5,7 +5,7 @@ import { requireRole, requireAuth, paginate, parsePagination, Errors } from "../
 import { sortComplaints } from "../lib/sort";
 import { validateAndStorePhoto } from "../lib/upload";
 import { simulateEvidenceScreening } from "../lib/ai";
-import { linkComplaintToCluster, recomputeSeverity } from "../lib/cluster";
+import { linkComplaintToCluster, recomputeSeverity, exitClusterIfTerminal } from "../lib/cluster";
 import { awardPoints, checkAndAwardBadges } from "../lib/points";
 import { slaLabel } from "../lib/sla";
 import { severityLabel } from "../lib/severity";
@@ -351,8 +351,17 @@ export const complaintsHandlers = [
           p.citizenId === auth.user.id &&
           (p.reason === "COMPLAINT_CLOSED" || p.reason === "CLUSTER_MEMBER_CLOSED") &&
           p.complaintId != null &&
-          db.complaints.find((c) => c.id === p.complaintId)?.clusterId ===
-            complaint.clusterId,
+          (() => {
+            const paidFor = db.complaints.find((c) => c.id === p.complaintId);
+            // Current OR former membership: the complaint this citizen was
+            // paid for has since closed and left, and forgetting it here
+            // would let them collect a second time.
+            return (
+              paidFor != null &&
+              (paidFor.clusterId === complaint.clusterId ||
+                paidFor.formerClusterId === complaint.clusterId)
+            );
+          })(),
       );
       if (!alreadyRewardedInCluster) {
         if (!cluster.rewardGranted) {
@@ -366,6 +375,8 @@ export const complaintsHandlers = [
       awardPoints(auth.user.id, complaint.id, "COMPLAINT_CLOSED");
     }
     if (onTime) awardPoints(auth.user.id, complaint.id, "ON_TIME_BONUS");
+    // After the reward decision above, which reads `clusterId` directly.
+    exitClusterIfTerminal(complaint);
     checkAndAwardBadges(auth.user.id);
 
     persist();

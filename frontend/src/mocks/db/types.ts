@@ -105,6 +105,8 @@ export interface ComplaintRow {
   zoneId: number;
   categoryId: number;
   clusterId: number | null;
+  /** Where clusterId went when this complaint finished — see exitClusterIfTerminal. */
+  formerClusterId?: number | null;
   assignedOfficerId: number | null;
   description: string | null;
   categorySuggestedByMatcher: boolean;

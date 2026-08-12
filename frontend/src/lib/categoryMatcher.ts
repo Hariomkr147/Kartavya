@@ -1,4 +1,5 @@
 import type { Category } from "@/types/api";
+import { romanKey } from "@/lib/indicTransliteration";
 
 /**
  * Deterministic, offline keyword matcher for complaint categories.
@@ -373,6 +374,18 @@ const SCORE_WORD_NON_ASCII = 1.5;
  * is no cross-tier competition to discount against.
  */
 const SCORE_FUZZY = 1.0;
+/**
+ * A transliteration hit. Below an exact match, since it survived a lossy fold
+ * that discards aspiration, vowel length and internal schwas, but above a
+ * Levenshtein guess: "gadda" reaching गड्ढा is a real synonym, not a typo.
+ */
+const SCORE_ROMAN = 1.2;
+const SCORE_ROMAN_PHRASE = 2.2;
+/**
+ * Folded keys shorter than this collide too easily to be evidence of
+ * anything — "toa" folds to "to", which would match half the lexicon.
+ */
+const ROMAN_MIN_KEY_LENGTH = 3;
 
 /** A winner must clear this, or the matcher abstains. */
 const MIN_SCORE = 1.0;
@@ -420,6 +433,14 @@ interface IndexedKeyword {
   isNonAscii: boolean;
   /** 1 / (number of categories listing this keyword). Shared terms are weak evidence. */
   specificity: number;
+  /**
+   * The transliterated + folded form, split per word. Empty when the keyword
+   * folds to something too short to be evidence. See `SCORE_ROMAN`.
+   */
+  romanParts: string[];
+  /** Same 1/n rule as `specificity`, but counted over folded keys — folding
+   * merges terms that were distinct, so the collision count differs. */
+  romanSpecificity: number;
 }
 
 const KEYWORD_INDEX: Record<string, IndexedKeyword[]> = (() => {
@@ -439,15 +460,46 @@ const KEYWORD_INDEX: Record<string, IndexedKeyword[]> = (() => {
     }
   }
 
+  const foldedFor = (keyword: string): string[] => {
+    const folded = romanKey(keyword);
+    if (!folded) return [];
+    const parts = folded.split(" ").filter(Boolean);
+    // Guard on the longest part, not the total: a phrase whose every word is
+    // two letters is still noise.
+    if (!parts.some((part) => part.length >= ROMAN_MIN_KEY_LENGTH)) return [];
+    return parts;
+  };
+
+  // Folding is many-to-one, so a folded key can be shared by categories whose
+  // original spellings were distinct. Count those collisions separately.
+  const romanCount = new Map<string, number>();
+  for (const keywords of Object.values(deduped)) {
+    const seen = new Set<string>();
+    for (const keyword of keywords) {
+      const parts = foldedFor(keyword);
+      if (parts.length === 0) continue;
+      seen.add(parts.join(" "));
+    }
+    for (const key of seen) romanCount.set(key, (romanCount.get(key) ?? 0) + 1);
+  }
+
   return Object.fromEntries(
     Object.entries(deduped).map(([code, keywords]) => [
       code,
-      keywords.map((keyword) => ({
-        keyword,
-        isMultiWord: keyword.includes(" "),
-        isNonAscii: [...keyword].some((ch) => ch.charCodeAt(0) > 127),
-        specificity: 1 / (categoryCount.get(keyword) ?? 1),
-      })),
+      keywords.map((keyword) => {
+        const romanParts = foldedFor(keyword);
+        return {
+          keyword,
+          isMultiWord: keyword.includes(" "),
+          isNonAscii: [...keyword].some((ch) => ch.charCodeAt(0) > 127),
+          specificity: 1 / (categoryCount.get(keyword) ?? 1),
+          romanParts,
+          romanSpecificity:
+            romanParts.length === 0
+              ? 0
+              : 1 / (romanCount.get(romanParts.join(" ")) ?? 1),
+        };
+      }),
     ]),
   );
 })();
@@ -593,6 +645,37 @@ function findExactSpans(
   };
 }
 
+/**
+ * Matches a keyword against the description through the transliteration fold,
+ * so native script and every common romanisation of the same word meet in the
+ * middle. Runs only when nothing matched exactly anywhere — see rule 2 in the
+ * module docstring.
+ */
+function findRomanSpan(romanTokens: string[], entry: IndexedKeyword): Span | null {
+  const { keyword, romanParts, romanSpecificity } = entry;
+  if (romanParts.length === 0) return null;
+
+  for (let i = 0; i + romanParts.length <= romanTokens.length; i++) {
+    let hit = true;
+    for (let k = 0; k < romanParts.length; k++) {
+      if (romanTokens[i + k] !== romanParts[k]) {
+        hit = false;
+        break;
+      }
+    }
+    if (!hit) continue;
+
+    const isMultiWord = romanParts.length > 1;
+    return {
+      keyword,
+      score: (isMultiWord ? SCORE_ROMAN_PHRASE : SCORE_ROMAN) * romanSpecificity,
+      tokens: Array.from({ length: romanParts.length }, (_, k) => i + k),
+      isMultiWord,
+    };
+  }
+  return null;
+}
+
 function findFuzzySpan(tokens: Token[], entry: IndexedKeyword): Span | null {
   const { keyword, isMultiWord, specificity } = entry;
   if (isMultiWord || keyword.length < FUZZY_MIN_KEYWORD_LENGTH) return null;
@@ -689,7 +772,15 @@ export function rankCategories(
   // Tier 1: exact phrases and whole words.
   let scored = scoreTier((entry) => findExactSpans(text, tokens, entry));
 
-  // Tier 2: typo tolerance — only when nothing matched exactly *anywhere*, so
+  // Tier 2: transliteration. A citizen writing "gadda" (or गड्ढा, or ಗುಂಡಿ)
+  // is naming the thing exactly, just not in a spelling the lexicon happens
+  // to list — so this sits above typo tolerance and below an exact hit.
+  if (scored.every((s) => s.score === 0)) {
+    const romanTokens = tokens.map((token) => romanKey(token.text));
+    scored = scoreTier((entry) => findRomanSpan(romanTokens, entry));
+  }
+
+  // Tier 3: typo tolerance — only when nothing matched exactly *anywhere*, so
   // a near-miss can never outrank real evidence in another category.
   if (scored.every((s) => s.score === 0)) {
     scored = scoreTier((entry) => findFuzzySpan(tokens, entry));

@@ -22,6 +22,7 @@ import { useToast } from "@/components/ui/Toast";
 import { DynamicIcon } from "@/components/DynamicIcon";
 import { EvidenceGallery } from "@/components/complaint/EvidenceGallery";
 import { TimelineSidebar } from "@/components/complaint/TimelineSidebar";
+import { useOfficerDirectory } from "@/hooks/useOfficerDirectory";
 import { useComplaint } from "@/hooks/useComplaint";
 import { useOverrideComplaint } from "@/hooks/useOverrideComplaint";
 import { useReviewDispute } from "@/hooks/useReviewDispute";
@@ -31,6 +32,7 @@ import { iconForCategory } from "@/lib/categoryIcons";
 import { relativeTime } from "@/lib/datetime";
 import { ApiRequestError } from "@/services/http";
 import type { ComplaintStatus, DisputeVerdict } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 const ALL_STATUSES: ComplaintStatus[] = [
   "SUBMITTED",
@@ -67,9 +69,16 @@ const AT_OR_PAST_UNDER_REVIEW = new Set<ComplaintStatus>([
 export function AdminComplaintDetailPage() {
   const { complaintId } = useParams<{ complaintId: string }>();
   const { toast } = useToast();
-  const { data: complaint, isLoading, isError } = useComplaint(complaintId);
+  const {
+    data: complaint,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useComplaint(complaintId);
   const { data: categories } = useCategories();
   const { data: zones } = useZones();
+  const officers = useOfficerDirectory();
 
   const override = useOverrideComplaint(complaintId ?? "");
   const reviewDispute = useReviewDispute(complaintId ?? "");
@@ -216,9 +225,12 @@ export function AdminComplaintDetailPage() {
             />
           </span>
           <div>
-            <h1 className="font-display text-xl font-semibold text-ink">
-              {complaint.category.name}
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="font-display text-xl font-semibold text-ink">
+                {complaint.category.name}
+              </h1>
+              <RefreshButton onRefresh={refetch} refreshing={isFetching} what="this complaint" />
+            </div>
             <p className="text-ink-faint font-mono text-xs">
               {complaint.id} · {complaint.zoneName} · filed{" "}
               {relativeTime(complaint.createdAt)}
@@ -252,7 +264,7 @@ export function AdminComplaintDetailPage() {
             Assigned:{" "}
             {complaint.assignedOfficerId == null
               ? "Unassigned"
-              : `Officer #${complaint.assignedOfficerId}`}
+              : officers.describe(complaint.assignedOfficerId)}
           </div>
 
           {(complaint.severityScore != null || complaint.clusterId) && (
@@ -307,7 +319,10 @@ export function AdminComplaintDetailPage() {
               <h2 className="font-display mb-3 text-base font-semibold text-ink">
                 Evidence
               </h2>
-              <EvidenceGallery evidence={complaint.evidence} />
+              <EvidenceGallery
+                evidence={complaint.evidence}
+                officerLabel={officers.label}
+              />
             </section>
           )}
 
@@ -459,6 +474,7 @@ export function AdminComplaintDetailPage() {
             statusHistory={complaint.statusHistory}
             progressNotes={complaint.progressNotes}
             viewerRole="ADMIN"
+            officerLabel={officers.label}
           />
         </aside>
       </div>

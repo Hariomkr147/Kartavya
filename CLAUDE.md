@@ -169,12 +169,14 @@ The full list of fourteen is in `docs/backend/architecture.md` §16.4. These cau
 1. **Every status write goes through `app/services/complaints/lifecycle.py`.** Nothing else may assign `complaint.status`. The `status_history` row is written inside `apply_transition()`, which is what makes an unaudited status change structurally impossible.
 2. **Guard every transition with a conditional `UPDATE ... WHERE status = <expected>`.** `rowcount` is the decision, not a preceding `if`. Two officers *will* claim the same complaint at the same moment.
 3. **The cluster's +50 reward is an atomic test-and-set on `reward_granted`**, in the same transaction as the close. A read-then-write pays it twice.
+3b. **A terminal complaint leaves its cluster, but the cluster row is never deleted.** `apply_transition()` calls `clusters.exit_cluster()` on any move to CLOSED/REJECTED/UNRESOLVABLE — otherwise finished reports keep inflating `report_count`/`unique_reporter_count`/severity and clusters whose members have all finished never leave the cluster pages. Two consequences to hold onto: the id moves to `complaints.former_cluster_id`, and **every reward guard must read `cluster_id or former_cluster_id`** (a paid complaint has since left, and a guard that only sees current members pays the same citizen twice); and the `complaint_clusters` row survives even with zero members, because it holds the one-time `reward_granted` latch. A cluster with no live members is *dissolved* — hidden by `core/scoping.visible_clusters`, not deleted. `flask --app app verify-clusters [--repair]` checks and repairs the drift.
 4. `REJECTED` is legal only on a complaint's first evidence round (`sla_started_at IS NULL`).
 5. `REOPENED` may only be moved by the admin dispute-review endpoint — never by the status, batch, or cascade paths.
 6. **Re-load the user row on every request.** Never authorize from JWT claims alone: a deactivated user and a reassigned officer must both take effect immediately.
 7. `PRAGMA foreign_keys=ON` must be on, or every FK rule in the schema is inert.
 8. Auto-close and admin-rejected disputes credit **zero** points.
 9. `avgResolutionHours` is `resolved_at − sla_started_at − sla_paused_seconds` in all three dashboards. The frontend mock computes it three other ways; the contract wins.
+10. **The SLA clock starts once.** `review_evidence()` may only call `sla.start()` when `sla_started_at IS NULL` — a `VALID` verdict is also how a complaint returns from an officer's post-acceptance recall, and restarting there both hands back a fresh deadline and double-discounts the paused span.
 
 Two more places the mock disagrees with the contract, where the contract wins: the leaderboard must filter out deactivated citizens (the mock includes them), and `AuthResponse.expiresAt` is required (the mock omits it).
 

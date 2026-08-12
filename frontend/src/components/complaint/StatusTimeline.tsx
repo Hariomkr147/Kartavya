@@ -52,6 +52,7 @@ export function StatusTimeline({
   progressNotes,
   viewerRole,
   viewerOfficerId,
+  officerLabel,
 }: {
   entries: StatusHistoryEntry[];
   /** Interleaved into the timeline by timestamp, between the status pills they were posted around — status_history and progress notes stay separate append-only sources, only merged here for display. */
@@ -60,7 +61,14 @@ export function StatusTimeline({
   viewerRole?: Role;
   /** Required to spot "You" among OFFICER entries — a zone can have entries from more than one officer over time. */
   viewerOfficerId?: string;
+  /**
+   * Resolves an officer id to a display label. Defaults to "Officer #7" —
+   * which is what citizens and officers must keep seeing. Only the admin
+   * pages pass a resolver that returns real names.
+   */
+  officerLabel?: (officerId: string) => string;
 }) {
+  const labelForOfficer = officerLabel ?? ((id: string) => `Officer #${id}`);
   const items: TimelineItem[] = [
     ...entries.map((entry): TimelineItem => ({
       kind: "status",
@@ -115,7 +123,7 @@ export function StatusTimeline({
                     className="text-ink-faint mt-1 text-xs"
                     title={absoluteDateTime(note.createdAt)}
                   >
-                    Officer #{note.officerId} · {relativeTime(note.createdAt)}
+                    {labelForOfficer(note.officerId)} · {relativeTime(note.createdAt)}
                   </p>
                 </div>
               </div>
@@ -132,7 +140,7 @@ export function StatusTimeline({
         const actorLabel = isViewer
           ? "You"
           : entry.changedByOfficerId
-            ? `Officer #${entry.changedByOfficerId}`
+            ? labelForOfficer(entry.changedByOfficerId)
             : ACTOR_LABEL[entry.changedByRole];
         const isCurrent = i === firstStatusIndex;
         return (

@@ -1416,6 +1416,8 @@ export interface components {
             zoneName?: string;
             /** @description The officer's public ID (never their name). */
             assignedOfficerId?: string | null;
+            /** @description Set when this complaint is linked to nearby duplicates, so a list can show that it is one report of a shared physical issue rather than an independent one. Present on the compact shape — not just on `ComplaintDetail` — because the officer queue is exactly where that matters: without it every member of a cluster reads as its own separate job to claim and work. */
+            clusterId?: string | null;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */

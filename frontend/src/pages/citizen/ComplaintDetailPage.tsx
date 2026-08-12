@@ -40,6 +40,7 @@ import { otherReporterCount } from "@/lib/clusterInsight";
 import { describeLifecycle } from "@/lib/lifecycle";
 import { relativeTime } from "@/lib/datetime";
 import { ApiRequestError } from "@/services/http";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 /** Documented in the contract on `POST /complaints/{id}/upvote`. */
 const CSP_PER_UPVOTE = 5;
@@ -48,7 +49,13 @@ export function ComplaintDetailPage() {
   const { complaintId } = useParams<{ complaintId: string }>();
   const { toast } = useToast();
   const { user } = useAuth();
-  const { data: complaint, isLoading, isError } = useComplaint(complaintId);
+  const {
+    data: complaint,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useComplaint(complaintId);
   const { data: officerStats } = useOfficerStats(complaint?.assignedOfficerId);
   const { data: landmark } = useLandmark(complaint?.latitude, complaint?.longitude);
   const { record: recordRecentlyViewed } = useRecentlyViewed(
@@ -232,9 +239,12 @@ export function ComplaintDetailPage() {
             />
           </span>
           <div>
-            <h1 className="font-display text-xl font-semibold text-ink">
-              {complaint.category.name}
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="font-display text-xl font-semibold text-ink">
+                {complaint.category.name}
+              </h1>
+              <RefreshButton onRefresh={refetch} refreshing={isFetching} what="this complaint" />
+            </div>
             <p className="text-ink-faint flex items-center gap-1.5 font-mono text-xs">
               {complaint.id} · filed {relativeTime(complaint.createdAt)}
               <button

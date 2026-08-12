@@ -335,3 +335,177 @@ def test_clusters_are_invisible_across_the_zone_wall(platform, officer, cluster_
 
     # The admin sees every zone's clusters.
     assert cluster_id in {row["id"] for row in platform.admin.get("/clusters").get_json()["data"]}
+
+
+def test_a_finished_complaint_leaves_its_cluster(platform, officer, cluster_of_three):
+    """A terminal complaint is not part of the work the cluster represents."""
+    _spot, filed, cluster_id = cluster_of_three
+    (citizen_a, first), (_b, second), (_c, third) = filed
+
+    before = officer.get(f"/clusters/{cluster_id}").get_json()
+    assert before["reportCount"] == 3
+    assert before["uniqueReporterCount"] == 3
+    assert before["severityScore"] == 6
+
+    # Take one member all the way to CLOSED.
+    for complaint in (first, second, third):
+        platform.accept(complaint["id"])
+        officer.patch(
+            f"/officer/complaints/{complaint['id']}/status", json={"status": "IN_PROGRESS"}
+        )
+    officer.patch(f"/officer/complaints/{first['id']}/status", json={"status": "UNDER_RESOLUTION"})
+    platform.drive_to(first["id"], "RESOLVED")
+    citizen_a.post(f"/complaints/{first['id']}/confirm")
+
+    # It has left: no cluster on the complaint, and the cluster's own counts
+    # and severity now describe only the reports still in play.
+    assert officer.complaint(first["id"])["clusterId"] is None
+    after = officer.get(f"/clusters/{cluster_id}").get_json()
+    assert after["reportCount"] == 2
+    assert after["uniqueReporterCount"] == 2
+    assert after["severityScore"] == 3
+    assert first["id"] not in {member["id"] for member in after["complaints"]}
+    assert after["statusSummary"] == {"RESOLVED": 2}
+
+
+def test_a_rejected_complaint_leaves_too(platform, officer):
+    """Not only CLOSED — every terminal status exits."""
+    reporter_a = platform.register_citizen("Exit A", email="exit-a@example.com")
+    reporter_b = platform.register_citizen("Exit B", email="exit-b@example.com")
+    spot = platform.fresh_spot()
+    first = platform.file_complaint(reporter_a, at=spot)
+    second = platform.file_complaint(reporter_b, at=platform.metres_north(spot, 5.0))
+    cluster_id = second["clusterId"]
+
+    officer.post(f"/officer/complaints/{second['id']}/claim")
+    officer.post(
+        f"/officer/complaints/{second['id']}/evidence-review",
+        json={"verdict": "REJECTED", "reason": "Staged photo."},
+    )
+
+    assert officer.complaint(second["id"])["clusterId"] is None
+    assert officer.complaint(first["id"])["clusterId"] == cluster_id
+
+    # UNRESOLVABLE as well.
+    platform.accept(first["id"])
+    officer.patch(
+        f"/officer/complaints/{first['id']}/status",
+        json={"status": "UNRESOLVABLE", "reason": "Railway land."},
+    )
+    assert officer.complaint(first["id"])["clusterId"] is None
+
+
+def test_a_cluster_whose_members_all_finish_disappears(platform, officer, cluster_of_three):
+    """The dead clusters that piled up during alpha testing."""
+    _spot, filed, cluster_id = cluster_of_three
+
+    for reporter, complaint in filed:
+        platform.accept(complaint["id"])
+        officer.patch(
+            f"/officer/complaints/{complaint['id']}/status", json={"status": "IN_PROGRESS"}
+        )
+        officer.patch(
+            f"/officer/complaints/{complaint['id']}/status",
+            json={"status": "UNDER_RESOLUTION"},
+        )
+        platform.drive_to(complaint["id"], "RESOLVED")
+        reporter.post(f"/complaints/{complaint['id']}/confirm")
+
+    assert officer.get("/clusters").get_json()["data"] == []
+    officer.get(f"/clusters/{cluster_id}", expect=404)
+    assert platform.admin.get("/clusters").get_json()["data"] == []
+
+
+def test_leaving_the_cluster_cannot_be_used_to_collect_twice(platform, officer):
+    """The regression the exit could easily have introduced.
+
+    Once a closed complaint leaves, "has this citizen already been paid in this
+    cluster?" can no longer be answered from current membership alone. If it
+    were, this citizen would be paid a second time for their second duplicate.
+    """
+    farmer = platform.register_citizen("Farmer", email="exit-farmer@example.com")
+    spot = platform.fresh_spot()
+    filed = [
+        platform.file_complaint(farmer, at=platform.metres_north(spot, index * 6.0))
+        for index in range(3)
+    ]
+
+    for complaint in filed:
+        platform.accept(complaint["id"])
+        officer.patch(
+            f"/officer/complaints/{complaint['id']}/status", json={"status": "IN_PROGRESS"}
+        )
+    officer.patch(
+        f"/officer/complaints/{filed[0]['id']}/status", json={"status": "UNDER_RESOLUTION"}
+    )
+    platform.drive_to(filed[0]["id"], "RESOLVED")
+
+    for complaint in filed:
+        farmer.post(f"/complaints/{complaint['id']}/confirm")
+
+    reasons = farmer.ledger_reasons()
+    assert reasons.count("COMPLAINT_CLOSED") == 1
+    assert reasons.count("CLUSTER_MEMBER_CLOSED") == 0
+
+
+def test_two_citizens_still_split_the_reward_correctly_across_exits(platform, officer):
+    """The +50 stays once-per-cluster even though the winner has since left."""
+    citizen_a = platform.register_citizen("Split A", email="split-a@example.com")
+    citizen_b = platform.register_citizen("Split B", email="split-b@example.com")
+    spot = platform.fresh_spot()
+    first = platform.file_complaint(citizen_a, at=spot)
+    second = platform.file_complaint(citizen_b, at=platform.metres_north(spot, 6.0))
+
+    for complaint in (first, second):
+        platform.accept(complaint["id"])
+        officer.patch(
+            f"/officer/complaints/{complaint['id']}/status", json={"status": "IN_PROGRESS"}
+        )
+    officer.patch(f"/officer/complaints/{first['id']}/status", json={"status": "UNDER_RESOLUTION"})
+    platform.drive_to(first["id"], "RESOLVED")
+
+    citizen_a.post(f"/complaints/{first['id']}/confirm")  # takes the +50, then exits
+    citizen_b.post(f"/complaints/{second['id']}/confirm")
+
+    assert citizen_a.ledger_reasons().count("COMPLAINT_CLOSED") == 1
+    assert citizen_b.ledger_reasons().count("COMPLAINT_CLOSED") == 0
+    assert citizen_b.ledger_reasons().count("CLUSTER_MEMBER_CLOSED") == 1
+
+
+def test_verify_clusters_reports_and_repairs(platform, officer, cluster_of_three):
+    """The verification step, run against a deliberately corrupted cluster."""
+    from app.models import Complaint
+    from app.services.complaints.cluster_health import verify_clusters
+
+    _spot, filed, cluster_id = cluster_of_three
+    (citizen_a, first), _b, _c = filed
+
+    platform.accept(first["id"])
+    officer.patch(f"/officer/complaints/{first['id']}/status", json={"status": "IN_PROGRESS"})
+    officer.patch(f"/officer/complaints/{first['id']}/status", json={"status": "UNDER_RESOLUTION"})
+    platform.drive_to(first["id"], "RESOLVED")
+    citizen_a.post(f"/complaints/{first['id']}/confirm")
+
+    # A clean system has nothing to say about itself.
+    assert verify_clusters().ok
+
+    # Simulate the pre-fix state: put the finished complaint back in, and skew
+    # the stored counts the way a missed recompute would.
+    session = platform.rows()
+    row = session.get(Complaint, int(first["id"]))
+    row.cluster_id = int(cluster_id)
+    session.commit()
+
+    report = verify_clusters()
+    assert not report.ok
+    kinds = {finding.kind for finding in report.findings}
+    assert "terminal_member" in kinds
+    assert "stale_aggregates" in kinds
+
+    repaired = verify_clusters(repair=True)
+    assert repaired.repaired
+    assert verify_clusters().ok
+
+    # And the repair produced the same state the live path would have.
+    assert officer.complaint(first["id"])["clusterId"] is None
+    assert officer.get(f"/clusters/{cluster_id}").get_json()["reportCount"] == 2

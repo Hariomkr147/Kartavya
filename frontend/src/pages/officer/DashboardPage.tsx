@@ -11,10 +11,8 @@ import {
   Clock,
   Radio,
   RefreshCcw,
-  RefreshCw,
   UserCheck,
 } from "lucide-react";
-import { Button } from "@/components/ui/Button";
 import { Combobox } from "@/components/ui/Combobox";
 import { LinkButton } from "@/components/ui/LinkButton";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -26,7 +24,6 @@ import { OfficerUpdatesCard } from "@/components/dashboard/OfficerUpdatesCard";
 import { HorizontalBarChart } from "@/components/charts/HorizontalBarChart";
 import { formatFullDate } from "@/lib/greeting";
 import { staggerContainer, staggerItem } from "@/lib/motionVariants";
-import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOfficerAnalytics } from "@/hooks/useOfficerAnalytics";
 import { useZoneSummary } from "@/hooks/useZoneSummary";
@@ -34,6 +31,7 @@ import { useOfficerQueue } from "@/hooks/useOfficerQueue";
 import { useOfficerQueueUpdates } from "@/hooks/useOfficerQueueUpdates";
 import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
 import type { ComplaintStatus } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 const ATTENTION_STATUSES: ComplaintStatus[] = [
   "SUBMITTED",
@@ -155,18 +153,11 @@ export function OfficerDashboardPage() {
               options={PERIOD_OPTIONS}
             />
           </div>
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label="Refresh now"
-            onClick={() => refetchAnalytics()}
-            className="size-8"
-          >
-            <RefreshCw
-              className={cn("size-4", analyticsFetching && "animate-spin")}
-              aria-hidden="true"
-            />
-          </Button>
+          <RefreshButton
+            onRefresh={refetchAnalytics}
+            refreshing={analyticsFetching}
+            what="this dashboard"
+          />
         </div>
       </div>
 

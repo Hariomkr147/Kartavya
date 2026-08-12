@@ -13,7 +13,7 @@ import { severityLabel } from "../lib/severity";
 import { avgResolutionHours, slaLabel } from "../lib/sla";
 import { lifetimePoints } from "../lib/points";
 import { TERMINAL_STATUSES, AT_OR_PAST_UNDER_REVIEW } from "../lib/fsm";
-import { reassignComplaintCluster } from "../lib/cluster";
+import { reassignComplaintCluster, exitClusterIfTerminal } from "../lib/cluster";
 import { fromApiId, toApiId } from "../lib/ids";
 import { toCsv } from "../lib/csv";
 import { simulateAiZoneReportGeneration } from "../lib/ai";
@@ -125,6 +125,7 @@ export const adminHandlers = [
     if (body.status !== undefined) {
       const previousStatus = complaint.status;
       complaint.status = body.status;
+      exitClusterIfTerminal(complaint);
       complaint.updatedAt = now;
       if (body.status === "RESOLVED") complaint.resolvedAt = now;
       if (body.status === "CLOSED") complaint.closedAt = now;
@@ -193,6 +194,7 @@ export const adminHandlers = [
         });
       } else {
         complaint.status = "CLOSED";
+        exitClusterIfTerminal(complaint);
         complaint.closedAt = now;
         complaint.updatedAt = now;
         db.statusHistory.push({

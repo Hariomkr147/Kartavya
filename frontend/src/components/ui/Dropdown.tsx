@@ -11,6 +11,10 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import {
+  useAnchoredPlacement,
+  useDismissOnViewportChange,
+} from "@/hooks/useAnchoredPlacement";
 import { cn } from "@/lib/utils";
 
 interface DropdownPosition {
@@ -26,6 +30,9 @@ interface DropdownContextValue {
   align: "start" | "end";
   position: DropdownPosition;
   setPosition: (position: DropdownPosition) => void;
+  /** Viewport rect of the trigger at open time — what the flip is measured against. */
+  triggerRect: DOMRect | null;
+  setTriggerRect: (rect: DOMRect | null) => void;
 }
 
 const DropdownContext = createContext<DropdownContextValue | null>(null);
@@ -55,11 +62,21 @@ export interface DropdownProps {
 export function Dropdown({ children, align = "start" }: DropdownProps) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<DropdownPosition>({ top: 0 });
+  const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
 
   return (
     <DropdownContext.Provider
-      value={{ open, setOpen, triggerRef, align, position, setPosition }}
+      value={{
+        open,
+        setOpen,
+        triggerRef,
+        align,
+        position,
+        setPosition,
+        triggerRect,
+        setTriggerRect,
+      }}
     >
       {children}
     </DropdownContext.Provider>
@@ -71,7 +88,7 @@ export function DropdownTrigger({
 }: {
   children: ReactElement<{ onClick?: (e: MouseEvent) => void }>;
 }) {
-  const { open, setOpen, triggerRef, align, setPosition } =
+  const { open, setOpen, triggerRef, align, setPosition, setTriggerRect } =
     useDropdownContext("DropdownTrigger");
 
   function handleTriggerClick(e: MouseEvent) {
@@ -81,6 +98,7 @@ export function DropdownTrigger({
       return;
     }
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setTriggerRect(rect);
     setPosition(
       align === "end"
         ? {
@@ -121,8 +139,11 @@ export function DropdownMenu({
   /** Accessible name, required in practice for `role="dialog"`. */
   label?: string;
 }) {
-  const { open, setOpen, triggerRef, position } = useDropdownContext("DropdownMenu");
+  const { open, setOpen, triggerRef, position, triggerRect } =
+    useDropdownContext("DropdownMenu");
   const menuRef = useRef<HTMLDivElement>(null);
+  const placement = useAnchoredPlacement(open, triggerRect, menuRef, position.top);
+  useDismissOnViewportChange(open, menuRef, () => setOpen(false));
 
   useEffect(() => {
     if (!open) return;
@@ -156,12 +177,16 @@ export function DropdownMenu({
       aria-label={label}
       style={{
         position: "absolute",
-        top: position.top,
+        top: placement.measured ? placement.top : position.top,
         left: position.left,
         right: position.right,
+        maxHeight: placement.measured ? placement.maxHeight : undefined,
+        // Hidden for the single measuring frame, so the menu is never seen at
+        // the unflipped position before settling.
+        visibility: placement.measured ? undefined : "hidden",
       }}
       className={cn(
-        "animate-in fade-in zoom-in-95 z-50 min-w-[10rem] rounded-md border border-line bg-surface py-1 shadow-md duration-100",
+        "animate-in fade-in zoom-in-95 z-50 min-w-[10rem] overflow-y-auto overscroll-contain rounded-md border border-line bg-surface py-1 shadow-md duration-100",
         className,
       )}
     >

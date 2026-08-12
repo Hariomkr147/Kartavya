@@ -447,3 +447,83 @@ describe("officer batch-status", () => {
     expect(unknown.errorCode).toBe("UNKNOWN_COMPLAINT");
   });
 });
+
+describe("finished complaints leave their cluster", () => {
+  it("drops a closed member and hides a cluster once every member has finished", async () => {
+    const citizenA = await registerCitizen("Exit Citizen A", "exit-a@example.com");
+    const citizenB = await registerCitizen("Exit Citizen B", "exit-b@example.com");
+    const officer = await login(OFFICER_WARD_12, PASSWORD);
+    const officerApi = authedFetch(officer.token);
+
+    const complaintA = await fileComplaint(citizenA.token, {
+      latitude: 13.7,
+      longitude: 78.7,
+    });
+    const complaintB = await fileComplaint(citizenB.token, {
+      latitude: 13.70005,
+      longitude: 78.70005,
+    });
+    const clusterId = complaintB.clusterId;
+    expect(clusterId).not.toBeNull();
+
+    for (const id of [complaintA.id, complaintB.id]) {
+      await officerApi(`/officer/complaints/${id}/claim`, { method: "POST" });
+      await officerApi(`/officer/complaints/${id}/evidence-review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ verdict: "VALID" }),
+      });
+      await officerApi(`/officer/complaints/${id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "IN_PROGRESS" }),
+      });
+    }
+    await officerApi(`/officer/complaints/${complaintA.id}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "UNDER_RESOLUTION" }),
+    });
+    await officerApi(`/officer/complaints/${complaintA.id}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "RESOLVED" }),
+    });
+
+    // A confirms first: takes the one +50, then leaves the cluster.
+    await authedFetch(citizenA.token)(`/complaints/${complaintA.id}/confirm`, {
+      method: "POST",
+    });
+    const afterFirst = await officerApi(`/complaints/${complaintA.id}`).then((r) =>
+      r.json(),
+    );
+    expect(afterFirst.clusterId).toBeNull();
+
+    const cluster = await officerApi(`/clusters/${clusterId}`).then((r) => r.json());
+    expect(cluster.reportCount).toBe(1);
+    expect(
+      cluster.complaints.some((c: { id: string }) => c.id === complaintA.id),
+    ).toBe(false);
+
+    // B confirms second: still only the +10, even though the winner has left.
+    await authedFetch(citizenB.token)(`/complaints/${complaintB.id}/confirm`, {
+      method: "POST",
+    });
+    const pointsB = await authedFetch(citizenB.token)("/gamification/points").then((r) =>
+      r.json(),
+    );
+    expect(
+      pointsB.ledger.some(
+        (p: { reason: string }) => p.reason === "CLUSTER_MEMBER_CLOSED",
+      ),
+    ).toBe(true);
+    expect(
+      pointsB.ledger.some((p: { reason: string }) => p.reason === "COMPLAINT_CLOSED"),
+    ).toBe(false);
+
+    // Both members are finished, so the cluster is gone from the officer's view.
+    expect(await officerApi(`/clusters/${clusterId}`).then((r) => r.status)).toBe(404);
+    const list = await officerApi("/clusters").then((r) => r.json());
+    expect(list.data.some((c: { id: string }) => c.id === clusterId)).toBe(false);
+  });
+});

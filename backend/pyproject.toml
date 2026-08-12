@@ -58,6 +58,7 @@ pythonpath = ["."]
 addopts = "-q"
 markers = [
     "domain: pure-rule tests, no database, must stay in the millisecond range",
+    "integration: end-to-end journeys driven entirely over HTTP (tests/integration/)",
 ]
 
 [tool.ruff]

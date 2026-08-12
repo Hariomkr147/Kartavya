@@ -50,6 +50,8 @@ pytest tests/domain                           # fast half — no database, milli
 pytest tests/api/test_privacy.py              # a single file
 pytest tests/api/test_privacy.py::test_name   # a single test
 pytest -m domain                              # by marker
+pytest tests/integration                      # end-to-end journeys, ~2 min
+pytest -m "not integration"                   # everything else, when iterating
 pytest --cov                                  # coverage (source = app)
 lint-imports --config .importlinter            # layering rules — see below
 ruff check . && ruff format .
@@ -183,6 +185,7 @@ Two more places the mock disagrees with the contract, where the contract wins: t
 - `tests/api/` — Flask test client, including explicit privacy assertions (`test_privacy.py`) and JWT security (`test_jwt_security.py`).
 - `tests/contract/` — validates live responses against `openapi.yaml` itself rather than hand-copied expectations. This layer exists because three contract violations shipped while it was optional; it is now in the default dev install.
 - `tests/unit/`, `tests/jobs/` — AI providers and background jobs.
+- `tests/integration/` — end-to-end journeys (marker: `integration`). Distinct from `tests/api/` in one rule: **nothing sets a scenario up through the database.** Every actor logs in and every row is produced by the same requests a browser sends — admin creates the zones and officers, citizens register and file, officers drive the lifecycle. That is what makes states reachable only through six earlier calls (a resumed SLA clock, a cluster's second confirm, an upheld dispute) testable at all. Runs on file-backed SQLite, and honours `TEST_DATABASE_URL` so the same journeys can be pointed at Postgres (that hook exists but has not been exercised against a live Postgres yet). The two sanctioned back doors are `Platform.db_shift()` (moves stored timestamps backwards — the SLA clock and the auto-close timeout are otherwise unreachable) and `Platform.rows()` (reads only).
 
 A cheap, high-value test for any officer route: `assert "reporter" not in response.get_json()`.
 

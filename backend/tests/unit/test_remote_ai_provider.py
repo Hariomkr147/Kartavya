@@ -13,11 +13,11 @@ from app.infra.ai.remote import RemoteApiProvider
 
 
 def test_clean_json_text():
-    raw_markdown = "```json\n{\n  \"key\": \"value\"\n}\n```"
-    assert clean_json_text(raw_markdown) == "{\n  \"key\": \"value\"\n}"
+    raw_markdown = '```json\n{\n  "key": "value"\n}\n```'
+    assert clean_json_text(raw_markdown) == '{\n  "key": "value"\n}'
 
-    raw_plain = "{\"key\": \"value\"}"
-    assert clean_json_text(raw_plain) == "{\"key\": \"value\"}"
+    raw_plain = '{"key": "value"}'
+    assert clean_json_text(raw_plain) == '{"key": "value"}'
 
 
 def test_remote_provider_missing_api_key_raises(tmp_path):
@@ -127,8 +127,9 @@ def test_remote_provider_empty_json_raises_value_error(tmp_path):
 
     provider = RemoteApiProvider(api_key="test_key")
 
-    with patch("urllib.request.urlopen", return_value=mock_resp), pytest.raises(
-        ValueError, match="matches_category must be a boolean"
+    with (
+        patch("urllib.request.urlopen", return_value=mock_resp),
+        pytest.raises(ValueError, match="matches_category must be a boolean"),
     ):
         provider.screen_photo(str(img_file), "Potholes")
 
@@ -145,8 +146,9 @@ def test_remote_provider_invalid_types_raise_value_error(tmp_path):
     mock_resp1.__enter__.return_value = mock_resp1
 
     provider = RemoteApiProvider(api_key="test_key")
-    with patch("urllib.request.urlopen", return_value=mock_resp1), pytest.raises(
-        ValueError, match="matches_category must be a boolean"
+    with (
+        patch("urllib.request.urlopen", return_value=mock_resp1),
+        pytest.raises(ValueError, match="matches_category must be a boolean"),
     ):
         provider.screen_photo(str(img_file), "Potholes")
 
@@ -157,8 +159,9 @@ def test_remote_provider_invalid_types_raise_value_error(tmp_path):
     ).encode("utf-8")
     mock_resp2.__enter__.return_value = mock_resp2
 
-    with patch("urllib.request.urlopen", return_value=mock_resp2), pytest.raises(
-        ValueError, match="confidence must be a number"
+    with (
+        patch("urllib.request.urlopen", return_value=mock_resp2),
+        pytest.raises(ValueError, match="confidence must be a number"),
     ):
         provider.screen_photo(str(img_file), "Potholes")
 
@@ -184,8 +187,9 @@ def test_remote_provider_invalid_types_raise_value_error(tmp_path):
     ).encode("utf-8")
     mock_resp3.__enter__.return_value = mock_resp3
 
-    with patch("urllib.request.urlopen", return_value=mock_resp3), pytest.raises(
-        ValueError, match="must be a non-empty string"
+    with (
+        patch("urllib.request.urlopen", return_value=mock_resp3),
+        pytest.raises(ValueError, match="must be a non-empty string"),
     ):
         provider.zone_report(
             {

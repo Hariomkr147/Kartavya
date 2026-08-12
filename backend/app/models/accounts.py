@@ -29,9 +29,7 @@ class User(TimestampMixin, db.Model):
     role: Mapped[UserRole] = mapped_column(enum_column(UserRole), nullable=False)
 
     #: Officer: assigned zone (exactly one). Citizen: home zone. Admin: null.
-    zone_id: Mapped[int | None] = mapped_column(
-        ForeignKey("zones.id", ondelete="RESTRICT")
-    )
+    zone_id: Mapped[int | None] = mapped_column(ForeignKey("zones.id", ondelete="RESTRICT"))
 
     #: Soft-deactivate. Inactive users cannot log in, and an inactive citizen
     #: drops off the leaderboard while keeping every points_ledger row, so
@@ -72,9 +70,7 @@ class Zone(TimestampMixin, db.Model):
     is_catch_all: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
-    users: Mapped[list[User]] = relationship(
-        back_populates="zone", foreign_keys=[User.zone_id]
-    )
+    users: Mapped[list[User]] = relationship(back_populates="zone", foreign_keys=[User.zone_id])
 
     __table_args__ = (
         # A PARTIAL unique index, not a column constraint. A plain unique=True

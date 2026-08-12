@@ -184,9 +184,7 @@ def test_upvote_result(seeded_app, client, session, world, filed_complaint, asse
     session.add(neighbour)
     session.commit()
 
-    response = client.post(
-        f"{API}/complaints/{complaint_id}/upvote", headers=auth(neighbour)
-    )
+    response = client.post(f"{API}/complaints/{complaint_id}/upvote", headers=auth(neighbour))
     assert response.status_code == 200
     assert_matches_schema(response.get_json(), "UpvoteResult")
 
@@ -348,9 +346,7 @@ def test_admin_complaint_detail_carries_reporter(
     seeded_app, client, world, filed_complaint, assert_matches_schema
 ):
     complaint_id, _payload = filed_complaint
-    detail = client.get(
-        f"{API}/complaints/{complaint_id}", headers=auth(world["admin"])
-    ).get_json()
+    detail = client.get(f"{API}/complaints/{complaint_id}", headers=auth(world["admin"])).get_json()
     assert_matches_schema(detail, "ComplaintDetail")
     assert detail["reporter"]["id"] == str(world["citizen"].id)
 

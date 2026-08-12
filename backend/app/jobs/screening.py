@@ -121,9 +121,7 @@ def sweep_screening_retries(app: Flask) -> int:
     with app.app_context():
         now = utcnow()  # naive UTC, matching what TimestampMixin stores
         retry_after = now - timedelta(hours=app.config["AI_SCREENING_RETRY_WINDOW_HOURS"])
-        stale_before = now - timedelta(
-            minutes=app.config["AI_SCREENING_STALE_PENDING_MINUTES"]
-        )
+        stale_before = now - timedelta(minutes=app.config["AI_SCREENING_STALE_PENDING_MINUTES"])
         batch = app.config["AI_SCREENING_RETRY_BATCH"]
 
         unavailable_ids = list(

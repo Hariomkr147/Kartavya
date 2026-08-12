@@ -45,9 +45,7 @@ class CitizenStats:
     closed_at_timestamps: list[datetime] = field(default_factory=list)
 
 
-def has_closures_within_window(
-    timestamps: list[datetime], days: int, count: int
-) -> bool:
+def has_closures_within_window(timestamps: list[datetime], days: int, count: int) -> bool:
     """True if `count` closures fall inside any rolling `days`-day window.
 
     Sliding window over the sorted list: if the (i + count - 1)th closure is

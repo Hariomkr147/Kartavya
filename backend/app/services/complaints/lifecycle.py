@@ -301,15 +301,31 @@ def review_evidence(
         new_status = lifecycle.VERDICT_TARGET[verdict]
 
         if verdict == EvidenceVerdict.VALID:
-            category_sla_hours = db.session.execute(
-                select(ComplaintCategory.sla_hours).where(
-                    ComplaintCategory.id == complaint.category_id
-                )
-            ).scalar_one()
+            # ONLY the first acceptance starts the clock. A VALID verdict is also
+            # how a complaint comes back from an officer's post-acceptance recall
+            # (UNDER_REVIEW -> NEEDS_MORE_EVIDENCE -> citizen re-uploads -> here),
+            # and that second one RESUMES — `resubmit_evidence` already folded the
+            # paused span into `sla_paused_seconds` on the way in.
+            #
+            # Restarting here instead would be wrong three times over: the officer
+            # could zero a nearly-overdue deadline by asking for another photo;
+            # the paused span would be excluded twice (once by the later start,
+            # again by sla_paused_seconds) so every SLA-derived figure would read
+            # short by exactly that span; and re-reading sla_hours would break the
+            # frozen-at-acceptance snapshot that survives an admin's SLA edit.
+            #
+            # Mirrors `wasFirstAcceptance` in the reference implementation,
+            # frontend/src/mocks/handlers/officer.ts.
+            if complaint.sla_started_at is None:
+                category_sla_hours = db.session.execute(
+                    select(ComplaintCategory.sla_hours).where(
+                        ComplaintCategory.id == complaint.category_id
+                    )
+                ).scalar_one()
 
-            target, started = sla.start(now, category_sla_hours)
-            extra_values["sla_target_hours"] = target
-            extra_values["sla_started_at"] = started
+                target, started = sla.start(now, category_sla_hours)
+                extra_values["sla_target_hours"] = target
+                extra_values["sla_started_at"] = started
         elif verdict == EvidenceVerdict.NEEDS_MORE_EVIDENCE:
             new_pause = sla.pause(complaint.sla_started_at, now)
             if new_pause:
@@ -836,10 +852,10 @@ def review_dispute(
 ) -> Complaint:
     """The ONLY exit from REOPENED, and it belongs to the admin.
 
-      * UPHELD   -> IN_PROGRESS (back to the officer).
-      * REJECTED -> CLOSED with ZERO points — same as an auto-close. A citizen
-        must not be able to use a losing dispute to manufacture a second shot at
-        the reward they gave up by disputing instead of confirming.
+    * UPHELD   -> IN_PROGRESS (back to the officer).
+    * REJECTED -> CLOSED with ZERO points — same as an auto-close. A citizen
+      must not be able to use a losing dispute to manufacture a second shot at
+      the reward they gave up by disputing instead of confirming.
     """
     with transaction():
         complaint = db.session.get(Complaint, complaint_id)

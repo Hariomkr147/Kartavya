@@ -133,8 +133,10 @@ def get_officer_queue(
         ).all()
     )
 
-    return rows, Pagination(page=page, page_size=page_size, total_items=total_items), (
-        build_serialization_context(rows, now)
+    return (
+        rows,
+        Pagination(page=page, page_size=page_size, total_items=total_items),
+        (build_serialization_context(rows, now)),
     )
 
 

@@ -42,10 +42,10 @@ def parse_model(model: type[M], data: Any) -> M:
 def validate_body(model: type[M]) -> Callable[[F], F]:
     """Parse and validate the JSON body, passing it in as `body=`.
 
-        @bp.post("/complaints/<complaint_id>/dispute")
-        @require_role(UserRole.CITIZEN)
-        @validate_body(DisputeRequest)
-        def dispute(complaint_id: str, body: DisputeRequest): ...
+    @bp.post("/complaints/<complaint_id>/dispute")
+    @require_role(UserRole.CITIZEN)
+    @validate_body(DisputeRequest)
+    def dispute(complaint_id: str, body: DisputeRequest): ...
     """
 
     def decorator(view: F) -> F:

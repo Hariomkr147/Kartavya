@@ -97,9 +97,7 @@ class BaseConfig:
         self.SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", self.JWT_SECRET)
 
         # --- Photo storage ---
-        self.UPLOAD_DIR = Path(
-            os.environ.get("UPLOAD_DIR", BACKEND_ROOT / "instance" / "uploads")
-        )
+        self.UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR", BACKEND_ROOT / "instance" / "uploads"))
         self.MAX_UPLOAD_BYTES = _env_int("MAX_UPLOAD_BYTES", 5 * 1024 * 1024)
         self.MAX_PHOTOS_PER_COMPLAINT = 3
         self.ALLOWED_PHOTO_MIME_TYPES = ("image/jpeg", "image/png")
@@ -111,9 +109,7 @@ class BaseConfig:
         self.AI_BREAKER_COOLDOWN_SECONDS = _env_int("AI_BREAKER_COOLDOWN_SECONDS", 120)
         self.AI_WORKER_THREADS = _env_int("AI_WORKER_THREADS", 3)
         self.AI_API_KEY = os.environ.get("AI_API_KEY", "")
-        self.AI_API_URL = os.environ.get(
-            "AI_API_URL", "https://api.openai.com/v1/chat/completions"
-        )
+        self.AI_API_URL = os.environ.get("AI_API_URL", "https://api.openai.com/v1/chat/completions")
         self.AI_MODEL_NAME = os.environ.get("AI_MODEL_NAME", "gpt-4o-mini")
         self.AI_LOCAL_URL = os.environ.get("AI_LOCAL_URL", "http://localhost:11434")
         self.AI_LOCAL_VISION_MODEL = os.environ.get("AI_LOCAL_VISION_MODEL", "llava")
@@ -137,9 +133,7 @@ class BaseConfig:
         # eligible for all of it. At a 10-minute cadence that is ~36 attempts
         # for a photo the model will never accept (a corrupt file, say), which
         # is the price of not having an attempts column to count against.
-        self.AI_SCREENING_RETRY_WINDOW_HOURS = _env_int(
-            "AI_SCREENING_RETRY_WINDOW_HOURS", 6
-        )
+        self.AI_SCREENING_RETRY_WINDOW_HOURS = _env_int("AI_SCREENING_RETRY_WINDOW_HOURS", 6)
         # Caps what one sweep can cost against a rate-limited provider.
         self.AI_SCREENING_RETRY_BATCH = _env_int("AI_SCREENING_RETRY_BATCH", 25)
         # How long a row may sit PENDING before it is assumed orphaned — its
@@ -154,9 +148,7 @@ class BaseConfig:
         # sits far beyond any plausible queue wait. A duplicate is harmless
         # anyway — screening only rewrites advisory fields — but it wastes a
         # call against a rate-limited provider.
-        self.AI_SCREENING_STALE_PENDING_MINUTES = _env_int(
-            "AI_SCREENING_STALE_PENDING_MINUTES", 60
-        )
+        self.AI_SCREENING_STALE_PENDING_MINUTES = _env_int("AI_SCREENING_STALE_PENDING_MINUTES", 60)
 
         # --- Domain tuning ---
         # Cluster radius is config, not a domain constant: it is a tuning knob,
@@ -195,9 +187,7 @@ class BaseConfig:
                 f"KARTAVYA_ENV={self.ENV_NAME}. Set real secrets before starting."
             )
         if self.JWT_SECRET == self.PHOTO_SIGNING_KEY:
-            raise RuntimeError(
-                "JWT_SECRET and PHOTO_SIGNING_KEY must be different secrets."
-            )
+            raise RuntimeError("JWT_SECRET and PHOTO_SIGNING_KEY must be different secrets.")
 
 
 class DevelopmentConfig(BaseConfig):

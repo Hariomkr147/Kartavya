@@ -58,8 +58,7 @@ VISION_SYSTEM_PROMPT = (
 
 def get_vision_user_prompt(category: str) -> str:
     return (
-        "Please inspect this photo and verify if it matches "
-        f"the complaint category: '{category}'."
+        f"Please inspect this photo and verify if it matches the complaint category: '{category}'."
     )
 
 

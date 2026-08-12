@@ -45,16 +45,22 @@ def generate_zone_report(app: Flask, report_id: int) -> None:
         zone_name = zone.zone_name if zone else f"Zone {report.zone_id}"
 
         # Collect zone stats
-        total_complaints = db.session.scalar(
-            select(func.count(Complaint.id)).where(Complaint.zone_id == report.zone_id)
-        ) or 0
-
-        resolved_complaints = db.session.scalar(
-            select(func.count(Complaint.id)).where(
-                Complaint.zone_id == report.zone_id,
-                Complaint.status.in_([ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED]),
+        total_complaints = (
+            db.session.scalar(
+                select(func.count(Complaint.id)).where(Complaint.zone_id == report.zone_id)
             )
-        ) or 0
+            or 0
+        )
+
+        resolved_complaints = (
+            db.session.scalar(
+                select(func.count(Complaint.id)).where(
+                    Complaint.zone_id == report.zone_id,
+                    Complaint.status.in_([ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED]),
+                )
+            )
+            or 0
+        )
 
         open_complaints = total_complaints - resolved_complaints
 

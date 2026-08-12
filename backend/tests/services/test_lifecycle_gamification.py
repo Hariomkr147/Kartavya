@@ -82,8 +82,9 @@ def test_dispute_resolution(
 
     app = Flask(__name__)
     app.config["UPLOAD_DIR"] = "/tmp"
-    with app.app_context(), patch(
-        "app.services.complaints.lifecycle.validate_dispute", return_value=Ok()
+    with (
+        app.app_context(),
+        patch("app.services.complaints.lifecycle.validate_dispute", return_value=Ok()),
     ):
         result = dispute_resolution(
             complaint_id=10,

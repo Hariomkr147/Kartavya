@@ -255,20 +255,12 @@ def test_officers_and_admins_are_never_ranked(platform, citizen, officer, admin)
 
 
 def test_the_gamification_group_is_citizen_only(platform, citizen, officer, admin):
-    """All four gamification-ish reads are guarded the same way.
+    """All four of these reads are guarded the same way, and now say so.
 
-    ⚠ DOCS GAP, not a code bug: `openapi.yaml` documents a 403 on `/feed` and
-    `POST /complaints` ("Only citizens can ...") but omits it from these four,
-    which are guarded identically in `api/citizen/routes.py`. The contract
-    should gain the same 403 on all four.
-
-    One of them needs a decision rather than a doc patch. `/leaderboard`'s
-    `currentUser` is specified as "`null` only when the caller has no row on
-    this board at all — i.e. they are not a ranked citizen", which describes a
-    non-citizen reader that the guard makes unreachable. A public ranking is
-    the one member of this group an officer could plausibly be shown, so
-    either that sentence is reworded or the guard opens up — and if it opens
-    up, `scope=zone` needs an answer for admins, who have no `zone_id`.
+    The 403 used to be implemented on all four and documented on none, while
+    `/feed` and `POST /complaints` — guarded identically — did document it.
+    `openapi.yaml` now carries it on all six, so this test is checking the
+    contract rather than just the code.
     """
     for path in (
         "/complaints/my",

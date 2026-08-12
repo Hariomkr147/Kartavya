@@ -83,12 +83,8 @@ def test_get_public_feed_success_and_scoping(seeded_app, client, session, auth_h
 
 
 def test_leaderboard_sequential_ranks_and_filtering(seeded_app, client, session, auth_header):
-    c1 = create_user(
-        session, role=UserRole.CITIZEN, email="lead1@example.com", name="Alice"
-    )
-    c2 = create_user(
-        session, role=UserRole.CITIZEN, email="lead2@example.com", name="Bob"
-    )
+    c1 = create_user(session, role=UserRole.CITIZEN, email="lead1@example.com", name="Alice")
+    c2 = create_user(session, role=UserRole.CITIZEN, email="lead2@example.com", name="Bob")
 
     # Award points to c2 using PointsReason enum (P6-4)
     ledger_entry = PointsLedger(

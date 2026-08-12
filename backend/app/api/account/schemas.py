@@ -59,9 +59,7 @@ def serialize_user(user: User) -> dict[str, Any]:
     """
     return {
         "id": str(user.id),
-        "role": (
-            str(user.role.value) if hasattr(user.role, "value") else str(user.role)
-        ),
+        "role": (str(user.role.value) if hasattr(user.role, "value") else str(user.role)),
         "name": user.full_name,
         "email": user.email,
         "displayName": user.display_name,

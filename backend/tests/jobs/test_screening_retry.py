@@ -125,9 +125,7 @@ def test_stale_pending_row_is_requeued_without_a_status_change(
     assert captured_submissions == [evidence.id]
 
 
-def test_recently_pending_row_is_left_alone(
-    retry_app, session, complaint, captured_submissions
-):
+def test_recently_pending_row_is_left_alone(retry_app, session, complaint, captured_submissions):
     """A screening call genuinely in flight must not be duplicated."""
     add_evidence(session, complaint, status=AiScreenStatus.PENDING, age=timedelta(minutes=1))
 
@@ -137,9 +135,7 @@ def test_recently_pending_row_is_left_alone(
 
 def test_done_rows_are_never_touched(retry_app, session, complaint, captured_submissions):
     """Re-screening a finished row would overwrite a real verdict."""
-    evidence = add_evidence(
-        session, complaint, status=AiScreenStatus.DONE, age=timedelta(hours=2)
-    )
+    evidence = add_evidence(session, complaint, status=AiScreenStatus.DONE, age=timedelta(hours=2))
     session.get(ComplaintEvidence, evidence.id).ai_note = "matches the category"
     session.commit()
 
@@ -163,8 +159,7 @@ def test_rows_past_the_retry_window_are_abandoned(
 
     session.expire_all()
     assert (
-        session.get(ComplaintEvidence, evidence.id).ai_screen_status
-        is AiScreenStatus.UNAVAILABLE
+        session.get(ComplaintEvidence, evidence.id).ai_screen_status is AiScreenStatus.UNAVAILABLE
     )
     assert captured_submissions == []
 
@@ -189,9 +184,7 @@ def test_sweeper_is_a_no_op_when_screening_is_disabled(
     retry_app, session, complaint, captured_submissions
 ):
     retry_app.config["AI_SCREENING_ENABLED"] = False
-    add_evidence(
-        session, complaint, status=AiScreenStatus.UNAVAILABLE, age=timedelta(minutes=30)
-    )
+    add_evidence(session, complaint, status=AiScreenStatus.UNAVAILABLE, age=timedelta(minutes=30))
 
     assert sweep_screening_retries(retry_app) == 0
     assert captured_submissions == []

@@ -117,9 +117,11 @@ def test_rejected_verdict_applies_the_penalty_instead_of_crashing(seeded_app, se
     )
 
     assert detail.complaint.status is ComplaintStatus.REJECTED
-    penalty = session.query(PointsLedger).filter_by(
-        citizen_id=citizen.id, reason=PointsReason.REJECTED_PENALTY
-    ).one()
+    penalty = (
+        session.query(PointsLedger)
+        .filter_by(citizen_id=citizen.id, reason=PointsReason.REJECTED_PENALTY)
+        .one()
+    )
     assert penalty.points_change == -20
     assert penalty.complaint_id == complaint.id
 
@@ -285,9 +287,7 @@ def test_cascaded_members_get_a_system_history_row(seeded_app, session, world):
 # --- ZoneSummary was missing two contract fields ------------------------------
 
 
-def test_zone_summary_counts_clusters_and_treats_closed_as_resolved(
-    seeded_app, session, world
-):
+def test_zone_summary_counts_clusters_and_treats_closed_as_resolved(seeded_app, session, world):
     from app.services.analytics.zone import zone_summary
 
     zone, category, _officer, citizen, _admin = world

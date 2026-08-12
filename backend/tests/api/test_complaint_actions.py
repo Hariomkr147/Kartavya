@@ -286,9 +286,7 @@ def test_submit_additional_evidence_requires_a_photo(seeded_app, session, auth_h
     assert session.get(Complaint, complaint.id).status is ComplaintStatus.NEEDS_MORE_EVIDENCE
 
 
-def test_submit_additional_evidence_rejects_oversized_photo(
-    seeded_app, session, auth_header
-):
+def test_submit_additional_evidence_rejects_oversized_photo(seeded_app, session, auth_header):
     client = seeded_app.test_client()
     zone, category, citizen, _ = _base_entities(session)
     complaint = _create_complaint(
@@ -1028,9 +1026,7 @@ def test_duplicate_cluster_confirm_leaves_the_reward_for_the_next_member(
     # The duplicate confirm credited nothing.
     assert (
         session.execute(
-            select(func.count(PointsLedger.id)).where(
-                PointsLedger.complaint_id == complaints[1].id
-            )
+            select(func.count(PointsLedger.id)).where(PointsLedger.complaint_id == complaints[1].id)
         ).scalar_one()
         == 0
     )
@@ -1195,9 +1191,7 @@ def test_dispute_resolution_rejects_blank_reason(seeded_app, session, auth_heade
 
 
 @pytest.mark.parametrize("photo_kind", ["invalid", "oversized"])
-def test_dispute_resolution_rejects_invalid_photo(
-    seeded_app, session, auth_header, photo_kind
-):
+def test_dispute_resolution_rejects_invalid_photo(seeded_app, session, auth_header, photo_kind):
     client = seeded_app.test_client()
     zone, category, citizen, _ = _base_entities(session)
     complaint = _create_complaint(
@@ -1393,9 +1387,7 @@ def test_complaint_actions_return_not_found_for_unknown_id(
 
 
 @pytest.mark.parametrize("action", ["evidence", "upvote", "confirm", "dispute"])
-def test_complaint_actions_reject_non_citizen_role(
-    seeded_app, session, auth_header, action
-):
+def test_complaint_actions_reject_non_citizen_role(seeded_app, session, auth_header, action):
     client = seeded_app.test_client()
     zone, category, citizen, _ = _base_entities(session)
     officer = _create_user(

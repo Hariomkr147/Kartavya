@@ -14,6 +14,7 @@ from app.models import Complaint, User, Zone
 def list_zones(*, active_only: bool = False) -> list[Zone]:
     """GET /zones."""
     from app.extensions import db
+
     q = db.select(Zone)
     if active_only:
         q = q.filter_by(is_active=True)
@@ -23,6 +24,7 @@ def list_zones(*, active_only: bool = False) -> list[Zone]:
 def suggest_zone(*, latitude: float, longitude: float) -> Zone | None:
     """POST /zones/suggest."""
     from app.domain.geo import nearest_active_zone
+
     zones = list_zones(active_only=True)
     return nearest_active_zone(zones, latitude, longitude)
 

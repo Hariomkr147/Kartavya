@@ -267,9 +267,7 @@ def test_complaint_list_combines_category_date_and_repeated_status_filters(
         headers=headers,
     )
     assert response.status_code == 200
-    assert {item["id"] for item in response.get_json()["data"]} == {
-        str(row.id) for row in included
-    }
+    assert {item["id"] for item in response.get_json()["data"]} == {str(row.id) for row in included}
 
 
 def test_complaint_list_sla_filter_uses_derived_clock(seeded_app, client, session, admin_setup):
@@ -652,9 +650,7 @@ def test_override_relinks_reclassified_complaint_to_nearby_matching_standalone(
     assert replacement.category_id == categories[1].id
     assert replacement.report_count == 2
     assert replacement.unique_reporter_count == 2
-    assert (
-        session.query(ComplaintCluster).filter_by(category_id=categories[0].id).count() == 0
-    )
+    assert session.query(ComplaintCluster).filter_by(category_id=categories[0].id).count() == 0
 
 
 def test_override_relinks_reclassified_complaint_to_nearest_existing_cluster(
@@ -1070,9 +1066,7 @@ def test_user_delete_reports_every_audit_blocker_without_partial_deletion(
 
     response = client.delete(f"{API}/admin/users/{officer.id}", headers=headers)
     assert response.status_code == 409
-    details = {
-        item["field"]: item["issue"] for item in response.get_json()["error"]["details"]
-    }
+    details = {item["field"]: item["issue"] for item in response.get_json()["error"]["details"]}
     assert details == {
         "complaintsAssigned": "1",
         "progressNotes": "1",
@@ -1094,13 +1088,9 @@ def test_user_delete_reports_every_audit_blocker_without_partial_deletion(
         )
     )
     session.commit()
-    ledger_response = client.delete(
-        f"{API}/admin/users/{ledger_owner.id}", headers=headers
-    )
+    ledger_response = client.delete(f"{API}/admin/users/{ledger_owner.id}", headers=headers)
     assert ledger_response.status_code == 409
-    assert ledger_response.get_json()["error"]["details"] == [
-        {"field": "ledgerRows", "issue": "1"}
-    ]
+    assert ledger_response.get_json()["error"]["details"] == [{"field": "ledgerRows", "issue": "1"}]
     assert client.delete(f"{API}/admin/users/999999", headers=headers).status_code == 404
 
 
@@ -1166,9 +1156,7 @@ def test_zone_delete_reports_complaint_and_officer_blockers_together(
 
     response = client.delete(f"{API}/admin/zones/{zone.id}", headers=headers)
     assert response.status_code == 409
-    details = {
-        item["field"]: item["issue"] for item in response.get_json()["error"]["details"]
-    }
+    details = {item["field"]: item["issue"] for item in response.get_json()["error"]["details"]}
     assert details == {"complaints": "1", "officers": "1"}
     assert session.get(Zone, zone.id) is not None
 
@@ -1235,9 +1223,10 @@ def test_sla_update_is_prospective(seeded_app, client, session, admin_setup):
         == 404
     )
     for body in ({}, {"targetHours": 24, "unexpected": True}, {"targetHours": 1.5}):
-        assert client.patch(
-            f"{API}/admin/slas/{cat.id}", headers=headers, json=body
-        ).status_code == 400
+        assert (
+            client.patch(f"{API}/admin/slas/{cat.id}", headers=headers, json=body).status_code
+            == 400
+        )
 
 
 def test_settings_get_update_and_validation(seeded_app, client, admin_setup):
@@ -1260,9 +1249,7 @@ def test_settings_get_update_and_validation(seeded_app, client, admin_setup):
         {"autoCloseTimeoutHours": 24, "unexpected": True},
         {"autoCloseTimeoutHours": 1.5},
     ):
-        assert client.patch(
-            f"{API}/admin/settings", headers=headers, json=body
-        ).status_code == 400
+        assert client.patch(f"{API}/admin/settings", headers=headers, json=body).status_code == 400
 
 
 def test_query_validation_rejects_unknown_fields_and_bad_period(seeded_app, client, admin_setup):

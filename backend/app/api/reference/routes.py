@@ -23,6 +23,7 @@ class ZoneSuggestionRequest(BaseModel):
     latitude: float
     longitude: float
 
+
 bp = Blueprint("reference", __name__)
 
 

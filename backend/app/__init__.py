@@ -116,9 +116,10 @@ def _register_health(app: Flask) -> None:
 
 
 def _register_cli(app: Flask) -> None:
-    from app.seed import seed_command
+    from app.seed import seed_command, verify_clusters_command
 
     app.cli.add_command(seed_command)
+    app.cli.add_command(verify_clusters_command)
 
 
 def _init_jobs(app: Flask) -> None:

@@ -11,7 +11,7 @@ import {
 import { sortComplaints } from "../lib/sort";
 import { severityLabel } from "../lib/severity";
 import { avgResolutionHours, slaLabel } from "../lib/sla";
-import { cascadeClusterResolution } from "../lib/cluster";
+import { cascadeClusterResolution, exitClusterIfTerminal } from "../lib/cluster";
 import { awardPoints } from "../lib/points";
 import {
   isOfficerTargetStatus,
@@ -83,6 +83,8 @@ function applyOfficerTransition(
     remark: note ?? null,
     createdAt: now,
   });
+
+  exitClusterIfTerminal(complaint);
 }
 
 export const officerHandlers = [
@@ -217,6 +219,7 @@ export const officerHandlers = [
           createdAt: now,
         });
         awardPoints(complaint.citizenId, complaint.id, "REJECTED_PENALTY");
+        exitClusterIfTerminal(complaint);
       }
 
       persist();

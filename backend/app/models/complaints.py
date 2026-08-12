@@ -59,7 +59,11 @@ class ComplaintCluster(TimestampMixin, db.Model):
 
     updated_at: Mapped[datetime] = mapped_column(nullable=False, default=utcnow, onupdate=utcnow)
 
-    members: Mapped[list[Complaint]] = relationship(back_populates="cluster")
+    #: Current members only. `former_cluster_id` is a second FK to this
+    #: table, so the join has to say which one it means.
+    members: Mapped[list[Complaint]] = relationship(
+        back_populates="cluster", foreign_keys="Complaint.cluster_id"
+    )
 
     __table_args__ = (Index("ix_complaint_clusters_category_zone", "category_id", "zone_id"),)
 
@@ -87,9 +91,19 @@ class Complaint(TimestampMixin, db.Model):
         ForeignKey("complaint_categories.id", ondelete="RESTRICT"), nullable=False
     )
 
-    #: Never cleared by a dispute — cluster membership is permanent, which is
-    #: what stops a disputed-and-refixed member masquerading as a standalone +50.
+    #: Never cleared by a dispute — membership survives the dispute-and-refix
+    #: loop, which is what stops a disputed-and-refixed member masquerading as
+    #: a standalone +50. It IS cleared when the complaint goes terminal; see
+    #: `former_cluster_id` and `services/complaints/clusters.exit_cluster`.
     cluster_id: Mapped[int | None] = mapped_column(
+        ForeignKey("complaint_clusters.id", ondelete="SET NULL")
+    )
+
+    #: Where `cluster_id` went when this complaint finished. The reward guards
+    #: ask a question about history — "was this citizen already paid inside
+    #: this cluster?" — so they must keep seeing complaints that have since
+    #: left it. Never cleared once set.
+    former_cluster_id: Mapped[int | None] = mapped_column(
         ForeignKey("complaint_clusters.id", ondelete="SET NULL")
     )
 
@@ -142,7 +156,9 @@ class Complaint(TimestampMixin, db.Model):
     resolved_at: Mapped[datetime | None] = mapped_column()
     closed_at: Mapped[datetime | None] = mapped_column()
 
-    cluster: Mapped[ComplaintCluster | None] = relationship(back_populates="members")
+    cluster: Mapped[ComplaintCluster | None] = relationship(
+        back_populates="members", foreign_keys=[cluster_id]
+    )
     evidence: Mapped[list[ComplaintEvidence]] = relationship(
         back_populates="complaint",
         cascade="all, delete-orphan",

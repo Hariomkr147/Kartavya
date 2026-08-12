@@ -9,12 +9,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 
 from app.domain import geo, severity
 from app.domain.enums import ComplaintStatus, PointsReason, StatusActor
 from app.domain.errors import ConflictError
-from app.domain.lifecycle import CASCADE_ELIGIBLE
+from app.domain.lifecycle import CASCADE_ELIGIBLE, TERMINAL
 from app.domain.severity import score
 from app.extensions import db
 from app.models import Complaint, ComplaintCluster, ComplaintUpvote, PointsLedger
@@ -69,6 +69,58 @@ def detach_for_admin_reclassification(*, complaint: Complaint, now: datetime) ->
     for member in affected:
         reporters = unique_reporters if member.cluster_id is not None else 1
         member.severity_score = severity.score(reporters, counts.get(member.id, 0))
+
+
+def exit_cluster(*, complaint: Complaint, now: datetime) -> int | None:
+    """Remove a finished complaint from its cluster. Returns the cluster it left.
+
+    A complaint in a terminal state (CLOSED / REJECTED / UNRESOLVABLE) can
+    never transition again, so it is not part of the work the cluster
+    represents any more. Leaving it in has three costs, all of which alpha
+    testing hit:
+
+    * `report_count` and `unique_reporter_count` keep counting reports nobody
+      can act on, and severity is derived from the reporter count — so a
+      cluster with one live complaint and five closed ones still advertises
+      itself as a six-reporter emergency.
+    * A cluster whose members have *all* finished never disappears. Nothing
+      can move it, nothing can be done to it, and it sits in the officer and
+      admin cluster lists forever. At real volumes that list becomes mostly
+      dead clusters.
+    * The cascade and the cluster-wide batch actions have to keep re-filtering
+      terminal members out at every call site, and a site that forgets is a
+      silent bug.
+
+    The cluster ROW is deliberately never deleted here, even when the last
+    member leaves. `complaint_clusters.reward_granted` is the one-time +50
+    latch, and deleting the row would reset it — two members of the same
+    cluster closing would then pay +50 twice. The row survives as a record;
+    `is_dissolved` is what hides it from the UI.
+    """
+    cluster_id = complaint.cluster_id
+    if cluster_id is None:
+        return None
+
+    complaint.cluster_id = None
+    # Keep the audit/reward link. See `citizen_already_rewarded_in_cluster`.
+    if complaint.former_cluster_id is None:
+        complaint.former_cluster_id = cluster_id
+    db.session.flush()
+
+    recompute_cluster_aggregates(cluster_id=cluster_id, now=now)
+    return cluster_id
+
+
+def live_member_count(*, cluster_id: int) -> int:
+    """Members that can still move. This is what "the cluster" means now."""
+    return int(
+        db.session.execute(
+            select(func.count(Complaint.id)).where(
+                Complaint.cluster_id == cluster_id,
+                Complaint.status.not_in(TERMINAL),
+            )
+        ).scalar_one()
+    )
 
 
 def link_new_complaint(*, complaint: Complaint, radius_meters: float, now: datetime) -> None:
@@ -291,7 +343,13 @@ def citizen_already_rewarded_in_cluster(*, cluster_id: int, citizen_id: int) -> 
             .join(Complaint, Complaint.id == PointsLedger.complaint_id)
             .where(
                 PointsLedger.citizen_id == citizen_id,
-                Complaint.cluster_id == cluster_id,
+                # Current OR former membership: a complaint that was paid and
+                # then closed has since left the cluster, and forgetting it
+                # here would let the same citizen collect a second time.
+                or_(
+                    Complaint.cluster_id == cluster_id,
+                    Complaint.former_cluster_id == cluster_id,
+                ),
                 PointsLedger.reason.in_(
                     [
                         PointsReason.COMPLAINT_CLOSED,

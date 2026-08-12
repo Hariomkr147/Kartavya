@@ -12,6 +12,7 @@ from sqlalchemy import Select, select
 
 from app.domain.enums import UserRole
 from app.domain.errors import ForbiddenError, NotFoundError
+from app.domain.lifecycle import TERMINAL
 from app.models import Complaint, ComplaintCluster, User
 
 
@@ -31,8 +32,25 @@ def visible_complaints(user: User) -> Select[tuple[Complaint]]:
 
 
 def visible_clusters(user: User) -> Select[tuple[ComplaintCluster]]:
-    """Clusters follow the same rule. Citizens have no cluster endpoints."""
-    query = select(ComplaintCluster)
+    """Clusters follow the same rule. Citizens have no cluster endpoints.
+
+    Dissolved clusters are filtered out here, at the single point every cluster
+    read goes through, so no endpoint has to remember to exclude them.
+
+    A cluster is dissolved once it has no member that can still move — every
+    complaint in it reached CLOSED, REJECTED or UNRESOLVABLE and left. Nothing
+    can be done to such a cluster: it cannot cascade, cannot be batch-updated,
+    cannot take a note. Showing it is pure noise, and the noise accumulates
+    forever, which is what alpha testing surfaced. The row itself is kept (it
+    holds the one-time reward latch) — it is simply not a live cluster any
+    more.
+    """
+    live_members = (
+        select(Complaint.cluster_id)
+        .where(Complaint.cluster_id.is_not(None), Complaint.status.not_in(TERMINAL))
+        .distinct()
+    )
+    query = select(ComplaintCluster).where(ComplaintCluster.id.in_(live_members))
     if user.role is UserRole.OFFICER:
         if user.zone_id is None:
             raise ForbiddenError("Your account is not assigned to a zone.")

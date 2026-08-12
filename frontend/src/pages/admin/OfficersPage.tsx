@@ -20,16 +20,12 @@ import { useZones } from "@/hooks/useZones";
 import { useOfficersPerformance } from "@/hooks/useOfficersPerformance";
 import { useSortableRows } from "@/hooks/useSortableRows";
 import type { OfficerPerformance, User } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 type Period = "this_month" | "last_month" | "all_time" | "custom";
 
 type OfficerSortKey =
-  | "name"
-  | "zone"
-  | "totalHandled"
-  | "onTimePct"
-  | "acceptPct"
-  | "avgResolutionHours";
+  "name" | "zone" | "totalHandled" | "onTimePct" | "acceptPct" | "avgResolutionHours";
 
 interface OfficerRow {
   officer: User;
@@ -51,7 +47,12 @@ export function AdminOfficersPage() {
   const [expandedOfficerId, setExpandedOfficerId] = useState<string | null>(null);
 
   const { data: zones } = useZones();
-  const { data: officers, isLoading: officersLoading } = useAdminUsers({
+  const {
+    data: officers,
+    isLoading: officersLoading,
+    isFetching: officersFetching,
+    refetch: refetchOfficers,
+  } = useAdminUsers({
     role: "OFFICER",
     zoneId: zoneFilter || undefined,
     pageSize: 100,
@@ -88,14 +89,24 @@ export function AdminOfficersPage() {
     zone: (r) => r.zoneName,
     totalHandled: (r) => r.perf?.totalHandled ?? null,
     onTimePct: (r) => onTimePct(r.perf),
-    acceptPct: (r) => (r.perf?.acceptRejectRatio != null ? r.perf.acceptRejectRatio * 100 : null),
+    acceptPct: (r) =>
+      r.perf?.acceptRejectRatio != null ? r.perf.acceptRejectRatio * 100 : null,
     avgResolutionHours: (r) => r.perf?.avgResolutionHours ?? null,
   });
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6">
       <div>
-        <h1 className="font-display text-display-sm font-semibold text-ink">Officers</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="font-display text-display-sm font-semibold text-ink">
+            Officers
+          </h1>
+          <RefreshButton
+            onRefresh={refetchOfficers}
+            refreshing={officersFetching}
+            what="officers"
+          />
+        </div>
         <p className="text-ink-muted mt-1 text-sm">
           Performance scorecards across the whole officer roster.
         </p>
@@ -228,7 +239,9 @@ export function AdminOfficersPage() {
                     <TableCell>
                       <button
                         type="button"
-                        onClick={() => setExpandedOfficerId(expanded ? null : row.officer.id)}
+                        onClick={() =>
+                          setExpandedOfficerId(expanded ? null : row.officer.id)
+                        }
                         aria-expanded={expanded}
                         aria-label={expanded ? "Collapse scorecard" : "Expand scorecard"}
                         className="text-ink-muted hover:text-ink flex size-6 items-center justify-center rounded"
@@ -246,7 +259,9 @@ export function AdminOfficersPage() {
                         {row.officer.email}
                       </span>
                     </TableCell>
-                    <TableCell className="text-ink-muted text-sm">{row.zoneName}</TableCell>
+                    <TableCell className="text-ink-muted text-sm">
+                      {row.zoneName}
+                    </TableCell>
                     <TableCell>
                       {perfLoading ? (
                         <Skeleton className="h-4 w-8" />

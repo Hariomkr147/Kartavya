@@ -34,6 +34,7 @@ import { useOfficerQueue } from "@/hooks/useOfficerQueue";
 import { useOfficerQueueUpdates } from "@/hooks/useOfficerQueueUpdates";
 import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
 import type { ComplaintStatus } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 const ATTENTION_STATUSES: ComplaintStatus[] = [
   "SUBMITTED",
@@ -99,7 +100,12 @@ export function OfficerDashboardPage() {
     refetch: refetchAnalytics,
   } = useOfficerAnalytics(analyticsParams);
   const { data: zoneSummary } = useZoneSummary(user?.zoneId);
-  const { data: queueData, isLoading: queueLoading } = useOfficerQueue({
+  const {
+    data: queueData,
+    isLoading: queueLoading,
+    isFetching: queueFetching,
+    refetch: refetchQueue,
+  } = useOfficerQueue({
     status: ATTENTION_STATUSES,
     pageSize: FETCH_SIZE,
   });
@@ -134,9 +140,12 @@ export function OfficerDashboardPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-ink-faint text-sm font-medium">{formatFullDate()}</p>
-          <h1 className="font-display text-display-sm mt-0.5 font-semibold text-ink">
-            {analytics?.zoneName ?? "Zone"} Dashboard
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="font-display text-display-sm mt-0.5 font-semibold text-ink">
+              {analytics?.zoneName ?? "Zone"} Dashboard
+            </h1>
+            <RefreshButton onRefresh={refetchQueue} refreshing={queueFetching} what="this dashboard" />
+          </div>
           <p className="text-ink-muted mt-1 text-sm">
             Live status for your assigned zone — most urgent complaints first.
           </p>

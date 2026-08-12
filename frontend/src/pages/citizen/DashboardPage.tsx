@@ -33,6 +33,7 @@ import { useComplaintUpdates } from "@/hooks/useComplaintUpdates";
 import { staggerContainer, staggerItem } from "@/lib/motionVariants";
 import { formatFullDate, timeOfDayGreeting } from "@/lib/greeting";
 import type { Complaint, ComplaintStatus } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 function topBreakdown(
   complaints: Complaint[],
@@ -73,7 +74,7 @@ const RESOLVED_STATUSES = new Set<ComplaintStatus>(["RESOLVED", "CLOSED"]);
 
 export function CitizenDashboardPage() {
   const { user } = useAuth();
-  const { data, isLoading } = useMyComplaints({
+  const { data, isLoading, isFetching, refetch } = useMyComplaints({
     pageSize: FETCH_SIZE,
     sort: "-createdAt",
   });
@@ -118,9 +119,12 @@ export function CitizenDashboardPage() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-ink-faint text-sm font-medium">{formatFullDate()}</p>
-          <h1 className="font-display text-display-sm mt-0.5 font-semibold text-ink">
-            {timeOfDayGreeting()}, {firstName}
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="font-display text-display-sm mt-0.5 font-semibold text-ink">
+              {timeOfDayGreeting()}, {firstName}
+            </h1>
+            <RefreshButton onRefresh={refetch} refreshing={isFetching} what="this dashboard" />
+          </div>
           <p className="text-ink-muted mt-1 text-sm">
             Here's what's happening with your reports.
           </p>

@@ -16,6 +16,7 @@ import { useSearchParamState } from "@/hooks/useSearchParamState";
 import { iconForCategory } from "@/lib/categoryIcons";
 import { relativeTime } from "@/lib/datetime";
 import type { ComplaintStatus, SeverityLabel } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 const PAGE_SIZE = 12;
 // GET /clusters has no category/severity/search params, so — mirroring the
@@ -65,7 +66,10 @@ export function OfficerClustersPage() {
   );
   const [search, setSearch] = useSearchParamState("q", "");
 
-  const { data, isLoading } = useClusters({ page: 1, pageSize: FETCH_SIZE });
+  const { data, isLoading, isFetching, refetch } = useClusters({
+    page: 1,
+    pageSize: FETCH_SIZE,
+  });
   const loaded = useMemo(() => data?.data ?? [], [data]);
 
   const categoryOptions = useMemo(() => {
@@ -108,9 +112,12 @@ export function OfficerClustersPage() {
     <div className="mx-auto w-full max-w-5xl space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="font-display text-display-sm font-semibold text-ink">
-            Clusters
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="font-display text-display-sm font-semibold text-ink">
+              Clusters
+            </h1>
+            <RefreshButton onRefresh={refetch} refreshing={isFetching} what="clusters" />
+          </div>
           <p className="text-ink-muted mt-1 text-sm">
             Nearby same-category reports grouped as one physical issue in your zone.
           </p>

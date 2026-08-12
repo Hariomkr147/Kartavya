@@ -30,6 +30,7 @@ import { iconForCategory } from "@/lib/categoryIcons";
 import { relativeTime } from "@/lib/datetime";
 import { ApiRequestError } from "@/services/http";
 import type { ComplaintStatus } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 const STATUS_ORDER: ComplaintStatus[] = [
   "SUBMITTED",
@@ -57,7 +58,13 @@ export function OfficerClusterDetailPage() {
   const { clusterId } = useParams<{ clusterId: string }>();
   const { user } = useAuth();
   const { toast } = useToast();
-  const { data: cluster, isLoading, isError } = useCluster(clusterId);
+  const {
+    data: cluster,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useCluster(clusterId);
   const addClusterNote = useAddClusterProgressNote(clusterId ?? "");
   const { record: recordRecentlyViewed } = useRecentlyViewed(
     `officer:${user?.id ?? "anon"}`,
@@ -158,9 +165,12 @@ export function OfficerClusterDetailPage() {
             />
           </span>
           <div>
-            <h1 className="font-display text-xl font-semibold text-ink">
-              {cluster.category.name}
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="font-display text-xl font-semibold text-ink">
+                {cluster.category.name}
+              </h1>
+              <RefreshButton onRefresh={refetch} refreshing={isFetching} what="this cluster" />
+            </div>
             <p className="text-ink-faint font-mono text-xs">
               {cluster.id} · formed {relativeTime(cluster.createdAt)}
             </p>

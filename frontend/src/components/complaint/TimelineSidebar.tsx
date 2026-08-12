@@ -12,6 +12,8 @@ export interface TimelineSidebarProps {
   viewerOfficerId?: string;
   /** When present (and the complaint has reached UNDER_REVIEW), renders an approximate SLA progress bar above the timeline — visual only, the complaint's own `slaLabel` pill elsewhere on the page remains the authoritative on-time/delayed/overdue read. */
   slaTargetHours?: number | null;
+  /** See StatusTimeline — admin-only officer name resolution. */
+  officerLabel?: (officerId: string) => string;
 }
 
 /**
@@ -28,6 +30,7 @@ export function TimelineSidebar({
   viewerRole,
   viewerOfficerId,
   slaTargetHours,
+  officerLabel,
 }: TimelineSidebarProps) {
   if (!statusHistory || statusHistory.length === 0) return null;
 
@@ -66,6 +69,7 @@ export function TimelineSidebar({
           progressNotes={progressNotes}
           viewerRole={viewerRole}
           viewerOfficerId={viewerOfficerId}
+          officerLabel={officerLabel}
         />
       </section>
     </div>

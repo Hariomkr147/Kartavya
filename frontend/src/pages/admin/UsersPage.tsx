@@ -2,7 +2,13 @@ import { useMemo, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { MoreHorizontal, Plus, Search, ShieldAlert, Users as UsersIcon } from "lucide-react";
+import {
+  MoreHorizontal,
+  Plus,
+  Search,
+  ShieldAlert,
+  Users as UsersIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
@@ -10,7 +16,12 @@ import { Combobox } from "@/components/ui/Combobox";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Modal } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { Dropdown, DropdownTrigger, DropdownMenu, DropdownItem } from "@/components/ui/Dropdown";
+import {
+  Dropdown,
+  DropdownTrigger,
+  DropdownMenu,
+  DropdownItem,
+} from "@/components/ui/Dropdown";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
 import { useToast } from "@/components/ui/Toast";
@@ -32,6 +43,7 @@ import { useZones } from "@/hooks/useZones";
 import { useSortableRows } from "@/hooks/useSortableRows";
 import { ApiRequestError } from "@/services/http";
 import type { Role, User } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 type UserSortKey = "name" | "email" | "createdAt";
 
@@ -73,7 +85,7 @@ export function AdminUsersPage() {
   const [search, setSearch] = useState("");
 
   const { data: zones } = useZones();
-  const { data, isLoading } = useAdminUsers({
+  const { data, isLoading, isFetching, refetch } = useAdminUsers({
     role: roleFilter || undefined,
     zoneId: zoneFilter || undefined,
     active: activeFilter === "" ? undefined : activeFilter === "true",
@@ -165,7 +177,10 @@ export function AdminUsersPage() {
     <div className="w-full space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="font-display text-display-sm font-semibold text-ink">Users</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="font-display text-display-sm font-semibold text-ink">Users</h1>
+            <RefreshButton onRefresh={refetch} refreshing={isFetching} what="users" />
+          </div>
           <p className="text-ink-muted mt-1 text-sm">
             Every citizen, officer, and admin account.
           </p>

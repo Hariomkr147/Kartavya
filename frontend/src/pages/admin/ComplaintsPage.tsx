@@ -13,7 +13,12 @@ import { Pagination } from "@/components/ui/Pagination";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { StatusPill, SeverityPill, SlaPill } from "@/components/ui/pills";
-import { Dropdown, DropdownTrigger, DropdownMenu, DropdownItem } from "@/components/ui/Dropdown";
+import {
+  Dropdown,
+  DropdownTrigger,
+  DropdownMenu,
+  DropdownItem,
+} from "@/components/ui/Dropdown";
 import {
   Table,
   TableHead,
@@ -35,6 +40,7 @@ import { relativeTime } from "@/lib/datetime";
 import { exportComplaintsCsv, type GetAdminComplaintsParams } from "@/services/admin";
 import { ApiRequestError } from "@/services/http";
 import type { Complaint, ComplaintStatus, SlaLabel } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 const ALL_STATUSES: ComplaintStatus[] = [
   "SUBMITTED",
@@ -150,7 +156,7 @@ export function AdminComplaintsPage() {
     [zoneId, categoryId, statusList, slaLabel, dateFrom, dateTo, sort],
   );
 
-  const { data, isLoading } = useAdminComplaints({
+  const { data, isLoading, isFetching, refetch } = useAdminComplaints({
     ...filters,
     page,
     pageSize: PAGE_SIZE,
@@ -218,7 +224,11 @@ export function AdminComplaintsPage() {
   async function handleCopyLink() {
     try {
       await navigator.clipboard.writeText(window.location.href);
-      toast({ title: "Link copied", description: "This filtered view is now on your clipboard.", variant: "success" });
+      toast({
+        title: "Link copied",
+        description: "This filtered view is now on your clipboard.",
+        variant: "success",
+      });
     } catch {
       toast({ title: "Couldn't copy link", variant: "error" });
     }
@@ -294,7 +304,8 @@ export function AdminComplaintsPage() {
       });
     }
     return chips;
-  }, [zoneId, categoryId, slaLabel, dateFrom, dateTo, search, statuses, zones, categories]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoneId, categoryId, slaLabel, dateFrom, dateTo, search, statuses, zones, categories]);
 
   function handleClearAllFilters() {
     setRawSearchParams(
@@ -314,9 +325,16 @@ export function AdminComplaintsPage() {
     <div className="w-full space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="font-display text-display-sm font-semibold text-ink">
-            Complaints
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="font-display text-display-sm font-semibold text-ink">
+              Complaints
+            </h1>
+            <RefreshButton
+              onRefresh={refetch}
+              refreshing={isFetching}
+              what="complaints"
+            />
+          </div>
           <p className="text-ink-muted mt-1 text-sm">
             Every complaint across every zone, with full filtering.
           </p>
@@ -699,9 +717,7 @@ function ReassignZoneModal({
             id="reassign-zone"
             value={zoneId}
             onChange={setZoneId}
-            options={
-              zones?.map((z) => ({ value: z.id, label: z.name })) ?? []
-            }
+            options={zones?.map((z) => ({ value: z.id, label: z.name })) ?? []}
           />
         </div>
         <div>

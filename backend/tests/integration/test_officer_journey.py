@@ -386,19 +386,6 @@ def test_zone_analytics_and_summary_answer_for_this_zone_only(platform, officer,
     officer.get(f"/zones/{platform.zone_id('south')}/summary", expect=403)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BUG: services/complaints/lifecycle.py review_evidence() calls sla.start() "
-        "unconditionally on a VALID verdict, so the SECOND evidence round restarts "
-        "sla_started_at at `now` and re-snapshots sla_target_hours. The clock should "
-        "resume (resubmit_evidence already did that via sla.resume()), not restart. "
-        "Two consequences: an officer can reset a nearly-overdue complaint's clock by "
-        "recalling it for evidence, and the paused stretch is discounted twice — once "
-        "by the restart, again by the retained sla_paused_seconds. The guard is to "
-        "start the clock only when sla_started_at IS NULL."
-    ),
-)
 def test_average_resolution_excludes_the_paused_stretch(platform, officer, citizen):
     """`resolved_at - sla_started_at - sla_paused_seconds`, and nothing else.
 
@@ -439,6 +426,51 @@ def test_average_resolution_excludes_the_paused_stretch(platform, officer, citiz
 
     average = officer.get("/officer/analytics").get_json()["avgResolutionHoursThisMonth"]
     assert 5.9 <= average <= 6.2
+
+
+def test_a_recall_cannot_reset_an_overdue_deadline(platform, officer, citizen, admin):
+    """Regression: asking for another photo must not buy a fresh SLA window.
+
+    This is the half of the resume rule with an incentive attached — an officer
+    sitting on a complaint at 139 % of its target could otherwise zero the clock
+    by requesting a better photo. The admin's SLA edit in the middle is the
+    second half: the target was frozen at acceptance and a re-acceptance must
+    not re-read it.
+    """
+    created = platform.file_complaint(citizen, category="POTHOLE")
+    complaint_id = created["id"]
+    platform.accept(complaint_id)
+
+    # 72-hour target, aged 100 hours.
+    platform.db_shift(complaint_ids=[complaint_id], hours=100)
+    assert officer.complaint(complaint_id)["slaLabel"] == "OVERDUE"
+
+    admin.patch(f"/admin/slas/{platform.category_id('POTHOLE')}", json={"targetHours": 12})
+
+    officer.patch(
+        f"/officer/complaints/{complaint_id}/status",
+        json={"status": "NEEDS_MORE_EVIDENCE", "reason": "Send a wider shot."},
+    )
+    citizen.post(
+        f"/complaints/{complaint_id}/evidence",
+        expect=201,
+        data={"photo": png("wider.png")},
+        content_type="multipart/form-data",
+    )
+    resumed = officer.post(
+        f"/officer/complaints/{complaint_id}/evidence-review", json={"verdict": "VALID"}
+    ).get_json()
+
+    assert resumed["status"] == "UNDER_REVIEW"
+    assert resumed["slaLabel"] == "OVERDUE"
+    assert resumed["slaTargetHours"] == 72
+
+    # And it is still overdue everywhere the officer's queue looks at it.
+    overdue_ids = [
+        row["id"] for row in officer.get("/officer/complaints?slaLabel=OVERDUE").get_json()["data"]
+    ]
+    assert overdue_ids == [complaint_id]
+    assert officer.get("/officer/analytics").get_json()["overdueCount"] == 1
 
 
 def test_public_officer_stats_expose_a_count_and_no_name(platform, officer, citizen):

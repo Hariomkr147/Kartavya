@@ -390,7 +390,7 @@ paths:
       summary: File a new complaint
       description: >
         A citizen files a complaint by choosing one of the 12 categories,
-        uploading 1 to 3 photos (JPEG or PNG, max 5 MB each), and sharing a
+        uploading 1 to 3 photos (JPEG or PNG, max 1 MB each), and sharing a
         location (latitude/longitude).
 
 
@@ -3053,7 +3053,7 @@ components:
             type: string
             format: binary
           description: >
-            1 to 3 photos (JPEG or PNG, max 5 MB each). Each becomes its own
+            1 to 3 photos (JPEG or PNG, max 1 MB each). Each becomes its own
             evidence record (`sequence` 1, 2, 3…) with its own independent AI
             pre-screening note.
         latitude:
@@ -3401,7 +3401,7 @@ components:
         photo:
           type: string
           format: binary
-          description: JPEG or PNG, max 5 MB.
+          description: JPEG or PNG, max 1 MB.
 
     EvidenceReviewRequest:
       type: object
@@ -3589,7 +3589,7 @@ components:
           type: string
           format: binary
           description: >
-            Required proof that the issue persists — JPEG or PNG, max 5 MB.
+            Required proof that the issue persists — JPEG or PNG, max 1 MB.
             The burden of evidence for a dispute is on the citizen, the same
             way it is for the original complaint. Stored as the next
             `sequence` in the complaint's evidence history; it is never

@@ -405,18 +405,21 @@ a zone — only rename and deactivate — so a zone that gets seeded can never b
 Until an admin creates one, the catch-all `UNASSIGNED` is the only zone a citizen can register
 against.
 
-**Database — Neon, so data survives a restart.** Without `DATABASE_URL`, the app falls back to
-SQLite on the container's disk, which is ephemeral on Render's free plan: every deploy and every
-restart wipes the database and re-seeds it. Pointing it at a hosted Postgres fixes that, and
-Neon's free tier needs no credit card.
+**Database — Supabase (or Neon), so data survives a restart.** Without `DATABASE_URL`, the app
+falls back to SQLite on the container's disk, which is ephemeral on Render's free plan: every
+deploy and every restart wipes the database and re-seeds it. Pointing it at a hosted Postgres
+fixes that, and both providers' free tiers need no credit card.
 
-1. **neon.tech** → new project → **Connection string** → copy the **Pooled connection** (not the
-   direct one — 8 gunicorn threads open more connections than a free direct endpoint is meant to
-   hold).
+1. **supabase.com** → new project → **Project Settings → Database → Connection string** → copy the
+   **Transaction pooler** string (port 6543), not the direct connection — 8 gunicorn threads open
+   more connections than a free direct endpoint is meant to hold.
 2. Render → your service → **Environment** → set `DATABASE_URL` to that string, pasted verbatim.
    `app/settings.py` rewrites `postgres://` and `postgresql://` to name the psycopg driver, so
    there is nothing to hand-edit — SQLAlchemy 2 dropped the first alias, and the second selects
-   psycopg2, which this project does not install.
+   psycopg2, which this project does not install. It also disables psycopg's server-side prepared
+   statements on every Postgres connection, which Supabase's (and Neon's) transaction-mode pooler
+   requires — without that, queries intermittently fail with "prepared statement ... does not
+   exist" once the pooler hands a session to a different physical backend connection.
 3. Redeploy. The start command runs `alembic upgrade head` and `flask --app app seed` against the
    new database, so it comes up migrated and seeded.
 
@@ -424,9 +427,27 @@ Nothing else changes: the enums render as `CHECK` constraints on both engines, t
 declares `sqlite_where` **and** `postgresql_where`, and the SQLite `PRAGMA`s are skipped on any
 other driver. SQLite stays the default for local work and CI.
 
-> ⚠ **This does not save uploaded photos.** They live on the ephemeral disk, so after a restart the
-> surviving complaints have evidence images that answer `403` and render as the broken-image
-> placeholder. Persisting photos needs object storage, which is a separate change.
+**Photo storage — Supabase Storage, so uploads survive a restart too.** By default
+(`STORAGE_PROVIDER=local`) uploaded photos live on the container's ephemeral disk: after a
+restart, surviving complaints have evidence images that answer `403` and render as the
+broken-image placeholder — the database row survives, the file does not. To fix that:
+
+1. Same Supabase project as above → **Storage** → new bucket → any name, **Private** (leave
+   "Public bucket" off — this app's own signed photo URLs are what gate access, not a Supabase
+   policy, so a public bucket would let anyone who guesses an object key skip that check).
+2. **Project Settings → API** → copy the **`service_role`** key. ⚠️ This key bypasses the bucket's
+   Row Level Security entirely — set it only in Render's Environment tab, never in `render.yaml` or
+   a client.
+3. Render → your service → **Environment** → set `STORAGE_PROVIDER=supabase`, `SUPABASE_URL`
+   (`https://<project-ref>.supabase.co`), `SUPABASE_SERVICE_ROLE_KEY`, and
+   `SUPABASE_STORAGE_BUCKET` (the bucket name from step 1).
+4. Redeploy. No new photo needs re-uploading for old rows to work — this only governs where the
+   *next* upload lands; whatever is already on the ephemeral disk was already lost on the last
+   restart regardless.
+
+`app/infra/storage.py` and `app/infra/storage_supabase.py` are the whole implementation — no new
+pip dependency, since it talks to the Storage REST API directly the same way the AI provider
+adapters talk to their model endpoints.
 
 Keep `--workers 1`: with Postgres more workers are finally safe from the database's point of view,
 but each one starts its own APScheduler, so the auto-close sweeper would run once per worker.

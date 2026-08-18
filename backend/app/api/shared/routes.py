@@ -11,6 +11,7 @@ in `services/complaints/cluster_reads.py` and `services/analytics/zone.py`.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from io import BytesIO
 
 from flask import Blueprint, current_app, jsonify, request, send_file
 
@@ -90,20 +91,22 @@ def get_evidence_photo(evidence_id: int):
          caches the image exactly as long as the link is valid and no shared
          proxy caches it at all.
 
-    Served with `send_file` from UPLOAD_DIR, which sits outside the web root and
-    is never registered as a static directory.
+    Served via `photo_for_signed_request`, which reads from UPLOAD_DIR (outside
+    the web root, never registered as a static directory) or Supabase Storage
+    depending on STORAGE_PROVIDER — this route does not know which.
     """
     remaining_ttl = verify_photo_signature(
         evidence_id, request.args.get("exp"), request.args.get("sig")
     )
 
-    path = photo_for_signed_request(
+    result = photo_for_signed_request(
         evidence_id=evidence_id, upload_dir=current_app.config["UPLOAD_DIR"]
     )
-    if path is None:
+    if result is None:
         # Same answer as a bad signature — see rule 2.
         raise ForbiddenError("This photo link is not valid.")
 
-    response = send_file(path)
+    data, mime_type = result
+    response = send_file(BytesIO(data), mimetype=mime_type)
     response.headers["Cache-Control"] = f"private, max-age={remaining_ttl}"
     return response

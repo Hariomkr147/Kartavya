@@ -22,14 +22,18 @@ from app.settings import normalize_database_url
     [
         "postgres://u:p@ep-x.aws.neon.tech/neondb?sslmode=require",
         "postgresql://u:p@ep-x.aws.neon.tech/neondb?sslmode=require",
+        # Supabase's pooled ("Transaction") connection string: same rewrite,
+        # different host shape — the username itself embeds a dot.
+        "postgresql://postgres.abcdefghij:p@aws-0-us-east-1.pooler.supabase.com:6543/postgres",
     ],
 )
 def test_hosted_postgres_urls_gain_the_psycopg_driver(given: str) -> None:
     normalized = normalize_database_url(given)
     assert normalized.startswith("postgresql+psycopg://")
     # Credentials, host, database and query string must survive untouched —
-    # dropping `sslmode=require` would break the connection to Neon.
-    assert normalized.endswith("u:p@ep-x.aws.neon.tech/neondb?sslmode=require")
+    # dropping `sslmode=require` (or a Supabase pooler's port/username shape)
+    # would break the connection.
+    assert normalized.endswith(given.split("://", 1)[1])
 
 
 @pytest.mark.parametrize(

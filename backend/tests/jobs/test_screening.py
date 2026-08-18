@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from threading import Barrier
@@ -304,3 +305,65 @@ def test_screen_evidence_never_changes_complaint_status(seeded_app):
             ).scalar_one()
             == 0
         )
+
+
+# --- STORAGE_PROVIDER=supabase: the provider must see a real local path -------
+
+
+def test_screen_evidence_downloads_from_supabase_to_a_temp_file(seeded_app, monkeypatch):
+    """On the supabase backend there is nothing on UPLOAD_DIR to point a provider at.
+
+    `_local_photo_path` must download the object and hand the provider a path
+    to an actual file on disk containing those bytes — and that file must be
+    gone again once screening finishes.
+    """
+    from app.domain.enums import AiScreenStatus
+    from app.infra import storage_supabase
+
+    evidence_id = _evidence_fixture(seeded_app)
+    seeded_app.config["STORAGE_PROVIDER"] = "supabase"
+    monkeypatch.setattr(storage_supabase, "read_bytes", lambda *, file_path: b"\x89PNG-fake-bytes")
+
+    seen_paths = []
+
+    class RecordingProvider:
+        def screen_photo(self, path, category):
+            seen_paths.append(path)
+            with open(path, "rb") as handle:
+                content = handle.read()
+            assert content == b"\x89PNG-fake-bytes"
+            return ScreenResult(True, 0.9, "matches")
+
+        def zone_report(self, stats):  # pragma: no cover - not used by screening
+            raise AssertionError
+
+    screening.screen_evidence(seeded_app, evidence_id, _guarded(RecordingProvider()))
+
+    assert len(seen_paths) == 1
+    assert not os.path.exists(seen_paths[0]), "temp file must be cleaned up after screening"
+
+    result = _screen_result(seeded_app, evidence_id)
+    assert result["status"] is AiScreenStatus.DONE
+
+
+def test_screen_evidence_marks_unavailable_when_supabase_has_no_object(seeded_app, monkeypatch):
+    """A missing object must fail soft, like a missing local file already does —
+    and, unlike the local branch, must not even call the provider."""
+    from app.domain.enums import AiScreenStatus
+    from app.infra import storage_supabase
+
+    evidence_id = _evidence_fixture(seeded_app)
+    seeded_app.config["STORAGE_PROVIDER"] = "supabase"
+    monkeypatch.setattr(storage_supabase, "read_bytes", lambda *, file_path: None)
+
+    class UnreachableProvider:
+        def screen_photo(self, path, category):
+            raise AssertionError("must not be called when the object can't be fetched")
+
+        def zone_report(self, stats):  # pragma: no cover - not used by screening
+            raise AssertionError
+
+    screening.screen_evidence(seeded_app, evidence_id, _guarded(UnreachableProvider()))
+
+    result = _screen_result(seeded_app, evidence_id)
+    assert result["status"] is AiScreenStatus.UNAVAILABLE

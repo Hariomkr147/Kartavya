@@ -19,8 +19,9 @@ dependencies = [
     "python-dotenv>=1.0",
     "gunicorn>=22.0",
     # Postgres driver. SQLite stays the default for local work and CI; this is
-    # what lets DATABASE_URL point at a hosted Postgres (Neon) so deployed data
-    # survives a restart. `[binary]` ships a wheel, so no libpq build on Render.
+    # what lets DATABASE_URL point at a hosted Postgres (Neon, Supabase, ...)
+    # so deployed data survives a restart. `[binary]` ships a wheel, so no
+    # libpq build on Render.
     "psycopg[binary]>=3.1",
 ]
 

@@ -16,9 +16,9 @@ from flask import current_app
 from sqlalchemy import func, select
 
 from app.domain.enums import AiScreenStatus
-from app.domain.errors import DomainError, ValidationError
+from app.domain.errors import ValidationError
 from app.extensions import db
-from app.infra.storage import open_photo, remove_photo, store_photo, validate_photo
+from app.infra.storage import read_photo_bytes, remove_photo, store_photo, validate_photo
 from app.models import ComplaintEvidence
 
 
@@ -89,13 +89,14 @@ def attach_photos(
         raise
 
 
-def photo_for_signed_request(*, evidence_id: int, upload_dir: Path) -> Path | None:
-    """Resolve an evidence row's image for `GET /evidence/{id}/photo`.
+def photo_for_signed_request(*, evidence_id: int, upload_dir: Path) -> tuple[bytes, str] | None:
+    """Resolve an evidence row's image bytes + MIME type for `GET /evidence/{id}/photo`.
 
     Returns None — never raises — for every "cannot serve this" case: no such
-    row, a path that escapes UPLOAD_DIR, or a file missing from disk. The route
-    turns all of them into the same 403 it gives a bad signature, because a 404
-    here would let anyone enumerate which evidence IDs exist.
+    row, a path that escapes UPLOAD_DIR, a file missing from disk, or (on the
+    supabase backend) a 404 from Storage. The route turns all of them into the
+    same 403 it gives a bad signature, because a 404 here would let anyone
+    enumerate which evidence IDs exist.
 
     The signature has already been verified by the time this runs; this function
     performs no authorization of its own and must not be called without it.
@@ -103,7 +104,8 @@ def photo_for_signed_request(*, evidence_id: int, upload_dir: Path) -> Path | No
     evidence = db.session.get(ComplaintEvidence, evidence_id)
     if evidence is None:
         return None
-    try:
-        return open_photo(file_path=evidence.file_path, upload_dir=upload_dir)
-    except DomainError:
+    data = read_photo_bytes(file_path=evidence.file_path, upload_dir=upload_dir)
+    if data is None:
         return None
+    mime_type = "image/png" if evidence.file_path.lower().endswith(".png") else "image/jpeg"
+    return data, mime_type

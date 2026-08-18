@@ -37,17 +37,20 @@ services:
       #
       # Unset, the app falls back to SQLite on the container's disk — which is
       # ephemeral on the free plan, so every deploy and every restart wipes the
-      # database and re-seeds it. Point this at a hosted Postgres (Neon's free
-      # tier needs no card) and complaints, users and history outlive the
-      # container.
+      # database and re-seeds it. Point this at a hosted Postgres (Supabase's
+      # and Neon's free tiers both need no card) and complaints, users and
+      # history outlive the container.
       #
-      # Paste Neon's POOLED connection string verbatim: app/settings.py
+      # Paste the provider's POOLED connection string verbatim: app/settings.py
       # rewrites `postgres://` / `postgresql://` to name the psycopg driver, so
       # no hand-editing. Use the pooled endpoint, not the direct one — a free
       # instance with 8 gunicorn threads opens more connections than the direct
-      # endpoint is meant to hold.
+      # endpoint is meant to hold. For Supabase that's the "Transaction" string
+      # on port 6543; app/settings.py also disables server-side prepared
+      # statements for every Postgres connection, which that pooler requires.
       #
-      # ⚠ This does NOT save uploaded photos. They stay on the ephemeral disk,
+      # ⚠ Photos are separate from this. Unless STORAGE_PROVIDER below is set
+      # to `supabase`, uploaded photos stay on the container's ephemeral disk,
       # so after a restart surviving complaints have evidence images that
       # answer 403 and render as the broken-image placeholder.
       - key: DATABASE_URL
@@ -56,6 +59,22 @@ services:
         generateValue: true
       - key: PHOTO_SIGNING_KEY
         generateValue: true
+      # --- Photo storage: Supabase Storage, so photos survive a restart too ---
+      # local | supabase — see backend/.env.example for the full explanation.
+      # Leave at `local` (or delete these four keys) to keep today's behaviour
+      # of photos living on the ephemeral disk.
+      - key: STORAGE_PROVIDER
+        value: supabase
+      - key: SUPABASE_URL
+        sync: false
+      # ⚠ SECRET — bypasses the bucket's Row Level Security. Set in the
+      # dashboard's Environment tab, never in this file.
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # Must already exist in the Supabase project, and must be PRIVATE — this
+      # app's own signed URLs are what gate access, not a Supabase policy.
+      - key: SUPABASE_STORAGE_BUCKET
+        value: evidence-photos
       # Without this, app/seed.py falls back to the hardcoded "changeme123",
       # which is readable by anyone with repo access. Render generates a random
       # value - read it from the service's Environment tab to log in as admin.

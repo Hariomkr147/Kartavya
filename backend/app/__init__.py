@@ -65,7 +65,10 @@ def _init_extensions(app: Flask) -> None:
 
     # The upload directory must exist before the first photo arrives; creating
     # it lazily on the first POST is a race between concurrent uploads.
-    app.config["UPLOAD_DIR"].mkdir(parents=True, exist_ok=True)
+    # STORAGE_PROVIDER=supabase never touches it — skip so a read-only
+    # container filesystem isn't a startup requirement in that mode.
+    if app.config.get("STORAGE_PROVIDER", "local") == "local":
+        app.config["UPLOAD_DIR"].mkdir(parents=True, exist_ok=True)
 
 
 def _register_api(app: Flask) -> None:

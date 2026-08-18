@@ -75,13 +75,24 @@ class BaseConfig:
         )
         self.SQLALCHEMY_TRACK_MODIFICATIONS = False
         self.SQLALCHEMY_ECHO = _env_bool("SQLALCHEMY_ECHO", False)
-        # Postgres only. Neon (and any pooler) drops idle connections, and a
-        # pooled connection that died while the free instance was asleep
+        # Postgres only. Neon/Supabase (and any pooler) drop idle connections,
+        # and a pooled connection that died while the free instance was asleep
         # otherwise surfaces as a failed request on the next wake-up.
         if self.SQLALCHEMY_DATABASE_URI.startswith("postgresql"):
             self.SQLALCHEMY_ENGINE_OPTIONS = {
                 "pool_pre_ping": True,
                 "pool_recycle": 300,
+                # Supabase's pooled endpoint (Supavisor, port 6543) and Neon's
+                # pooled endpoint both run PgBouncer-style TRANSACTION-mode
+                # pooling: the physical backend connection can be swapped out
+                # between statements on what psycopg still thinks is one
+                # session. psycopg3 auto-prepares statements by name after a
+                # few uses, and a prepared statement created on one physical
+                # connection does not exist on the next one — it then fails
+                # with "prepared statement ... does not exist" under load.
+                # `prepare_threshold=None` turns server-side preparation off
+                # entirely. Harmless against a direct (unpooled) connection.
+                "connect_args": {"prepare_threshold": None},
             }
 
         # --- Secrets ---
@@ -97,10 +108,25 @@ class BaseConfig:
         self.SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", self.JWT_SECRET)
 
         # --- Photo storage ---
+        # local sits outside the web root on this container's disk (ephemeral
+        # on most free hosting tiers). supabase persists to a Supabase Storage
+        # bucket via app/infra/storage_supabase.py. Either way, file_path is an
+        # opaque key and the client never sees it — every photo URL is a signed
+        # link to GET /evidence/{id}/photo (app/core/signing.py), which is the
+        # thing that actually enforces privacy, not the storage backend.
+        self.STORAGE_PROVIDER = os.environ.get("STORAGE_PROVIDER", "local").strip().lower()
         self.UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR", BACKEND_ROOT / "instance" / "uploads"))
         self.MAX_UPLOAD_BYTES = _env_int("MAX_UPLOAD_BYTES", 5 * 1024 * 1024)
         self.MAX_PHOTOS_PER_COMPLAINT = 3
         self.ALLOWED_PHOTO_MIME_TYPES = ("image/jpeg", "image/png")
+        # STORAGE_PROVIDER=supabase only. The service_role key bypasses the
+        # bucket's Row Level Security entirely, so it must never reach a
+        # client — it lives only here and in app/infra/storage_supabase.py.
+        # The bucket must be PRIVATE: access control is enforced by our own
+        # HMAC-signed photo URLs (app/core/signing.py), not by Supabase.
+        self.SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+        self.SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+        self.SUPABASE_STORAGE_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "evidence-photos")
 
         # --- AI (never blocks a request; failure mode is None) ---
         self.AI_PROVIDER = os.environ.get("AI_PROVIDER", "stub")
@@ -188,6 +214,18 @@ class BaseConfig:
             )
         if self.JWT_SECRET == self.PHOTO_SIGNING_KEY:
             raise RuntimeError("JWT_SECRET and PHOTO_SIGNING_KEY must be different secrets.")
+        if self.STORAGE_PROVIDER not in {"local", "supabase"}:
+            raise RuntimeError(
+                f"Unknown STORAGE_PROVIDER={self.STORAGE_PROVIDER!r}. "
+                "Expected 'local' or 'supabase'."
+            )
+        if self.STORAGE_PROVIDER == "supabase" and not (
+            self.SUPABASE_URL and self.SUPABASE_SERVICE_ROLE_KEY
+        ):
+            raise RuntimeError(
+                "STORAGE_PROVIDER=supabase requires SUPABASE_URL and "
+                f"SUPABASE_SERVICE_ROLE_KEY while KARTAVYA_ENV={self.ENV_NAME}."
+            )
 
 
 class DevelopmentConfig(BaseConfig):

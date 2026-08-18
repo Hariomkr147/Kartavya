@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import logging
+import tempfile
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import timedelta
 from threading import Lock
 
@@ -56,6 +59,37 @@ def submit_evidence_screening_job(app: Flask, evidence_id: int) -> None:
     submit_evidence_screening(app, [evidence_id])
 
 
+@contextmanager
+def _local_photo_path(app: Flask, file_path: str) -> Iterator[str | None]:
+    """Yield a local filesystem path to a photo's bytes, for AI providers to read.
+
+    Both `local.py` and `remote.py` base64-encode from a path on disk. On
+    STORAGE_PROVIDER=local this is exactly the UPLOAD_DIR path it has always
+    been — unchanged, so a missing file still surfaces as the
+    FileNotFoundError that `GuardedProvider` already converts to None. On
+    STORAGE_PROVIDER=supabase, the object is downloaded to a temp file for the
+    duration of this block and removed after — nothing needs it on disk longer
+    than one screening call.
+
+    Yields None only when the bytes could not be fetched at all (supabase
+    only): the local branch never checks existence itself.
+    """
+    if (app.config.get("STORAGE_PROVIDER") or "local").strip().lower() == "supabase":
+        from app.infra.storage_supabase import read_bytes
+
+        data = read_bytes(file_path=file_path)
+        if data is None:
+            yield None
+            return
+        suffix = ".png" if file_path.lower().endswith(".png") else ".jpg"
+        with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
+            tmp.write(data)
+            tmp.flush()
+            yield tmp.name
+    else:
+        yield str(app.config["UPLOAD_DIR"] / file_path)
+
+
 def screen_evidence(
     app: Flask,
     evidence_id: int,
@@ -74,8 +108,8 @@ def screen_evidence(
             return
 
         provider = provider or _get_screening_provider(app)
-        path = app.config["UPLOAD_DIR"] / evidence.file_path
-        result = provider.screen_photo(str(path), category.category_name)
+        with _local_photo_path(app, evidence.file_path) as path:
+            result = None if path is None else provider.screen_photo(path, category.category_name)
         if result is None:
             evidence.ai_screen_status = AiScreenStatus.UNAVAILABLE
         else:

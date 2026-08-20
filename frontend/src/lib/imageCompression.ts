@@ -6,41 +6,57 @@
  * view later too, for the citizen, the officer, and anyone browsing the
  * public feed. Downscaling and re-encoding client-side fixes both.
  *
- * Fails soft to the original file for anything unsupported or unexpected: an
- * old browser without `createImageBitmap`, a corrupt image, a canvas that
- * refuses to encode. A slow upload beats a blocked one, and this is a nice-
- * to-have, never a requirement the rest of the flow depends on.
+ * The actual encoding is delegated to `browser-image-compression`, which
+ * replaced a hand-rolled canvas implementation that silently no-opped in
+ * production. Three things it does that the hand-rolled version did not:
+ * it binary-searches the quality instead of trying three fixed steps, so the
+ * result lands near the target rather than just under the ceiling; it runs
+ * off the main thread; and it works around Safari's maximum canvas area,
+ * above which `toBlob` yields a blank or null result — which the old code
+ * caught and turned into "return the original, uncompressed", the most likely
+ * reason uncompressed originals were reaching the bucket.
+ *
+ * Fails soft to the original file for anything unsupported or unexpected: a
+ * corrupt image, an encoder that refuses. A slow upload beats a blocked one,
+ * and this is a nice-to-have, never a requirement the rest of the flow
+ * depends on.
  */
 
+import imageCompression from "browser-image-compression";
+// Bundled and served from our own origin, never fetched from a CDN. The
+// library's worker calls `importScripts(libURL)`, and `libURL` defaults to a
+// jsdelivr URL — a third-party request on every photo upload, which would
+// also fail outright offline. `?url` makes Vite emit the dist file as a
+// hashed asset and hand us its path.
+import compressionLibUrl from "browser-image-compression/dist/browser-image-compression.js?url";
+
 const MAX_DIMENSION = 1920;
-// Tried in order until the result fits `targetMaxBytes` (or steps run out,
-// in which case the last, smallest attempt is used as a best effort).
-const QUALITY_STEPS = [0.82, 0.6, 0.45];
-// Below this, compressing isn't worth the CPU or the quality loss.
-const SKIP_COMPRESSION_BELOW_BYTES = 400 * 1024;
-const DEFAULT_TARGET_MAX_BYTES = 1 * 1024 * 1024;
+const JPEG_QUALITY = 0.8;
+/**
+ * What compression aims for, not a ceiling — the encoder can run out of
+ * quality steps, or fail and hand back the original, so an uploaded photo may
+ * still exceed this. The real limit is the backend's 2MB MAX_UPLOAD_BYTES,
+ * which `validate_photo` enforces server-side and FileDropzone mirrors as a
+ * backstop. Leave meaningful headroom between the two: a best-effort result
+ * that overshoots this target still needs to land under that cap, or the
+ * citizen gets their photo rejected instead of merely a larger upload.
+ */
+const DEFAULT_TARGET_MAX_BYTES = 800 * 1024;
+const BYTES_PER_MB = 1024 * 1024;
 
 const APP1_MARKER = 0xffe1;
 // "Exif\0\0" — the fixed identifier every EXIF APP1 payload starts with,
 // distinguishing it from other APP1 uses (e.g. XMP).
 const EXIF_IDENTIFIER = [0x45, 0x78, 0x69, 0x66, 0x00, 0x00];
 
-function canCompressInThisEnvironment(): boolean {
-  return (
-    typeof createImageBitmap === "function" &&
-    typeof document !== "undefined" &&
-    typeof HTMLCanvasElement !== "undefined" &&
-    typeof HTMLCanvasElement.prototype.toBlob === "function"
-  );
-}
-
 /**
  * Scans a JPEG's leading segments for its EXIF (APP1) block and returns the
  * raw bytes — marker, length, and payload together — or null if there isn't
- * one. GPS, if the photo carries it, lives inside this block; copying it
- * verbatim (never parsing or reinterpreting it) is what lets a resized photo
- * keep its location without this module having to understand EXIF's TIFF
- * structure at all.
+ * one. GPS, if the photo carries it, lives inside this block.
+ *
+ * Compression preserves this block itself (see `preserveExif` below); this
+ * function is what lets `hasExifSegment` verify that it actually did, since
+ * losing it would silently break GPS-based zone auto-suggestion.
  *
  * Stops at the first non-marker byte or Start-of-Scan (0xFFDA): EXIF, when
  * present, always appears in the handful of segments right after SOI, never
@@ -69,88 +85,59 @@ export function extractExifSegment(bytes: Uint8Array): Uint8Array | null {
   return null;
 }
 
-/** Splices an EXIF (APP1) segment into a JPEG immediately after its SOI marker. */
-export function injectExifSegment(
-  bytes: Uint8Array,
-  exifSegment: Uint8Array,
-): Uint8Array<ArrayBuffer> {
-  const out = new Uint8Array(bytes.length + exifSegment.length);
-  out.set(bytes.subarray(0, 2), 0);
-  out.set(exifSegment, 2);
-  out.set(bytes.subarray(2), 2 + exifSegment.length);
-  return out;
-}
-
-async function resizeAndEncode(bitmap: ImageBitmap, quality: number): Promise<Blob> {
-  const scale = Math.min(1, MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
-  const width = Math.max(1, Math.round(bitmap.width * scale));
-  const height = Math.max(1, Math.round(bitmap.height * scale));
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("2D canvas context unavailable");
-  ctx.drawImage(bitmap, 0, 0, width, height);
-  return await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error("Canvas encoding failed"))),
-      "image/jpeg",
-      quality,
-    );
-  });
+async function hasExifSegment(file: File): Promise<boolean> {
+  try {
+    return extractExifSegment(new Uint8Array(await file.arrayBuffer())) !== null;
+  } catch {
+    return false;
+  }
 }
 
 export interface CompressPhotoOptions {
-  /** Stop trying lower quality steps once a result fits under this. Defaults to 1MB, the backend's MAX_UPLOAD_BYTES. */
+  /** Size to aim for. Defaults to 800KB — see DEFAULT_TARGET_MAX_BYTES; this is a target, not a guarantee. */
   targetMaxBytes?: number;
 }
 
 /**
- * Downscales to at most 1920px on the longest side and re-encodes as JPEG,
- * trying progressively lower quality until the result fits `targetMaxBytes`.
- * Returns the original file unchanged if compression doesn't actually help
- * (already small, or the recompressed result isn't smaller), or if anything
- * about the process fails.
+ * Downscales to at most 1920px on the longest side and re-encodes as JPEG at
+ * quality 0.8, stepping the quality down further if that alone doesn't reach
+ * `targetMaxBytes`. Returns the original file unchanged if it's already at or
+ * under the target, if the result comes out no smaller, or if anything about
+ * the process fails.
  *
- * `imageOrientation: "none"` on the decode is deliberate, not an oversight:
- * `createImageBitmap` can auto-rotate to match EXIF orientation, but this
- * function copies the ORIGINAL EXIF block onto the new pixels afterward —
- * decoding raw (unrotated) keeps the pixel data consistent with the
- * orientation tag that block still carries, instead of applying the rotation
- * twice.
+ * `preserveExif` carries the original's EXIF block onto the output, which is
+ * what keeps GPS-based zone auto-suggestion working — `usePhotoGpsLocation`
+ * reads coordinates from these compressed files, not the originals. The
+ * library resets only the orientation tag to 1, correctly, because it has
+ * already applied that rotation to the pixels. If the block is lost anyway,
+ * we keep the original rather than upload a photo stripped of its location.
  */
 export async function compressPhoto(
   file: File,
   options: CompressPhotoOptions = {},
 ): Promise<File> {
   const targetMaxBytes = options.targetMaxBytes ?? DEFAULT_TARGET_MAX_BYTES;
-  if (!canCompressInThisEnvironment()) return file;
   if (file.type !== "image/jpeg" && file.type !== "image/png") return file;
-  if (file.size <= SKIP_COMPRESSION_BELOW_BYTES) return file;
+  if (file.size <= targetMaxBytes) return file;
 
   try {
-    const originalBytes = new Uint8Array(await file.arrayBuffer());
-    const exifSegment =
-      file.type === "image/jpeg" ? extractExifSegment(originalBytes) : null;
+    const compressed = await imageCompression(file, {
+      maxSizeMB: targetMaxBytes / BYTES_PER_MB,
+      maxWidthOrHeight: MAX_DIMENSION,
+      initialQuality: JPEG_QUALITY,
+      fileType: "image/jpeg",
+      useWebWorker: true,
+      libURL: new URL(compressionLibUrl, window.location.origin).href,
+      preserveExif: true,
+    });
 
-    const bitmap = await createImageBitmap(file, { imageOrientation: "none" });
-    let best: Blob | null = null;
-    try {
-      for (const quality of QUALITY_STEPS) {
-        const encoded = await resizeAndEncode(bitmap, quality);
-        best = encoded;
-        if (encoded.size <= targetMaxBytes) break;
-      }
-    } finally {
-      bitmap.close();
+    if (compressed.size >= file.size) return file;
+    if ((await hasExifSegment(file)) && !(await hasExifSegment(compressed))) {
+      return file;
     }
-    if (!best || best.size >= file.size) return file;
-
-    let finalBytes: Uint8Array<ArrayBuffer> = new Uint8Array(await best.arrayBuffer());
-    if (exifSegment) finalBytes = injectExifSegment(finalBytes, exifSegment);
 
     const compressedName = file.name.replace(/\.\w+$/, "") + ".jpg";
-    return new File([finalBytes], compressedName, {
+    return new File([compressed], compressedName, {
       type: "image/jpeg",
       lastModified: file.lastModified,
     });

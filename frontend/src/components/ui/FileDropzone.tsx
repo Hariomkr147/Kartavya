@@ -50,7 +50,8 @@ export interface FileDropzoneProps {
 }
 
 const DEFAULT_ACCEPT = "image/jpeg,image/png";
-const DEFAULT_MAX_SIZE = 1 * 1024 * 1024;
+/** Mirrors the backend's MAX_UPLOAD_BYTES (2MB per photo, per openapi.yaml). */
+const DEFAULT_MAX_SIZE = 2 * 1024 * 1024;
 
 /** Bespoke dropzone for complaint evidence photos: drag-drop or click, client-side type/size validation, up to `maxFiles` image previews. */
 export function FileDropzone({
@@ -86,14 +87,16 @@ export function FileDropzone({
     // phone photo (8-15MB is routine) gets shrunk instead of rejected
     // outright — the check becomes a backstop for the rare photo still too
     // big afterward, not the common case.
+    //
+    // `maxSizeBytes` is deliberately NOT passed as the compression target:
+    // it's the backend's hard ceiling, and aiming at it told compressPhoto to
+    // stop as soon as a photo squeaked under it. Its own default target sits
+    // below that, leaving room for a best-effort result to overshoot and
+    // still pass the check below.
     setCompressing(true);
     let processed: File[];
     try {
-      processed = await Promise.all(
-        list.map((candidate) =>
-          compressPhoto(candidate, { targetMaxBytes: maxSizeBytes }),
-        ),
-      );
+      processed = await Promise.all(list.map((candidate) => compressPhoto(candidate)));
     } finally {
       setCompressing(false);
     }
@@ -101,7 +104,7 @@ export function FileDropzone({
     const tooLarge = processed.some((file) => file.size > maxSizeBytes);
     if (tooLarge) {
       setLocalError(
-        `Photo must be under ${Math.round(maxSizeBytes / (1024 * 1024))} MB.`,
+        "That photo is still too large after compression. Try another one.",
       );
       return;
     }
@@ -111,7 +114,7 @@ export function FileDropzone({
   function removeAt(index: number) {
     // A rejected add's error was about *that* attempt — removing any file,
     // including one unrelated to the rejection, is a different action and
-    // shouldn't leave a stale "must be under 1 MB" message sitting under
+    // shouldn't leave a stale "still too large" message sitting under
     // photos that satisfy it.
     setLocalError(null);
     onFilesChange(files.filter((_, i) => i !== index));
@@ -201,8 +204,14 @@ export function FileDropzone({
                     ? "Tap to choose a photo"
                     : "Drop a photo here, or click to browse"}
               </p>
+              {/*
+                Deliberately no size limit in the copy. Compression runs
+                before the check, so the 2MB ceiling is a backstop a citizen
+                will essentially never hit — printing it only invited them to
+                go resize a photo by hand for no reason.
+              */}
               <p className="text-ink-faint text-xs">
-                JPEG or PNG, up to {Math.round(maxSizeBytes / (1024 * 1024))} MB
+                JPEG or PNG — large photos are shrunk automatically
                 {maxFiles > 1 && ` · up to ${maxFiles} photos`}
               </p>
             </>

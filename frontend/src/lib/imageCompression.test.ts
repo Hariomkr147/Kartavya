@@ -1,9 +1,16 @@
-import { describe, it, expect } from "vitest";
-import {
-  compressPhoto,
-  extractExifSegment,
-  injectExifSegment,
-} from "@/lib/imageCompression";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import imageCompression from "browser-image-compression";
+import { compressPhoto, extractExifSegment } from "@/lib/imageCompression";
+
+// The real library needs a canvas encoder jsdom doesn't have, so the encode
+// step is stubbed per-test. What's under test here is everything around it:
+// which files get sent to the encoder at all, and what happens to the result.
+vi.mock("browser-image-compression", () => ({ default: vi.fn() }));
+vi.mock("browser-image-compression/dist/browser-image-compression.js?url", () => ({
+  default: "/browser-image-compression.js",
+}));
+
+const compressMock = vi.mocked(imageCompression);
 
 const SOI = [0xff, 0xd8];
 const EOI = [0xff, 0xd9];
@@ -89,44 +96,100 @@ describe("extractExifSegment", () => {
   });
 });
 
-describe("injectExifSegment", () => {
-  it("splices the segment in immediately after the 2-byte SOI marker", () => {
-    const jpegWithoutExif = buildJpeg([jfifApp0()]);
-    const exif = new Uint8Array(exifApp1());
+describe("compressPhoto", () => {
+  beforeEach(() => {
+    compressMock.mockReset();
+  });
 
-    const result = injectExifSegment(jpegWithoutExif, exif);
+  /** A JPEG padded out to `size` bytes, EXIF block optional. */
+  function jpegOfSize(size: number, { withExif }: { withExif: boolean }): File {
+    const header = buildJpeg(withExif ? [jfifApp0(), exifApp1()] : [jfifApp0()]);
+    const padded = new Uint8Array(size);
+    padded.set(header.subarray(0, Math.min(header.length, size)));
+    return new File([padded], "photo.jpg", { type: "image/jpeg" });
+  }
 
-    expect(result.length).toBe(jpegWithoutExif.length + exif.length);
-    expect(Array.from(result.subarray(0, 2))).toEqual(SOI);
-    expect(Array.from(result.subarray(2, 2 + exif.length))).toEqual(Array.from(exif));
-    expect(Array.from(result.subarray(2 + exif.length))).toEqual(
-      Array.from(jpegWithoutExif.subarray(2)),
+  it("returns non-JPEG/PNG files unchanged, without invoking the encoder", async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], "clip.gif", { type: "image/gif" });
+    expect(await compressPhoto(file)).toBe(file);
+    expect(compressMock).not.toHaveBeenCalled();
+  });
+
+  it("leaves a file already under the target alone", async () => {
+    const file = jpegOfSize(50 * 1024, { withExif: false });
+    expect(await compressPhoto(file, { targetMaxBytes: 300 * 1024 })).toBe(file);
+    expect(compressMock).not.toHaveBeenCalled();
+  });
+
+  it("compresses a file over the target and returns the smaller result", async () => {
+    const file = jpegOfSize(4 * 1024 * 1024, { withExif: false });
+    compressMock.mockResolvedValue(jpegOfSize(180 * 1024, { withExif: false }));
+
+    const result = await compressPhoto(file, { targetMaxBytes: 300 * 1024 });
+
+    expect(result).not.toBe(file);
+    expect(result.size).toBe(180 * 1024);
+    expect(result.type).toBe("image/jpeg");
+  });
+
+  it("asks the encoder for the requested target, capped at 1920px", async () => {
+    const file = jpegOfSize(4 * 1024 * 1024, { withExif: false });
+    compressMock.mockResolvedValue(jpegOfSize(180 * 1024, { withExif: false }));
+
+    await compressPhoto(file, { targetMaxBytes: 300 * 1024 });
+
+    expect(compressMock).toHaveBeenCalledWith(
+      file,
+      expect.objectContaining({
+        maxSizeMB: (300 * 1024) / (1024 * 1024),
+        maxWidthOrHeight: 1920,
+        initialQuality: 0.8,
+        preserveExif: true,
+      }),
     );
   });
 
-  it("round-trips through extractExifSegment: inject then re-extract yields the same bytes", () => {
-    const exif = new Uint8Array(exifApp1());
-    const spliced = injectExifSegment(buildJpeg([jfifApp0()]), exif);
-    const reExtracted = extractExifSegment(spliced);
-    expect(Array.from(reExtracted!)).toEqual(Array.from(exif));
-  });
-});
+  it("never points the worker at a third-party CDN", async () => {
+    const file = jpegOfSize(4 * 1024 * 1024, { withExif: false });
+    compressMock.mockResolvedValue(jpegOfSize(180 * 1024, { withExif: false }));
 
-describe("compressPhoto", () => {
-  // jsdom has no createImageBitmap/canvas encoding, which is itself the
-  // condition compressPhoto must fail soft under — every case here exercises
-  // that fallback, the same path a very old browser would take in production.
-  it("returns the original file unchanged when the platform can't compress", async () => {
-    const bytes = new Uint8Array(buildJpeg([jfifApp0()]));
-    const file = new File([bytes], "photo.jpg", { type: "image/jpeg" });
+    await compressPhoto(file, { targetMaxBytes: 300 * 1024 });
 
-    const result = await compressPhoto(file);
-
-    expect(result).toBe(file);
+    const { libURL } = compressMock.mock.calls[0][1];
+    expect(new URL(libURL!).origin).toBe(window.location.origin);
   });
 
-  it("returns non-JPEG/PNG files unchanged", async () => {
-    const file = new File([new Uint8Array([1, 2, 3])], "clip.gif", { type: "image/gif" });
-    expect(await compressPhoto(file)).toBe(file);
+  it("falls back to the original when the encoder throws", async () => {
+    const file = jpegOfSize(4 * 1024 * 1024, { withExif: false });
+    compressMock.mockRejectedValue(new Error("canvas is too large to encode"));
+
+    expect(await compressPhoto(file, { targetMaxBytes: 300 * 1024 })).toBe(file);
+  });
+
+  it("falls back to the original when the result came out no smaller", async () => {
+    const file = jpegOfSize(4 * 1024 * 1024, { withExif: false });
+    compressMock.mockResolvedValue(jpegOfSize(5 * 1024 * 1024, { withExif: false }));
+
+    expect(await compressPhoto(file, { targetMaxBytes: 300 * 1024 })).toBe(file);
+  });
+
+  // Losing EXIF would silently break GPS-based zone auto-suggestion, which
+  // reads coordinates off these compressed files — a smaller photo is not
+  // worth a citizen having to drop the pin by hand.
+  it("keeps the original rather than upload a photo that lost its EXIF block", async () => {
+    const file = jpegOfSize(4 * 1024 * 1024, { withExif: true });
+    compressMock.mockResolvedValue(jpegOfSize(180 * 1024, { withExif: false }));
+
+    expect(await compressPhoto(file, { targetMaxBytes: 300 * 1024 })).toBe(file);
+  });
+
+  it("accepts a compressed result that carried the EXIF block through", async () => {
+    const file = jpegOfSize(4 * 1024 * 1024, { withExif: true });
+    compressMock.mockResolvedValue(jpegOfSize(180 * 1024, { withExif: true }));
+
+    const result = await compressPhoto(file, { targetMaxBytes: 300 * 1024 });
+
+    expect(result).not.toBe(file);
+    expect(result.size).toBe(180 * 1024);
   });
 });

@@ -794,6 +794,15 @@
     "users": "ਉਪਭੋਗਤਾ",
     "zonesAndSlas": "ਜ਼ੋਨ ਅਤੇ SLAs"
   },
+  "navSections": {
+    "administration": "ਪ੍ਰਸ਼ਾਸਨ",
+    "casework": "ਕੇਸ ਕਾਰਜ",
+    "community": "ਭਾਈਚਾਰਾ",
+    "operations": "ਕਾਰਜ",
+    "overview": "ਸੰਖੇਪ",
+    "reporting": "ਸ਼ਿਕਾਇਤ ਦਰਜ ਕਰਨਾ",
+    "system": "ਸਿਸਟਮ"
+  },
   "notFound": {
     "action": "ਮੁੱਖ ਪੰਨੇ 'ਤੇ ਵਾਪਸ ਜਾਓ",
     "description": "ਜਿਸ ਪੰਨੇ ਦੀ ਤੁਸੀਂ ਭਾਲ ਕਰ ਰਹੇ ਹੋ ਉਹ ਮੌਜੂਦ ਨਹੀਂ ਹੈ ਜਾਂ ਹਟਾ ਦਿੱਤਾ ਗਿਆ ਹੈ।",

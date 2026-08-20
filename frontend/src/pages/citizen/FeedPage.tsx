@@ -290,16 +290,17 @@ export function FeedPage() {
             }))}
           />
         </div>
-        <Checkbox
-          id="feed-include-resolved"
-          label={t("feed.includeResolved")}
-          checked={includeResolved}
-          onChange={(e) => {
-            setIncludeResolved(e.target.checked);
-            resetPage();
-          }}
-          className="mb-3"
-        />
+        <div className="flex h-11 shrink-0 items-center lg:px-2">
+          <Checkbox
+            id="feed-include-resolved"
+            label={t("feed.includeResolved")}
+            checked={includeResolved}
+            onChange={(e) => {
+              setIncludeResolved(e.target.checked);
+              resetPage();
+            }}
+          />
+        </div>
       </div>
 
       {isLoading ? (

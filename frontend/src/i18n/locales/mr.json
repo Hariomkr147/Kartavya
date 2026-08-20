@@ -794,6 +794,15 @@
     "users": "वापरकर्ते",
     "zonesAndSlas": "झोन आणि SLAs"
   },
+  "navSections": {
+    "administration": "प्रशासन",
+    "casework": "प्रकरणे",
+    "community": "समुदाय",
+    "operations": "कार्यवाही",
+    "overview": "आढावा",
+    "reporting": "तक्रार नोंदणी",
+    "system": "सिस्टम"
+  },
   "notFound": {
     "action": "होमवर परत जा",
     "description": "तुम्ही शोधत असलेले पेज अस्तित्वात नाही किंवा हलवले गेले आहे.",

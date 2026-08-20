@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { TranslationKey } from "@/i18n";
@@ -33,6 +33,8 @@ import { cn } from "@/lib/utils";
 export interface NavItem {
   /** Translation key, resolved at render — see `routes/navConfig.ts`. */
   labelKey: TranslationKey;
+  /** Utility-based group shown as a heading in the expanded sidebar. */
+  sectionKey?: TranslationKey;
   to: string;
   icon: LucideIcon;
   end?: boolean;
@@ -151,41 +153,63 @@ export function AppShell({ roleLabelKey, accountPath, navItems }: AppShellProps)
   function renderNav(opts: { collapsedRail: boolean }) {
     return (
       <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-4">
-        {navItems.map((item) => (
-          <Tooltip
-            key={item.to}
-            content={t(item.labelKey)}
-            side="right"
-            className="w-full"
-            disabled={!opts.collapsedRail}
-          >
-            <NavLink
-              to={item.to}
-              end={item.end}
-              onClick={() => setMobileNavOpen(false)}
-              aria-label={opts.collapsedRail ? t(item.labelKey) : undefined}
-              className={({ isActive }) =>
-                cn(
-                  "flex w-full items-center gap-3 rounded-md py-2 text-sm font-medium transition-colors",
-                  // Collapsed: centre the icon on the rail's axis instead of
-                  // padding it in from the left, so the brand mark, every nav
-                  // icon, and the collapse toggle all sit on one vertical line.
-                  opts.collapsedRail ? "justify-center px-0" : "px-3",
-                  isActive
-                    ? "bg-brand/10 text-brand"
-                    : "text-ink-muted hover:bg-surface-hover hover:text-ink",
-                )
-              }
-            >
-              <item.icon className="size-5 shrink-0" aria-hidden="true" />
-              <AnimatePresence initial={false}>
-                {!opts.collapsedRail && (
-                  <FadeLabel key="label">{t(item.labelKey)}</FadeLabel>
-                )}
-              </AnimatePresence>
-            </NavLink>
-          </Tooltip>
-        ))}
+        {navItems.map((item, index) => {
+          const startsSection =
+            item.sectionKey != null &&
+            item.sectionKey !== navItems[index - 1]?.sectionKey;
+
+          return (
+            <Fragment key={item.to}>
+              {startsSection &&
+                (opts.collapsedRail ? (
+                  index > 0 && (
+                    <div className="mx-2 my-2 border-t border-line" aria-hidden="true" />
+                  )
+                ) : (
+                  <FadeLabel
+                    className={cn(
+                      "text-ink-faint px-3 pb-1 text-[0.65rem] font-semibold uppercase",
+                      index > 0 && "pt-4",
+                    )}
+                  >
+                    {t(item.sectionKey!)}
+                  </FadeLabel>
+                ))}
+              <Tooltip
+                content={t(item.labelKey)}
+                side="right"
+                className="w-full"
+                disabled={!opts.collapsedRail}
+              >
+                <NavLink
+                  to={item.to}
+                  end={item.end}
+                  onClick={() => setMobileNavOpen(false)}
+                  aria-label={opts.collapsedRail ? t(item.labelKey) : undefined}
+                  className={({ isActive }) =>
+                    cn(
+                      "flex w-full items-center gap-3 rounded-md py-2 text-sm font-medium transition-colors",
+                      // Collapsed: centre the icon on the rail's axis instead of
+                      // padding it in from the left, so the brand mark, every nav
+                      // icon, and the collapse toggle all sit on one vertical line.
+                      opts.collapsedRail ? "justify-center px-0" : "px-3",
+                      isActive
+                        ? "bg-brand/10 text-brand"
+                        : "text-ink-muted hover:bg-surface-hover hover:text-ink",
+                    )
+                  }
+                >
+                  <item.icon className="size-5 shrink-0" aria-hidden="true" />
+                  <AnimatePresence initial={false}>
+                    {!opts.collapsedRail && (
+                      <FadeLabel key="label">{t(item.labelKey)}</FadeLabel>
+                    )}
+                  </AnimatePresence>
+                </NavLink>
+              </Tooltip>
+            </Fragment>
+          );
+        })}
       </nav>
     );
   }

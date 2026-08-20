@@ -794,6 +794,15 @@
     "users": "వినియోగదారులు",
     "zonesAndSlas": "జోన్లు & SLAs"
   },
+  "navSections": {
+    "administration": "పరిపాలన",
+    "casework": "కేసుల నిర్వహణ",
+    "community": "కమ్యూనిటీ",
+    "operations": "కార్యకలాపాలు",
+    "overview": "అవలోకనం",
+    "reporting": "సమస్య నివేదిక",
+    "system": "సిస్టమ్"
+  },
   "notFound": {
     "action": "హోమ్‌కు తిరిగి వెళ్లండి",
     "description": "మీరు వెతుకుతున్న పేజీ ఉనికిలో లేదు లేదా మార్చబడింది.",

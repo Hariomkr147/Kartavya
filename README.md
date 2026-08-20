@@ -304,7 +304,7 @@ These exist only in the browser's mock database and mean nothing to the real API
 | `JWT_TTL_HOURS` | `24` | |
 | `PHOTO_URL_TTL_SECONDS` | `86400` | Signed photo URLs expire |
 | `UPLOAD_DIR` | `instance/uploads` | Must sit outside the web root; never served statically |
-| `MAX_UPLOAD_BYTES` | `1048576` | 1 MB per photo |
+| `MAX_UPLOAD_BYTES` | `2097152` | 2 MB per photo |
 | `AI_PROVIDER` | `stub` | `local` \| `remote` \| `stub` \| `null`. `stub` is canned text; `null` exercises every fail-soft path. The deployment uses `remote` |
 | `AI_API_URL` | OpenAI's endpoint | Any OpenAI-compatible chat-completions URL. The deployment points at OpenRouter |
 | `AI_MODEL_NAME` | `gpt-4o-mini` | Must be **vision-capable**, or photo pre-screening degrades to `UNAVAILABLE` |

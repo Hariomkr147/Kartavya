@@ -794,6 +794,15 @@
     "users": "பயனர்கள்",
     "zonesAndSlas": "மண்டலங்கள் மற்றும் SLAs"
   },
+  "navSections": {
+    "administration": "நிர்வாகம்",
+    "casework": "வழக்குப் பணி",
+    "community": "சமூகம்",
+    "operations": "செயல்பாடுகள்",
+    "overview": "கண்ணோட்டம்",
+    "reporting": "புகார் அளித்தல்",
+    "system": "அமைப்பு"
+  },
   "notFound": {
     "action": "முகப்பிற்குத் திரும்பு",
     "description": "நீங்கள் தேடும் பக்கம் இல்லை அல்லது இடமாற்றம் செய்யப்பட்டுள்ளது.",

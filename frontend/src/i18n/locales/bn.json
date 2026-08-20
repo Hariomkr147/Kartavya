@@ -794,6 +794,15 @@
     "users": "ব্যবহারকারীগণ",
     "zonesAndSlas": "জোন ও SLAs"
   },
+  "navSections": {
+    "administration": "প্রশাসন",
+    "casework": "কেস পরিচালনা",
+    "community": "কমিউনিটি",
+    "operations": "কার্যক্রম",
+    "overview": "সংক্ষিপ্ত বিবরণ",
+    "reporting": "অভিযোগ জানানো",
+    "system": "সিস্টেম"
+  },
   "notFound": {
     "action": "হোমে ফিরে যান",
     "description": "আপনি যে পৃষ্ঠাটি খুঁজছেন তা বিদ্যমান নেই বা সরিয়ে ফেলা হয়েছে।",

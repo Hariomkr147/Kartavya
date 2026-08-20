@@ -794,6 +794,15 @@
     "users": "વપરાશકર્તાઓ",
     "zonesAndSlas": "ઝોન અને SLAs"
   },
+  "navSections": {
+    "administration": "વહીવટ",
+    "casework": "કેસ કામગીરી",
+    "community": "સમુદાય",
+    "operations": "કામગીરી",
+    "overview": "ઝાંખી",
+    "reporting": "ફરિયાદ નોંધણી",
+    "system": "સિસ્ટમ"
+  },
   "notFound": {
     "action": "હોમ પેજ પર પાછા જાઓ",
     "description": "તમે જે પેજ શોધી રહ્યા છો તે અસ્તિત્વમાં નથી અથવા ખસેડવામાં આવ્યું છે.",

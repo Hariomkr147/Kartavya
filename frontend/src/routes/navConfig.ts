@@ -18,27 +18,115 @@ import type { NavItem } from "@/components/layout/AppShell";
 // command palette translate them at render time, which is also what makes
 // them follow a language switch.
 export const citizenNavItems: NavItem[] = [
-  { labelKey: "nav.dashboard", to: "/citizen", icon: LayoutDashboard, end: true },
-  { labelKey: "nav.fileComplaint", to: "/citizen/file", icon: FilePlus2 },
-  { labelKey: "nav.myComplaints", to: "/citizen/complaints", icon: ClipboardList },
-  { labelKey: "nav.feed", to: "/citizen/feed", icon: Rss },
-  { labelKey: "nav.myKartavya", to: "/citizen/gamification", icon: Trophy },
+  {
+    labelKey: "nav.dashboard",
+    sectionKey: "navSections.overview",
+    to: "/citizen",
+    icon: LayoutDashboard,
+    end: true,
+  },
+  {
+    labelKey: "nav.fileComplaint",
+    sectionKey: "navSections.reporting",
+    to: "/citizen/file",
+    icon: FilePlus2,
+  },
+  {
+    labelKey: "nav.myComplaints",
+    sectionKey: "navSections.reporting",
+    to: "/citizen/complaints",
+    icon: ClipboardList,
+  },
+  {
+    labelKey: "nav.feed",
+    sectionKey: "navSections.community",
+    to: "/citizen/feed",
+    icon: Rss,
+  },
+  {
+    labelKey: "nav.myKartavya",
+    sectionKey: "navSections.community",
+    to: "/citizen/gamification",
+    icon: Trophy,
+  },
 ];
 
 export const officerNavItems: NavItem[] = [
-  { labelKey: "nav.dashboard", to: "/officer", icon: LayoutDashboard, end: true },
-  { labelKey: "nav.queue", to: "/officer/queue", icon: ClipboardList },
-  { labelKey: "nav.clusters", to: "/officer/clusters", icon: Boxes },
+  {
+    labelKey: "nav.dashboard",
+    sectionKey: "navSections.overview",
+    to: "/officer",
+    icon: LayoutDashboard,
+    end: true,
+  },
+  {
+    labelKey: "nav.queue",
+    sectionKey: "navSections.casework",
+    to: "/officer/queue",
+    icon: ClipboardList,
+  },
+  {
+    labelKey: "nav.clusters",
+    sectionKey: "navSections.casework",
+    to: "/officer/clusters",
+    icon: Boxes,
+  },
 ];
 
 export const adminNavItems: NavItem[] = [
-  { labelKey: "nav.dashboard", to: "/admin", icon: LayoutDashboard, end: true },
-  { labelKey: "nav.complaints", to: "/admin/complaints", icon: ClipboardList },
-  { labelKey: "nav.clusters", to: "/admin/clusters", icon: Boxes },
-  { labelKey: "nav.disputes", to: "/admin/disputes", icon: Gavel },
-  { labelKey: "nav.users", to: "/admin/users", icon: Users },
-  { labelKey: "nav.zonesAndSlas", to: "/admin/zones", icon: MapPinned },
-  { labelKey: "nav.officers", to: "/admin/officers", icon: UserCog },
-  { labelKey: "nav.leaderboard", to: "/admin/leaderboard", icon: Trophy },
-  { labelKey: "nav.settings", to: "/admin/settings", icon: Settings },
+  {
+    labelKey: "nav.dashboard",
+    sectionKey: "navSections.overview",
+    to: "/admin",
+    icon: LayoutDashboard,
+    end: true,
+  },
+  {
+    labelKey: "nav.leaderboard",
+    sectionKey: "navSections.overview",
+    to: "/admin/leaderboard",
+    icon: Trophy,
+  },
+  {
+    labelKey: "nav.complaints",
+    sectionKey: "navSections.operations",
+    to: "/admin/complaints",
+    icon: ClipboardList,
+  },
+  {
+    labelKey: "nav.disputes",
+    sectionKey: "navSections.operations",
+    to: "/admin/disputes",
+    icon: Gavel,
+  },
+  {
+    labelKey: "nav.clusters",
+    sectionKey: "navSections.operations",
+    to: "/admin/clusters",
+    icon: Boxes,
+  },
+  {
+    labelKey: "nav.officers",
+    sectionKey: "navSections.administration",
+    to: "/admin/officers",
+    icon: UserCog,
+  },
+  {
+    labelKey: "nav.users",
+    sectionKey: "navSections.administration",
+    to: "/admin/users",
+    icon: Users,
+  },
+  {
+    labelKey: "nav.zonesAndSlas",
+    sectionKey: "navSections.administration",
+    to: "/admin/zones",
+    icon: MapPinned,
+  },
+  {
+    labelKey: "nav.settings",
+    sectionKey: "navSections.system",
+    to: "/admin/settings",
+    icon: Settings,
+  },
 ];

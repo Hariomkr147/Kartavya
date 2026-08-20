@@ -1,15 +1,11 @@
+import { useTranslation } from "react-i18next";
 import { ArrowRight, Bot, MessageSquare, Shield, User, UserCog } from "lucide-react";
 import { StatusPill } from "@/components/ui/pills";
 import { absoluteDateTime, relativeTime } from "@/lib/datetime";
 import { computeStageDurations, formatDuration } from "@/lib/duration";
 import { cn } from "@/lib/utils";
-import type {
-  ComplaintStatus,
-  ProgressNote,
-  Role,
-  StatusActor,
-  StatusHistoryEntry,
-} from "@/types/api";
+import type { TranslationKey } from "@/i18n";
+import type { ProgressNote, Role, StatusActor, StatusHistoryEntry } from "@/types/api";
 
 const ACTOR_ICON: Record<StatusActor, typeof User> = {
   CITIZEN: User,
@@ -18,29 +14,15 @@ const ACTOR_ICON: Record<StatusActor, typeof User> = {
   SYSTEM: Bot,
 };
 
-const STATUS_LABELS: Record<ComplaintStatus, string> = {
-  SUBMITTED: "Submitted",
-  EVIDENCE_UNDER_REVIEW: "Evidence under review",
-  NEEDS_MORE_EVIDENCE: "Needs more evidence",
-  REJECTED: "Rejected",
-  UNDER_REVIEW: "Under review",
-  IN_PROGRESS: "In progress",
-  UNDER_RESOLUTION: "Under resolution",
-  RESOLVED: "Resolved",
-  CLOSED: "Closed",
-  REOPENED: "Reopened",
-  UNRESOLVABLE: "Unresolvable",
-};
-
 // "You" only makes sense from the actor's own role's viewpoint (e.g. a
 // citizen reading their own history) — an officer or admin viewing the same
 // entries must still see "Citizen"/"Admin", never be told an action they
 // didn't take was theirs.
-const ACTOR_LABEL: Record<StatusActor, string> = {
-  CITIZEN: "Citizen",
-  OFFICER: "Officer",
-  ADMIN: "Admin",
-  SYSTEM: "System",
+const ACTOR_LABEL_KEYS: Record<StatusActor, TranslationKey> = {
+  CITIZEN: "roles.citizen",
+  OFFICER: "roles.officer",
+  ADMIN: "roles.admin",
+  SYSTEM: "roles.system",
 };
 
 type TimelineItem =
@@ -68,6 +50,7 @@ export function StatusTimeline({
    */
   officerLabel?: (officerId: string) => string;
 }) {
+  const { t } = useTranslation();
   const labelForOfficer = officerLabel ?? ((id: string) => `Officer #${id}`);
   const items: TimelineItem[] = [
     ...entries.map((entry): TimelineItem => ({
@@ -138,10 +121,10 @@ export function StatusTimeline({
           (entry.changedByRole !== "OFFICER" ||
             entry.changedByOfficerId === viewerOfficerId);
         const actorLabel = isViewer
-          ? "You"
+          ? t("statusTimeline.you")
           : entry.changedByOfficerId
             ? labelForOfficer(entry.changedByOfficerId)
-            : ACTOR_LABEL[entry.changedByRole];
+            : t(ACTOR_LABEL_KEYS[entry.changedByRole]);
         const isCurrent = i === firstStatusIndex;
         return (
           <li key={entry.id} className="relative flex gap-3 pb-6 last:pb-0">
@@ -161,7 +144,7 @@ export function StatusTimeline({
                 {entry.fromStatus && (
                   <>
                     <span className="text-ink-faint text-xs">
-                      {STATUS_LABELS[entry.fromStatus]}
+                      {t(`status.${entry.fromStatus}`)}
                     </span>
                     <ArrowRight
                       className="text-ink-faint size-3 shrink-0"
@@ -175,10 +158,12 @@ export function StatusTimeline({
                 />
                 {isCurrent && (
                   <span className="text-brand text-[11px] font-semibold tracking-wide uppercase">
-                    Current
+                    {t("statusTimeline.current")}
                   </span>
                 )}
-                <span className="text-ink-faint text-xs">by {actorLabel}</span>
+                <span className="text-ink-faint text-xs">
+                  {t("statusTimeline.by", { actor: actorLabel })}
+                </span>
                 <span
                   className="text-ink-faint text-xs"
                   title={absoluteDateTime(entry.timestamp)}
@@ -188,8 +173,10 @@ export function StatusTimeline({
               </div>
               {entry.fromStatus && previousStageDurationMs.has(entry.id) && (
                 <p className="text-ink-faint mt-1 text-xs">
-                  Spent {formatDuration(previousStageDurationMs.get(entry.id)!)} in{" "}
-                  {STATUS_LABELS[entry.fromStatus]}
+                  {t("statusTimeline.spent", {
+                    duration: formatDuration(previousStageDurationMs.get(entry.id)!),
+                    status: t(`status.${entry.fromStatus}`),
+                  })}
                 </p>
               )}
               {entry.reason && <p className="text-ink mt-1 text-sm">{entry.reason}</p>}

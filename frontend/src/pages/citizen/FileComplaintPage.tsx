@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
@@ -50,13 +51,14 @@ import { screeningPhase } from "@/lib/aiScreening";
 import { getComplaintById } from "@/services/complaints";
 import { ApiRequestError } from "@/services/http";
 import { cn } from "@/lib/utils";
+import type { TranslationKey } from "@/i18n";
 import type { Category, ComplaintDetail } from "@/types/api";
 
-const STEP_LABELS = [
-  "What happened",
-  "Complaint Category",
-  "Evidence & location",
-  "Review",
+const STEP_LABEL_KEYS: TranslationKey[] = [
+  "fileComplaint.steps.what",
+  "fileComplaint.steps.category",
+  "fileComplaint.steps.evidence",
+  "fileComplaint.steps.review",
 ];
 const MIN_DESCRIPTION_LENGTH = 10;
 const MAX_PHOTOS = 3;
@@ -95,6 +97,7 @@ function sanitizeWizardDraft(raw: WizardDraft): WizardDraft {
 }
 
 export function FileComplaintPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user } = useAuth();
@@ -182,9 +185,7 @@ export function FileComplaintPage() {
   const hasUnsavedMedia = photos.length > 0 || location != null;
   useDirtyFormGuard(
     isDirty,
-    hasUnsavedMedia
-      ? "Your photo and pinned location can't be saved automatically — leaving now will lose them. Continue?"
-      : undefined,
+    hasUnsavedMedia ? t("fileComplaint.unsavedMedia") : undefined,
   );
 
   // Sync the pin to whatever `usePhotoGpsLocation` just resolved. A manual
@@ -291,9 +292,7 @@ export function FileComplaintPage() {
       // Not reachable through the normal Continue-gated flow, but a restored
       // draft or an unexpected state change should never leave the button
       // simply doing nothing with no explanation.
-      setFormError(
-        "Something's missing before this can be submitted — go back through the steps and check each one.",
-      );
+      setFormError(t("fileComplaint.missingFields"));
       return;
     }
 
@@ -326,9 +325,7 @@ export function FileComplaintPage() {
       clearDraft();
     } catch (error) {
       setFormError(
-        error instanceof ApiRequestError
-          ? error.message
-          : "Something went wrong. Please try again.",
+        error instanceof ApiRequestError ? error.message : t("errors.generic"),
       );
     }
   }
@@ -371,7 +368,7 @@ export function FileComplaintPage() {
         complaint={liveComplaint ?? submitted}
         onViewComplaint={() => navigate(`/citizen/complaints/${submitted.id}`)}
         onFileAnother={() => {
-          toast({ title: "Ready for the next report", variant: "default" });
+          toast({ title: t("fileComplaint.readyNext"), variant: "default" });
           resetForm();
         }}
       />
@@ -383,11 +380,9 @@ export function FileComplaintPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="font-display text-display-sm font-semibold text-ink">
-            File a complaint
+            {t("citizenDashboard.fileComplaint")}
           </h1>
-          <p className="text-ink-muted mt-1 text-sm">
-            Let us know what problems you're facing.
-          </p>
+          <p className="text-ink-muted mt-1 text-sm">{t("fileComplaint.subtitle")}</p>
         </div>
         {isDirty && (
           <Button
@@ -397,23 +392,20 @@ export function FileComplaintPage() {
             onClick={() => setShowResetConfirm(true)}
           >
             <RotateCcw className="size-4" aria-hidden="true" />
-            Reset
+            {t("fileComplaint.reset")}
           </Button>
         )}
       </div>
 
-      <Stepper steps={STEP_LABELS} currentStep={step} />
+      <Stepper steps={STEP_LABEL_KEYS.map((key) => t(key))} currentStep={step} />
 
       {hasDraft && !draftNoticeDismissed && (
         <div className="border-brand/30 bg-brand/5 text-ink-muted flex items-center justify-between gap-3 rounded-md border px-4 py-2.5 text-sm">
-          <span>
-            Draft restored — your description and category are back. You'll need to add
-            your photo and location again to continue.
-          </span>
+          <span>{t("fileComplaint.draftRestored")}</span>
           <button
             type="button"
             onClick={() => setDraftNoticeDismissed(true)}
-            aria-label="Dismiss"
+            aria-label={t("common.dismiss")}
             className="text-ink-faint hover:text-ink shrink-0"
           >
             <XIcon className="size-4" aria-hidden="true" />
@@ -434,16 +426,16 @@ export function FileComplaintPage() {
         <section className="space-y-4 rounded-lg border border-line bg-surface p-6">
           <div>
             <Label htmlFor="description" required>
-              What happened?
+              {t("fileComplaint.whatHappened")}
             </Label>
             <Textarea
               id="description"
               autoFocus
               rows={5}
-              placeholder="e.g. There is a deep pothole in the middle of the road near the market…"
+              placeholder={t("fileComplaint.descriptionPlaceholder")}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              hint="A few sentences is enough — this also helps us guess the category on the next step."
+              hint={t("fileComplaint.descriptionHint")}
             />
             <p
               className={cn(
@@ -453,7 +445,10 @@ export function FileComplaintPage() {
                   : "text-status-needs_more_evidence",
               )}
             >
-              {description.trim().length}/{MIN_DESCRIPTION_LENGTH} characters minimum
+              {t("fileComplaint.characterCount", {
+                typed: description.trim().length,
+                minimum: MIN_DESCRIPTION_LENGTH,
+              })}
             </p>
           </div>
           <div className="flex justify-end">
@@ -462,7 +457,7 @@ export function FileComplaintPage() {
               disabled={!canContinueDescription}
               onClick={continueFromDescription}
             >
-              Continue
+              {t("common.continue")}
               <ArrowRight className="size-4" aria-hidden="true" />
             </Button>
           </div>
@@ -472,26 +467,24 @@ export function FileComplaintPage() {
       {step === 1 && (
         <section className="space-y-4 rounded-lg border border-line bg-surface p-6">
           <div>
-            <Label required>Category</Label>
+            <Label required>{t("filters.category")}</Label>
             {matcherSuggestedId && (
               <div className="mt-1 mb-3">
                 <p className="text-ink-muted flex items-center gap-1.5 text-sm">
                   <Wand2 className="text-brand size-4 shrink-0" aria-hidden="true" />
                   {matchedKeywords.length > 0 ? (
                     <span>
-                      Suggested because you wrote{" "}
-                      <span className="text-ink font-medium">
-                        &ldquo;{matchedKeywords[0]}&rdquo;
-                      </span>{" "}
-                      — change it below if we got it wrong.
+                      {t("fileComplaint.suggestedBecause", {
+                        keyword: matchedKeywords[0],
+                      })}
                     </span>
                   ) : (
-                    <span>We tried guessing... change it below if it&rsquo;s wrong.</span>
+                    <span>{t("fileComplaint.suggestedGuess")}</span>
                   )}
                 </p>
                 {secondGuessId && (
                   <p className="text-ink-faint mt-0.5 pl-[22px] text-xs">
-                    Could also be{" "}
+                    {t("fileComplaint.couldAlsoBe")}{" "}
                     <button
                       type="button"
                       onClick={() => pickCategory(secondGuessId)}
@@ -506,8 +499,7 @@ export function FileComplaintPage() {
             )}
             {!matcherSuggestedId && (
               <p className="text-ink-muted mt-1 mb-3 text-sm">
-                We couldn't guess a category from your description — pick the closest
-                match.
+                {t("fileComplaint.noGuess")}
               </p>
             )}
             {categoriesLoading ? (
@@ -533,14 +525,14 @@ export function FileComplaintPage() {
           <div className="flex justify-between">
             <Button type="button" variant="ghost" onClick={goBack}>
               <ArrowLeft className="size-4" aria-hidden="true" />
-              Back
+              {t("common.back")}
             </Button>
             <Button
               type="button"
               disabled={!canContinueCategory}
               onClick={() => setStep(2)}
             >
-              Continue
+              {t("common.continue")}
               <ArrowRight className="size-4" aria-hidden="true" />
             </Button>
           </div>
@@ -550,10 +542,9 @@ export function FileComplaintPage() {
       {step === 2 && (
         <section className="space-y-6 rounded-lg border border-line bg-surface p-6">
           <div>
-            <Label required>Photo evidence</Label>
+            <Label required>{t("fileComplaint.photoEvidence")}</Label>
             <p className="text-ink-muted mb-3 text-sm">
-              Up to {MAX_PHOTOS} photos. We'll try to read the location from whichever
-              ones have it.
+              {t("fileComplaint.photoEvidenceHint", { max: MAX_PHOTOS })}
             </p>
             <FileDropzone
               files={photos}
@@ -577,47 +568,47 @@ export function FileComplaintPage() {
           </div>
 
           <div>
-            <Label required>Location</Label>
+            <Label required>{t("fileComplaint.location")}</Label>
             {exifStatus === "checking" && (
               <p className="text-ink-muted mt-1 mb-3 flex items-center gap-1.5 text-sm">
                 <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden="true" />
-                Checking your photos for a location…
+                {t("fileComplaint.exifChecking")}
               </p>
             )}
             {exifStatus === "found" && (
               <p className="text-ink-muted mt-1 mb-3 flex items-center gap-1.5 text-sm">
                 <MapPin className="text-brand size-4 shrink-0" aria-hidden="true" />
                 {gpsResolution.status === "found" && gpsResolution.source === "consensus"
-                  ? `Location confirmed from ${gpsResolution.candidates.length} of your photos.`
-                  : "Location detected from your photo."}{" "}
+                  ? t("fileComplaint.exifConsensus", {
+                      count: gpsResolution.candidates.length,
+                    })
+                  : t("fileComplaint.exifFound")}{" "}
                 <button
                   type="button"
                   onClick={() => setShowManualMap((v) => !v)}
                   className="text-brand underline underline-offset-2"
                 >
-                  {showManualMap ? "Hide map" : "Change manually"}
+                  {showManualMap
+                    ? t("fileComplaint.hideMap")
+                    : t("fileComplaint.changeManually")}
                 </button>
               </p>
             )}
             {exifStatus === "not-found" && (
               <p className="text-ink-muted mt-1 mb-3 flex items-center gap-1.5 text-sm">
                 <MapPinned className="size-4 shrink-0" aria-hidden="true" />
-                None of your photos had a location saved in them — drop a pin below.
+                {t("fileComplaint.exifNotFound")}
               </p>
             )}
             {exifStatus === "inconsistent" && (
               <p className="text-status-rejected mt-1 mb-3 flex items-start gap-1.5 text-sm">
                 <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                <span>
-                  Inconsistent location data found — your photos suggest different spots,
-                  each marked below. Tap the right one, remove the photo that
-                  doesn&rsquo;t belong, or set the location on the map yourself.
-                </span>
+                <span>{t("fileComplaint.exifInconsistent")}</span>
               </p>
             )}
             {exifStatus === "idle" && (
               <p className="text-ink-muted mt-1 mb-3 text-sm">
-                Add a photo above, or drop a pin below.
+                {t("fileComplaint.exifIdle")}
               </p>
             )}
             {(showManualMap ||
@@ -649,7 +640,7 @@ export function FileComplaintPage() {
 
           <div>
             <Label htmlFor="zoneId" required>
-              Zone
+              {t("filters.zone")}
             </Label>
             {zonesLoading ? (
               <Skeleton className="h-11 w-full" />
@@ -660,7 +651,7 @@ export function FileComplaintPage() {
                 placeholderDisabled
                 hint={
                   !zoneManuallySet && zoneId
-                    ? "Auto-filled from the location above — change it if it's wrong."
+                    ? t("fileComplaint.zoneAutoFilled")
                     : undefined
                 }
                 onChange={(v) => {
@@ -668,7 +659,7 @@ export function FileComplaintPage() {
                   setZoneManuallySet(true);
                 }}
                 options={[
-                  { value: "", label: "Choose a zone…" },
+                  { value: "", label: t("fields.chooseZone") },
                   ...(zones?.map((zone) => ({ value: zone.id, label: zone.name })) ?? []),
                 ]}
               />
@@ -678,14 +669,14 @@ export function FileComplaintPage() {
           <div className="flex justify-between">
             <Button type="button" variant="ghost" onClick={goBack}>
               <ArrowLeft className="size-4" aria-hidden="true" />
-              Back
+              {t("common.back")}
             </Button>
             <Button
               type="button"
               disabled={!canContinueEvidence}
               onClick={() => setStep(3)}
             >
-              Continue
+              {t("common.continue")}
               <ArrowRight className="size-4" aria-hidden="true" />
             </Button>
           </div>
@@ -694,13 +685,13 @@ export function FileComplaintPage() {
 
       {step === 3 && (
         <section className="space-y-6 rounded-lg border border-line bg-surface p-6">
-          <Label>Review</Label>
+          <Label>{t("fileComplaint.steps.review")}</Label>
 
           <div className="space-y-4 text-sm">
-            <ReviewRow label="Description">
+            <ReviewRow label={t("fileComplaint.description")}>
               <p className="text-ink">{description || "—"}</p>
             </ReviewRow>
-            <ReviewRow label="Category">
+            <ReviewRow label={t("filters.category")}>
               {selectedCategory && (
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="flex items-center gap-2 text-ink">
@@ -714,13 +705,15 @@ export function FileComplaintPage() {
                   {selectedCategory.slaTargetHours != null && (
                     <span className="bg-brand-subtle text-brand inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium">
                       <Clock className="size-3" aria-hidden="true" />
-                      {selectedCategory.slaTargetHours}h resolution target
+                      {t("fileComplaint.slaTarget", {
+                        hours: selectedCategory.slaTargetHours,
+                      })}
                     </span>
                   )}
                 </div>
               )}
             </ReviewRow>
-            <ReviewRow label="Location">
+            <ReviewRow label={t("fileComplaint.location")}>
               {location ? (
                 <div className="space-y-2">
                   <MiniMap
@@ -741,10 +734,10 @@ export function FileComplaintPage() {
                 <p className="text-ink">—</p>
               )}
             </ReviewRow>
-            <ReviewRow label="Zone">
+            <ReviewRow label={t("filters.zone")}>
               <p className="text-ink">{selectedZone?.name ?? "—"}</p>
             </ReviewRow>
-            <ReviewRow label={`Photos (${photos.length})`}>
+            <ReviewRow label={t("fileComplaint.photosCount", { count: photos.length })}>
               <div className="flex gap-2">
                 {photos.map((photo, i) => (
                   <PhotoThumb key={i} file={photo} />
@@ -754,15 +747,13 @@ export function FileComplaintPage() {
           </div>
 
           <p className="text-ink-muted bg-surface-hover rounded-md px-3 py-2 text-xs">
-            Once you submit, an officer checks your photos before the work is scheduled.
-            You'll be asked to confirm the fix at the end — that's what closes the report
-            and credits your Civic Service Points.
+            {t("fileComplaint.submitNote")}
           </p>
 
           <div className="flex justify-between">
             <Button type="button" variant="ghost" onClick={goBack}>
               <ArrowLeft className="size-4" aria-hidden="true" />
-              Back
+              {t("common.back")}
             </Button>
             <Button
               type="button"
@@ -770,7 +761,7 @@ export function FileComplaintPage() {
               loading={createComplaint.isPending}
               onClick={handleSubmit}
             >
-              Submit complaint
+              {t("fileComplaint.submit")}
             </Button>
           </div>
         </section>
@@ -779,12 +770,12 @@ export function FileComplaintPage() {
       <Modal
         open={showResetConfirm}
         onClose={() => setShowResetConfirm(false)}
-        title="Reset this complaint?"
-        description="This clears everything you've entered — description, category, photos, and location — and takes you back to the first step. This can't be undone."
+        title={t("fileComplaint.resetTitle")}
+        description={t("fileComplaint.resetBody")}
         footer={
           <>
             <Button variant="outline" onClick={() => setShowResetConfirm(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant="danger"
@@ -793,7 +784,7 @@ export function FileComplaintPage() {
                 setShowResetConfirm(false);
               }}
             >
-              Reset
+              {t("fileComplaint.reset")}
             </Button>
           </>
         }
@@ -812,13 +803,18 @@ function ReviewRow({ label, children }: { label: string; children: ReactNode }) 
 }
 
 function PhotoThumb({ file }: { file: File }) {
+  const { t } = useTranslation();
   const url = useMemo(() => URL.createObjectURL(file), [file]);
   useEffect(() => {
     // Deferred — see the matching comment in FileDropzone's FilePreview.
     return () => void setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, [url]);
   return (
-    <img src={url} alt="Evidence preview" className="size-16 rounded-md object-cover" />
+    <img
+      src={url}
+      alt={t("fileComplaint.previewAlt")}
+      className="size-16 rounded-md object-cover"
+    />
   );
 }
 
@@ -833,6 +829,8 @@ function CategoryCard({
   suggested: boolean;
   onSelect: () => void;
 }) {
+  const { t } = useTranslation();
+
   return (
     <div
       className={cn(
@@ -853,13 +851,13 @@ function CategoryCard({
               {category.description}
               {category.description && category.slaTargetHours != null && " · "}
               {category.slaTargetHours != null &&
-                `Target: ${category.slaTargetHours}h to resolve`}
+                t("fileComplaint.categoryTarget", { hours: category.slaTargetHours })}
             </span>
           }
         >
           <button
             type="button"
-            aria-label={`About ${category.name}`}
+            aria-label={t("fileComplaint.aboutCategory", { category: category.name })}
             className="text-ink-faint hover:text-ink absolute top-1.5 left-1.5"
           >
             <Info className="size-3.5" aria-hidden="true" />
@@ -897,6 +895,7 @@ function ReorderablePhotoList({
   /** True when those readings disagreed — colors the flags as a warning instead of a confirmation. */
   inconsistentLocation: boolean;
 }) {
+  const { t } = useTranslation();
   // Drag state lives here (not per-row) since a drop target needs to know
   // about the photo currently being dragged from a sibling row.
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -925,10 +924,7 @@ function ReorderablePhotoList({
 
   return (
     <div className="mt-3 space-y-1.5">
-      <p className="text-ink-faint text-xs">
-        Drag to reorder for maximum impact — the first photo becomes your complaint's
-        cover image wherever it's listed.
-      </p>
+      <p className="text-ink-faint text-xs">{t("fileComplaint.reorderHint")}</p>
       <ul className="space-y-1.5">
         {photos.map((photo, i) => (
           <PhotoReorderRow
@@ -1002,6 +998,7 @@ function PhotoReorderRow({
   onDrop: (e: DragEvent<HTMLLIElement>) => void;
   onDragEnd: () => void;
 }) {
+  const { t } = useTranslation();
   const url = useMemo(() => URL.createObjectURL(file), [file]);
   useEffect(() => {
     return () => void setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -1023,13 +1020,13 @@ function PhotoReorderRow({
       <GripVertical className="text-ink-faint size-4 shrink-0" aria-hidden="true" />
       <img src={url} alt="" className="size-8 shrink-0 rounded object-cover" />
       <span className="text-ink-muted flex flex-1 items-center gap-1 text-xs">
-        Photo {index + 1}
+        {t("fileComplaint.photoNumber", { number: index + 1 })}
         {hasGps && (
           <span
             title={
               inconsistentLocation
-                ? "This photo's location doesn't match the others"
-                : "This photo has location data"
+                ? t("fileComplaint.photoGpsMismatch")
+                : t("fileComplaint.photoHasGps")
             }
           >
             <MapPin
@@ -1046,7 +1043,7 @@ function PhotoReorderRow({
         type="button"
         onClick={onMoveUp}
         disabled={isFirst}
-        aria-label={`Move photo ${index + 1} earlier`}
+        aria-label={t("fileComplaint.movePhotoEarlier", { number: index + 1 })}
         className="text-ink-faint hover:text-ink disabled:pointer-events-none disabled:opacity-30"
       >
         <ChevronUp className="size-4" aria-hidden="true" />
@@ -1055,7 +1052,7 @@ function PhotoReorderRow({
         type="button"
         onClick={onMoveDown}
         disabled={isLast}
-        aria-label={`Move photo ${index + 1} later`}
+        aria-label={t("fileComplaint.movePhotoLater", { number: index + 1 })}
         className="text-ink-faint hover:text-ink disabled:pointer-events-none disabled:opacity-30"
       >
         <ChevronDown className="size-4" aria-hidden="true" />
@@ -1073,6 +1070,7 @@ function SubmittedView({
   onViewComplaint: () => void;
   onFileAnother: () => void;
 }) {
+  const { t } = useTranslation();
   const sortedEvidence = [...(complaint.evidence ?? [])].sort(
     (a, b) => a.sequence - b.sequence,
   );
@@ -1084,15 +1082,15 @@ function SubmittedView({
           <Check className="size-6" aria-hidden="true" />
         </span>
         <h1 className="font-display mt-4 text-xl font-semibold text-ink">
-          Complaint filed
+          {t("fileComplaint.filed")}
         </h1>
         <p className="text-ink-muted mt-1 text-sm">
-          Reference {complaint.id} — we'll keep you posted as it moves through review.
+          {t("fileComplaint.filedReference", { complaintId: complaint.id })}
         </p>
       </div>
 
       <div className="space-y-3 rounded-lg border border-line bg-surface p-6">
-        <p className="text-sm font-medium text-ink">AI photo screening</p>
+        <p className="text-sm font-medium text-ink">{t("fileComplaint.aiScreening")}</p>
         {sortedEvidence.map((evidence) => {
           const phase = screeningPhase(evidence.aiConfidenceNote);
           return (
@@ -1102,7 +1100,7 @@ function SubmittedView({
             >
               <EvidencePhotoThumb
                 src={evidence.photoUrl}
-                alt={`Evidence photo ${evidence.sequence}`}
+                alt={t("evidence.photoAlt", { sequence: evidence.sequence })}
                 className="size-12 shrink-0 rounded object-cover"
               />
               <div className="text-ink-faint flex min-w-0 items-start gap-1.5 text-xs">
@@ -1112,7 +1110,9 @@ function SubmittedView({
                       className="mt-0.5 size-3.5 shrink-0 animate-spin"
                       aria-hidden="true"
                     />
-                    <span>Analyzing photo {evidence.sequence}…</span>
+                    <span>
+                      {t("evidence.analyzingPhoto", { sequence: evidence.sequence })}
+                    </span>
                   </>
                 ) : phase === "done" ? (
                   <>
@@ -1124,9 +1124,7 @@ function SubmittedView({
                 ) : (
                   <>
                     <BotOff className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-                    <span>
-                      AI screening was unavailable — an officer will review it directly.
-                    </span>
+                    <span>{t("evidence.aiUnavailableShort")}</span>
                   </>
                 )}
               </div>
@@ -1137,13 +1135,13 @@ function SubmittedView({
 
       <div className="flex flex-wrap justify-end gap-3">
         <Button type="button" variant="outline" onClick={onFileAnother}>
-          File another
+          {t("fileComplaint.fileAnother")}
         </Button>
         <LinkButton to="/citizen" variant="ghost">
-          Back to dashboard
+          {t("fileComplaint.backToDashboard")}
         </LinkButton>
         <Button type="button" onClick={onViewComplaint}>
-          View my complaint
+          {t("fileComplaint.viewComplaint")}
         </Button>
       </div>
     </div>

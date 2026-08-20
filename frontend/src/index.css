@@ -9,6 +9,12 @@
 @import "@fontsource/public-sans/700.css";
 @import "@fontsource/ibm-plex-mono/400.css";
 @import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource-variable/noto-sans-devanagari/wght.css";
+@import "@fontsource-variable/noto-sans-bengali/wght.css";
+@import "@fontsource-variable/noto-sans-telugu/wght.css";
+@import "@fontsource-variable/noto-sans-tamil/wght.css";
+@import "@fontsource-variable/noto-sans-gurmukhi/wght.css";
+@import "@fontsource-variable/noto-sans-gujarati/wght.css";
 
 @import "./styles/tokens.css";
 @import "leaflet/dist/leaflet.css";
@@ -28,6 +34,49 @@
   html[data-theme="dark"],
   html[data-theme="amoled"] {
     color-scheme: dark;
+  }
+
+  html:lang(hi),
+  html:lang(mr) {
+    --font-body: "Noto Sans Devanagari Variable", ui-sans-serif, system-ui, sans-serif;
+    --font-display: "Noto Sans Devanagari Variable", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "Noto Sans Devanagari Variable", ui-monospace, monospace;
+    --font-sans: "Noto Sans Devanagari Variable", ui-sans-serif, system-ui, sans-serif;
+  }
+
+  html:lang(bn) {
+    --font-body: "Noto Sans Bengali Variable", ui-sans-serif, system-ui, sans-serif;
+    --font-display: "Noto Sans Bengali Variable", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "Noto Sans Bengali Variable", ui-monospace, monospace;
+    --font-sans: "Noto Sans Bengali Variable", ui-sans-serif, system-ui, sans-serif;
+  }
+
+  html:lang(te) {
+    --font-body: "Noto Sans Telugu Variable", ui-sans-serif, system-ui, sans-serif;
+    --font-display: "Noto Sans Telugu Variable", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "Noto Sans Telugu Variable", ui-monospace, monospace;
+    --font-sans: "Noto Sans Telugu Variable", ui-sans-serif, system-ui, sans-serif;
+  }
+
+  html:lang(ta) {
+    --font-body: "Noto Sans Tamil Variable", ui-sans-serif, system-ui, sans-serif;
+    --font-display: "Noto Sans Tamil Variable", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "Noto Sans Tamil Variable", ui-monospace, monospace;
+    --font-sans: "Noto Sans Tamil Variable", ui-sans-serif, system-ui, sans-serif;
+  }
+
+  html:lang(pa) {
+    --font-body: "Noto Sans Gurmukhi Variable", ui-sans-serif, system-ui, sans-serif;
+    --font-display: "Noto Sans Gurmukhi Variable", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "Noto Sans Gurmukhi Variable", ui-monospace, monospace;
+    --font-sans: "Noto Sans Gurmukhi Variable", ui-sans-serif, system-ui, sans-serif;
+  }
+
+  html:lang(gu) {
+    --font-body: "Noto Sans Gujarati Variable", ui-sans-serif, system-ui, sans-serif;
+    --font-display: "Noto Sans Gujarati Variable", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "Noto Sans Gujarati Variable", ui-monospace, monospace;
+    --font-sans: "Noto Sans Gujarati Variable", ui-sans-serif, system-ui, sans-serif;
   }
 
   body {

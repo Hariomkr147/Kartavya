@@ -1,20 +1,7 @@
 import type { HTMLAttributes } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import type { ComplaintStatus, SeverityLabel, SlaLabel } from "@/types/api";
-
-const STATUS_LABELS: Record<ComplaintStatus, string> = {
-  SUBMITTED: "Submitted",
-  EVIDENCE_UNDER_REVIEW: "Evidence under review",
-  NEEDS_MORE_EVIDENCE: "Needs more evidence",
-  REJECTED: "Rejected",
-  UNDER_REVIEW: "Under review",
-  IN_PROGRESS: "In progress",
-  UNDER_RESOLUTION: "Under resolution",
-  RESOLVED: "Resolved",
-  CLOSED: "Closed",
-  REOPENED: "Reopened",
-  UNRESOLVABLE: "Unresolvable",
-};
 
 // Tailwind can't see dynamically-built class strings, so each variant's
 // classes are written out in full here rather than composed from the status
@@ -70,23 +57,17 @@ export function StatusPill({
   status: ComplaintStatus;
   className?: string;
 }) {
+  const { t } = useTranslation();
   return (
     <BasePill className={cn(STATUS_CLASSES[status], className)}>
       <span
         className={cn("size-1.5 rounded-full", DOT_CLASSES[status])}
         aria-hidden="true"
       />
-      {STATUS_LABELS[status]}
+      {t(`status.${status}`)}
     </BasePill>
   );
 }
-
-const SEVERITY_LABELS: Record<SeverityLabel, string> = {
-  LOW: "Low",
-  MEDIUM: "Medium",
-  HIGH: "High",
-  CRITICAL: "Critical",
-};
 
 // LOW is deliberately neutral rather than green: it's the floor value and
 // appears on most rows, so colouring it competed with the status pill beside
@@ -107,25 +88,13 @@ export function SeverityPill({
   severity: SeverityLabel;
   className?: string;
 }) {
+  const { t } = useTranslation();
   return (
     <BasePill className={cn(SEVERITY_CLASSES[severity], className)}>
-      {SEVERITY_LABELS[severity]}
+      {t(`severity.${severity}`)}
     </BasePill>
   );
 }
-
-const SLA_LABELS: Record<SlaLabel, string> = {
-  ON_TIME: "On time",
-  DELAYED: "Delayed",
-  OVERDUE: "Overdue",
-};
-
-/** Past tense, for a complaint that has already finished. */
-const SLA_PAST_LABELS: Record<SlaLabel, string> = {
-  ON_TIME: "Closed on time",
-  DELAYED: "Closed late",
-  OVERDUE: "Closed overdue",
-};
 
 const SLA_CLASSES: Record<SlaLabel, string> = {
   ON_TIME: "bg-sla-on_time-subtle text-sla-on_time",
@@ -147,6 +116,7 @@ export function SlaPill({
    */
   past?: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <BasePill
       className={cn(
@@ -154,7 +124,7 @@ export function SlaPill({
         className,
       )}
     >
-      {past ? SLA_PAST_LABELS[sla] : SLA_LABELS[sla]}
+      {past ? t(`sla.past.${sla}`) : t(`sla.${sla}`)}
     </BasePill>
   );
 }

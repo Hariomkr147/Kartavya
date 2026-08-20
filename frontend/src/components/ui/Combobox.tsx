@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -33,7 +34,7 @@ export function Combobox({
   options,
   value,
   onChange,
-  placeholder = "Select…",
+  placeholder,
   placeholderDisabled = false,
   error,
   hint,
@@ -42,6 +43,7 @@ export function Combobox({
   name,
   onBlur,
 }: ComboboxProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -152,7 +154,7 @@ export function Combobox({
         >
           {hasRealSelection && matched?.icon}
           <span className="flex-1 truncate">
-            {matched ? matched.label : placeholder}
+            {matched ? matched.label : (placeholder ?? t("combobox.placeholder"))}
           </span>
           <ChevronDown className="size-4 shrink-0 text-ink-faint" aria-hidden="true" />
         </button>

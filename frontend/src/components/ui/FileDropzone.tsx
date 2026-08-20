@@ -6,6 +6,7 @@ import {
   useSyncExternalStore,
   type DragEvent,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { Camera, ImagePlus, Loader2, X } from "lucide-react";
 import { compressPhoto } from "@/lib/imageCompression";
 import { cn } from "@/lib/utils";
@@ -63,6 +64,7 @@ export function FileDropzone({
   error,
   className,
 }: FileDropzoneProps) {
+  const { t } = useTranslation();
   const [dragActive, setDragActive] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [compressing, setCompressing] = useState(false);
@@ -77,7 +79,7 @@ export function FileDropzone({
     const list = Array.from(candidates).slice(0, slotsLeft);
     for (const candidate of list) {
       if (!acceptedTypes.includes(candidate.type)) {
-        setLocalError("Only JPEG or PNG photos are accepted.");
+        setLocalError(t("dropzone.wrongType"));
         return;
       }
     }
@@ -199,10 +201,10 @@ export function FileDropzone({
               <ImagePlus className="text-ink-faint size-8" aria-hidden="true" />
               <p className="text-sm font-medium text-ink">
                 {files.length > 0
-                  ? `Add another photo (${files.length}/${maxFiles})`
+                  ? t("dropzone.addAnother", { current: files.length, max: maxFiles })
                   : hasCamera
-                    ? "Tap to choose a photo"
-                    : "Drop a photo here, or click to browse"}
+                    ? t("dropzone.tapToChoose")
+                    : t("dropzone.dropHere")}
               </p>
               {/*
                 Deliberately no size limit in the copy. Compression runs
@@ -228,7 +230,7 @@ export function FileDropzone({
               className="border-brand/40 text-brand hover:bg-brand/10 mt-1 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors"
             >
               <Camera className="size-3.5" aria-hidden="true" />
-              Take a photo
+              {t("dropzone.takePhoto")}
             </button>
           )}
         </div>
@@ -259,7 +261,7 @@ export function FileDropzone({
         type="file"
         accept={accept}
         capture="environment"
-        aria-label="Take a photo with the camera"
+        aria-label={t("dropzone.cameraInput")}
         className="sr-only"
         onChange={(e) => {
           addCandidates(e.target.files);
@@ -287,6 +289,7 @@ function FilePreview({
   /** Single-photo mode only — the explicit, visible counterpart to the ✕ above, for when removing is the only way back to the picker (see `replaceSinglePhoto`). */
   onReplace?: () => void;
 }) {
+  const { t } = useTranslation();
   const previewUrl = useMemo(() => URL.createObjectURL(file), [file]);
   useEffect(() => {
     // Deferred rather than immediate — revoking synchronously on unmount can
@@ -302,14 +305,14 @@ function FilePreview({
         {previewUrl && (
           <img
             src={previewUrl}
-            alt="Selected evidence preview"
+            alt={t("dropzone.previewAlt")}
             className="h-32 w-full object-cover"
           />
         )}
         <button
           type="button"
           onClick={onRemove}
-          aria-label="Remove photo"
+          aria-label={t("dropzone.removePhoto")}
           className="bg-ink/60 hover:bg-ink/80 absolute top-1.5 right-1.5 inline-flex size-7 items-center justify-center rounded-full text-white transition-colors"
         >
           <X className="size-3.5" aria-hidden="true" />
@@ -321,7 +324,7 @@ function FilePreview({
           onClick={onReplace}
           className="text-brand mt-1.5 text-xs font-medium hover:underline"
         >
-          Change photo
+          {t("dropzone.changePhoto")}
         </button>
       )}
     </div>

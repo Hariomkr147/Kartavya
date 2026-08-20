@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import {
   Trophy,
@@ -21,12 +22,7 @@ import {
   type BarDatum,
 } from "@/components/charts/HorizontalBarChart";
 import { iconForBadge } from "@/lib/badgeIcons";
-import {
-  CSP_REASON_LABELS,
-  CSP_RULES,
-  formatCsp,
-  observedAmounts,
-} from "@/lib/cspRules";
+import { cspReasonLabel, cspRules, formatCsp, observedAmounts } from "@/lib/cspRules";
 import { relativeTime, absoluteDateTime } from "@/lib/datetime";
 import { usePointsSummary } from "@/hooks/usePointsSummary";
 import { useBadges } from "@/hooks/useBadges";
@@ -43,12 +39,9 @@ const LEDGER_PAGE_SIZE = 8;
 const LEDGER_FETCH_SIZE = 100;
 const LEADERBOARD_PAGE_SIZE = 10;
 
-const REASON_LABELS = CSP_REASON_LABELS;
-
-const shortDateFormatter = new Intl.DateTimeFormat("en", {
-  month: "short",
-  day: "numeric",
-});
+function shortDateFormatter(locale: string) {
+  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" });
+}
 
 /**
  * One point per *day*, not per ledger row. Several awards commonly land on
@@ -57,19 +50,20 @@ const shortDateFormatter = new Intl.DateTimeFormat("en", {
  * while telling the reader nothing extra — the running total at the end of
  * each day is the honest shape of "CSP over time".
  */
-function cumulativeSeries(ledger: PointsLedgerEntry[]) {
+function cumulativeSeries(ledger: PointsLedgerEntry[], locale: string) {
   const chronological = [...ledger].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
   );
   // Insertion order is chronological, and re-setting an existing key keeps
   // its original position — so each day ends up holding its closing total.
+  const formatter = shortDateFormatter(locale);
   const byDay = new Map<string, { x: string; y: number }>();
   let running = 0;
   for (const entry of chronological) {
     running += entry.amount;
     const date = new Date(entry.createdAt);
     byDay.set(date.toISOString().slice(0, 10), {
-      x: shortDateFormatter.format(date),
+      x: formatter.format(date),
       y: running,
     });
   }
@@ -83,10 +77,12 @@ function reasonBreakdown(ledger: PointsLedgerEntry[]): BarDatum[] {
   }
   return [...sums.entries()]
     .sort((a, b) => b[1] - a[1])
-    .map(([reason, value]) => ({ label: REASON_LABELS[reason], value }));
+    .map(([reason, value]) => ({ label: cspReasonLabel(reason), value }));
 }
 
 export function GamificationPage() {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? "en";
   const [ledgerPage, setLedgerPage] = useState(1);
   const [scope, setScope] = useState<"zone" | "city">("zone");
   const [period, setPeriod] = useState<"monthly" | "all_time">("monthly");
@@ -109,7 +105,7 @@ export function GamificationPage() {
     (ledgerPage - 1) * LEDGER_PAGE_SIZE,
     ledgerPage * LEDGER_PAGE_SIZE,
   );
-  const trendData = useMemo(() => cumulativeSeries(ledger), [ledger]);
+  const trendData = useMemo(() => cumulativeSeries(ledger, locale), [ledger, locale]);
   const breakdownData = useMemo(() => reasonBreakdown(ledger), [ledger]);
   // Where the citizen's own ledger already shows what a reason paid them,
   // that real number wins over the published table below.
@@ -118,14 +114,16 @@ export function GamificationPage() {
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-8">
-      <h1 className="font-display text-display-sm font-semibold text-ink">My Kartavya</h1>
+      <h1 className="font-display text-display-sm font-semibold text-ink">
+        {t("nav.myKartavya")}
+      </h1>
 
       <div className="grid items-start gap-6 lg:grid-cols-2">
         <section className="rounded-lg border border-line bg-surface p-5">
           <div className="flex items-center gap-2">
             <Trophy className="text-csp size-5" aria-hidden="true" />
             <p className="font-display text-base font-semibold text-ink">
-              Civic Service Points
+              {t("citizenDashboard.csp")}
             </p>
           </div>
           <div className="mt-3 flex items-baseline gap-4">
@@ -133,13 +131,13 @@ export function GamificationPage() {
               <p className="text-csp font-mono text-3xl font-semibold">
                 {points?.totalLifetimeCsp ?? 0}
               </p>
-              <p className="text-ink-faint text-xs">Lifetime</p>
+              <p className="text-ink-faint text-xs">{t("gamification.lifetime")}</p>
             </div>
             <div>
               <p className="font-mono text-xl font-semibold text-ink">
                 +{points?.currentMonthCsp ?? 0}
               </p>
-              <p className="text-ink-faint text-xs">This month</p>
+              <p className="text-ink-faint text-xs">{t("gamification.thisMonth")}</p>
             </div>
           </div>
         </section>
@@ -147,7 +145,9 @@ export function GamificationPage() {
         <section className="rounded-lg border border-line bg-surface p-5">
           <div className="flex items-center gap-2">
             <Award className="text-brand size-5" aria-hidden="true" />
-            <p className="font-display text-base font-semibold text-ink">Badges</p>
+            <p className="font-display text-base font-semibold text-ink">
+              {t("gamification.badges")}
+            </p>
           </div>
           {badgesLoading ? (
             <div className="mt-3 flex gap-3">
@@ -157,8 +157,7 @@ export function GamificationPage() {
             </div>
           ) : !badges || badges.length === 0 ? (
             <p className="text-ink-muted mt-3 text-sm">
-              No badges earned yet — file and see complaints through to resolution to
-              start earning them.
+              {t("gamification.noBadges")}
             </p>
           ) : (
             <div className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(5rem,1fr))] gap-4">
@@ -193,15 +192,12 @@ export function GamificationPage() {
         <div className="flex items-center gap-2">
           <Scale className="text-ink-muted size-5" aria-hidden="true" />
           <h2 className="font-display text-base font-semibold text-ink">
-            How Civic Service Points work
+            {t("gamification.howItWorks")}
           </h2>
         </div>
-        <p className="text-ink-muted mt-1 text-sm">
-          Points are credited by the city when a report reaches an outcome — never for
-          filing alone. Amounts you've already been paid are shown from your own ledger.
-        </p>
+        <p className="text-ink-muted mt-1 text-sm">{t("gamification.howItWorksBody")}</p>
         <ul className="mt-4 grid gap-3 sm:grid-cols-2">
-          {CSP_RULES.map((rule) => {
+          {cspRules().map((rule) => {
             const amount = earned[rule.reason] ?? rule.documentedAmount;
             const isPenalty = amount < 0;
             return (
@@ -237,7 +233,7 @@ export function GamificationPage() {
             <div className="mb-3 flex items-center gap-2">
               <TrendingUp className="text-ink-muted size-4" aria-hidden="true" />
               <h2 className="font-display text-sm font-semibold text-ink">
-                CSP over time
+                {t("gamification.cspOverTime")}
               </h2>
             </div>
             <TrendLineChart data={trendData} color="var(--color-csp)" />
@@ -246,7 +242,7 @@ export function GamificationPage() {
             <div className="mb-3 flex items-center gap-2">
               <PieChart className="text-ink-muted size-4" aria-hidden="true" />
               <h2 className="font-display text-sm font-semibold text-ink">
-                Points by reason
+                {t("gamification.pointsByReason")}
               </h2>
             </div>
             <HorizontalBarChart data={breakdownData} color="var(--color-csp)" />
@@ -257,7 +253,9 @@ export function GamificationPage() {
       <section className="space-y-3">
         <div className="flex items-center gap-2">
           <ListChecks className="text-ink-muted size-5" aria-hidden="true" />
-          <h2 className="font-display text-lg font-semibold text-ink">Points ledger</h2>
+          <h2 className="font-display text-lg font-semibold text-ink">
+            {t("gamification.pointsLedger")}
+          </h2>
         </div>
         {pointsLoading ? (
           <div className="space-y-2">
@@ -267,8 +265,8 @@ export function GamificationPage() {
           </div>
         ) : ledger.length === 0 ? (
           <EmptyState
-            title="No point activity yet"
-            description="Points show up here as your complaints move through their lifecycle."
+            title={t("gamification.noPoints")}
+            description={t("gamification.noPointsBody")}
             className="rounded-lg border border-line bg-surface"
           />
         ) : (
@@ -286,10 +284,10 @@ export function GamificationPage() {
                           to={`/citizen/complaints/${entry.complaintId}`}
                           className="hover:text-brand hover:underline"
                         >
-                          {REASON_LABELS[entry.reason]}
+                          {cspReasonLabel(entry.reason)}
                         </Link>
                       ) : (
-                        REASON_LABELS[entry.reason]
+                        cspReasonLabel(entry.reason)
                       )}
                     </p>
                     <p className="text-ink-faint text-xs">
@@ -322,14 +320,18 @@ export function GamificationPage() {
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="font-display text-lg font-semibold text-ink">Leaderboard</h2>
+            <h2 className="font-display text-lg font-semibold text-ink">
+              {t("nav.leaderboard")}
+            </h2>
             {leaderboard?.generatedAt && (
               <p
                 className="text-ink-faint mt-0.5 flex items-center gap-1.5 text-xs"
                 title={absoluteDateTime(leaderboard.generatedAt)}
               >
                 <RefreshCw className="size-3" aria-hidden="true" />
-                Ranked as of {relativeTime(leaderboard.generatedAt)}
+                {t("gamification.rankedAsOf", {
+                  when: relativeTime(leaderboard.generatedAt),
+                })}
               </p>
             )}
           </div>
@@ -342,8 +344,8 @@ export function GamificationPage() {
               }}
             >
               <TabsList>
-                <TabsTrigger value="zone">My zone</TabsTrigger>
-                <TabsTrigger value="city">City-wide</TabsTrigger>
+                <TabsTrigger value="zone">{t("gamification.myZone")}</TabsTrigger>
+                <TabsTrigger value="city">{t("gamification.cityWide")}</TabsTrigger>
               </TabsList>
             </Tabs>
             <Tabs
@@ -354,8 +356,8 @@ export function GamificationPage() {
               }}
             >
               <TabsList>
-                <TabsTrigger value="monthly">Monthly</TabsTrigger>
-                <TabsTrigger value="all_time">All-time</TabsTrigger>
+                <TabsTrigger value="monthly">{t("gamification.monthly")}</TabsTrigger>
+                <TabsTrigger value="all_time">{t("gamification.allTime")}</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -369,8 +371,8 @@ export function GamificationPage() {
           </div>
         ) : !leaderboard || leaderboard.data.length === 0 ? (
           <EmptyState
-            title="No leaderboard activity yet"
-            description="Rankings appear once citizens start earning points in this scope."
+            title={t("gamification.noLeaderboard")}
+            description={t("gamification.noLeaderboardBody")}
             className="rounded-lg border border-line bg-surface"
           />
         ) : (
@@ -393,9 +395,12 @@ export function GamificationPage() {
                     #{entry.rank}
                   </span>
                   <p className="flex-1 truncate text-sm font-medium text-ink">
-                    {entry.displayName ?? `Citizen #${entry.citizenId}`}
+                    {entry.displayName ??
+                      t("gamification.citizenNumber", { citizenId: entry.citizenId })}
                     {entry.isCurrentUser && (
-                      <span className="text-brand ml-2 text-xs font-normal">(you)</span>
+                      <span className="text-brand ml-2 text-xs font-normal">
+                        {t("gamification.you")}
+                      </span>
                     )}
                   </p>
                   <p className="font-mono text-sm font-semibold text-ink">
@@ -411,8 +416,12 @@ export function GamificationPage() {
                 </span>
                 <p className="flex-1 truncate text-sm font-medium text-ink">
                   {leaderboard.currentUser.displayName ??
-                    `Citizen #${leaderboard.currentUser.citizenId}`}
-                  <span className="text-brand ml-2 text-xs font-normal">(you)</span>
+                    t("gamification.citizenNumber", {
+                      citizenId: leaderboard.currentUser.citizenId,
+                    })}
+                  <span className="text-brand ml-2 text-xs font-normal">
+                    {t("gamification.you")}
+                  </span>
                 </p>
                 <p className="font-mono text-sm font-semibold text-ink">
                   {leaderboard.currentUser.points}

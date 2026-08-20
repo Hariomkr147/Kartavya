@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +17,7 @@ export function Pagination({
   onPageChange,
   className,
 }: PaginationProps) {
+  const { t } = useTranslation();
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   if (pageCount <= 1) return null;
 
@@ -26,18 +28,18 @@ export function Pagination({
 
   return (
     <nav
-      aria-label="Pagination"
+      aria-label={t("pagination.label")}
       className={cn("flex items-center justify-between gap-4", className)}
     >
       <p className="text-ink-muted text-sm">
-        {from}–{to} of {total}
+        {t("pagination.range", { from, to, total })}
       </p>
       <div className="flex items-center gap-1">
         <button
           type="button"
           onClick={() => onPageChange(page - 1)}
           disabled={page <= 1}
-          aria-label="Previous page"
+          aria-label={t("pagination.previous")}
           className="text-ink-muted hover:bg-surface-hover hover:text-ink inline-flex size-8 items-center justify-center rounded-md disabled:pointer-events-none disabled:opacity-40"
         >
           <ChevronLeft className="size-4" aria-hidden="true" />
@@ -68,7 +70,7 @@ export function Pagination({
           type="button"
           onClick={() => onPageChange(page + 1)}
           disabled={page >= pageCount}
-          aria-label="Next page"
+          aria-label={t("pagination.next")}
           className="text-ink-muted hover:bg-surface-hover hover:text-ink inline-flex size-8 items-center justify-center rounded-md disabled:pointer-events-none disabled:opacity-40"
         >
           <ChevronRight className="size-4" aria-hidden="true" />

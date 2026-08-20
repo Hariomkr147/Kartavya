@@ -1,15 +1,12 @@
+import i18n from "@/i18n";
 import type { PointsLedgerEntry } from "@/types/api";
 
 export type CspReason = PointsLedgerEntry["reason"];
 
-export const CSP_REASON_LABELS: Record<CspReason, string> = {
-  COMPLAINT_CLOSED: "Complaint closed",
-  CLUSTER_MEMBER_CLOSED: "Cluster member closed",
-  FIRST_COMPLAINT: "First complaint bonus",
-  ON_TIME_BONUS: "On-time bonus",
-  UPVOTE_RECEIVED: "Upvote received",
-  REJECTED_PENALTY: "Complaint rejected",
-};
+/** Reason labels, resolved through i18next so they follow the active language. */
+export function cspReasonLabel(reason: CspReason): string {
+  return i18n.t(`csp.reason.${reason}`);
+}
 
 export interface CspRule {
   reason: CspReason;
@@ -27,46 +24,28 @@ export interface CspRule {
  * earned. `observedAmounts` below lets the UI prefer a citizen's own real
  * numbers over this table wherever their ledger already shows one, so the
  * page can never quietly disagree with itself if the server retunes an award.
+ *
+ * Listed here in published order with their documented amounts; the copy
+ * itself lives in the locale bundles.
  */
-export const CSP_RULES: CspRule[] = [
-  {
-    reason: "COMPLAINT_CLOSED",
-    label: CSP_REASON_LABELS.COMPLAINT_CLOSED,
-    documentedAmount: 50,
-    description: "You confirmed an officer's fix and the complaint closed.",
-  },
-  {
-    reason: "ON_TIME_BONUS",
-    label: CSP_REASON_LABELS.ON_TIME_BONUS,
-    documentedAmount: 15,
-    description: "That complaint closed inside its category's SLA target.",
-  },
-  {
-    reason: "CLUSTER_MEMBER_CLOSED",
-    label: CSP_REASON_LABELS.CLUSTER_MEMBER_CLOSED,
-    documentedAmount: 10,
-    description:
-      "Someone else confirmed first on a shared issue you also reported. The full reward is paid once per cluster.",
-  },
-  {
-    reason: "FIRST_COMPLAINT",
-    label: CSP_REASON_LABELS.FIRST_COMPLAINT,
-    documentedAmount: 10,
-    description: "A one-time welcome bonus for your very first report.",
-  },
-  {
-    reason: "UPVOTE_RECEIVED",
-    label: CSP_REASON_LABELS.UPVOTE_RECEIVED,
-    documentedAmount: 5,
-    description: "A neighbour backed one of your reports on the feed.",
-  },
-  {
-    reason: "REJECTED_PENALTY",
-    label: CSP_REASON_LABELS.REJECTED_PENALTY,
-    documentedAmount: -20,
-    description: "An officer rejected a report as not a genuine civic issue.",
-  },
+const DOCUMENTED_AMOUNTS: [CspReason, number][] = [
+  ["COMPLAINT_CLOSED", 50],
+  ["ON_TIME_BONUS", 15],
+  ["CLUSTER_MEMBER_CLOSED", 10],
+  ["FIRST_COMPLAINT", 10],
+  ["UPVOTE_RECEIVED", 5],
+  ["REJECTED_PENALTY", -20],
 ];
+
+/** Built per call rather than as a module constant so the copy follows the active language. */
+export function cspRules(): CspRule[] {
+  return DOCUMENTED_AMOUNTS.map(([reason, documentedAmount]) => ({
+    reason,
+    label: cspReasonLabel(reason),
+    documentedAmount,
+    description: i18n.t(`csp.description.${reason}`),
+  }));
+}
 
 /**
  * The most recent amount this citizen actually received per reason, read off

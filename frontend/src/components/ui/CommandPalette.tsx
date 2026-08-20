@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import {
   LogOut,
@@ -40,6 +41,7 @@ export function CommandPalette({ navItems, accountPath }: CommandPaletteProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { logout } = useAuth();
   const { cycleTheme } = useTheme();
   const { toggleDensity } = useDensity();
@@ -48,38 +50,38 @@ export function CommandPalette({ navItems, accountPath }: CommandPaletteProps) {
     () => [
       ...navItems.map((item) => ({
         id: `nav:${item.to}`,
-        label: item.label,
+        label: t(item.labelKey),
         icon: item.icon,
         run: () => navigate(item.to),
       })),
       {
         id: "action:account",
-        label: "Account settings",
+        label: t("settingsPopover.accountSettings"),
         icon: UserIcon,
         run: () => navigate(accountPath),
       },
       {
         id: "action:theme",
-        label: "Cycle theme",
-        hint: "Light / Dark / AMOLED",
+        label: t("palette.cycleTheme"),
+        hint: t("palette.cycleThemeHint"),
         icon: Moon,
         run: cycleTheme,
       },
       {
         id: "action:density",
-        label: "Toggle table density",
-        hint: "Comfortable / Compact",
+        label: t("palette.toggleDensity"),
+        hint: t("palette.toggleDensityHint"),
         icon: Rows3,
         run: toggleDensity,
       },
       {
         id: "action:logout",
-        label: "Log out",
+        label: t("shell.logOut"),
         icon: LogOut,
         run: logout,
       },
     ],
-    [navItems, accountPath, navigate, cycleTheme, toggleDensity, logout],
+    [t, navItems, accountPath, navigate, cycleTheme, toggleDensity, logout],
   );
 
   const filtered = useMemo(() => {
@@ -161,7 +163,7 @@ export function CommandPalette({ navItems, accountPath }: CommandPaletteProps) {
         className="text-ink-faint hover:border-line-strong hover:text-ink-muted hidden h-9 w-48 items-center gap-2 rounded-md border border-line bg-surface px-3 text-sm transition-colors sm:inline-flex"
       >
         <Search className="size-4 shrink-0" aria-hidden="true" />
-        <span className="flex-1 text-left">Search…</span>
+        <span className="flex-1 text-left">{t("palette.search")}</span>
         <kbd className="rounded border border-line px-1.5 py-0.5 text-[10px] font-medium">
           {navigator.platform.toLowerCase().includes("mac") ? "⌘K" : "Ctrl K"}
         </kbd>
@@ -169,7 +171,7 @@ export function CommandPalette({ navItems, accountPath }: CommandPaletteProps) {
       <button
         type="button"
         onClick={openPalette}
-        aria-label="Open command palette"
+        aria-label={t("palette.open")}
         className="text-ink-muted hover:bg-surface-hover hover:text-ink inline-flex size-10 items-center justify-center rounded-md transition-colors sm:hidden"
       >
         <Search className="size-5" aria-hidden="true" />
@@ -185,7 +187,7 @@ export function CommandPalette({ navItems, accountPath }: CommandPaletteProps) {
             <div
               role="dialog"
               aria-modal="true"
-              aria-label="Command palette"
+              aria-label={t("palette.title")}
               onKeyDown={handleKeyDown}
               className="animate-in fade-in zoom-in-95 relative flex max-h-[60vh] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-lg duration-150"
             >
@@ -195,8 +197,8 @@ export function CommandPalette({ navItems, accountPath }: CommandPaletteProps) {
                   ref={inputRef}
                   value={query}
                   onChange={(e) => handleQueryChange(e.target.value)}
-                  placeholder="Jump to a page or run an action…"
-                  aria-label="Search commands"
+                  placeholder={t("palette.placeholder")}
+                  aria-label={t("palette.searchCommands")}
                   className="text-ink placeholder:text-ink-faint w-full bg-transparent text-sm focus:outline-none"
                 />
                 <kbd className="text-ink-faint hidden shrink-0 rounded border border-line px-1.5 py-0.5 text-[10px] font-medium sm:inline">
@@ -206,7 +208,7 @@ export function CommandPalette({ navItems, accountPath }: CommandPaletteProps) {
               <div className="overflow-y-auto py-1.5">
                 {filtered.length === 0 ? (
                   <p className="text-ink-faint px-4 py-6 text-center text-sm">
-                    No matches.
+                    {t("palette.noMatches")}
                   </p>
                 ) : (
                   filtered.map((action, i) => (

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { AlertTriangle, Gavel } from "lucide-react";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -15,6 +16,7 @@ import { iconForCategory } from "@/lib/categoryIcons";
 import { relativeTime } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 import { RefreshButton } from "@/components/ui/RefreshButton";
+import type { TranslationKey } from "@/i18n";
 
 const PAGE_SIZE = 15;
 // A dispute left un-ruled for a long time is the thing this page exists to
@@ -23,9 +25,9 @@ const PAGE_SIZE = 15;
 const OVERDUE_THRESHOLD_HOURS = 72;
 const STATS_FETCH_SIZE = 100;
 
-const SORT_OPTIONS = [
-  { value: "updatedAt", label: "Oldest disputed first" },
-  { value: "-updatedAt", label: "Newest disputed first" },
+const SORT_OPTIONS: { value: string; labelKey: TranslationKey }[] = [
+  { value: "updatedAt", labelKey: "disputes.oldestFirst" },
+  { value: "-updatedAt", labelKey: "disputes.newestFirst" },
 ];
 
 function hoursSince(iso: string): number {
@@ -33,6 +35,7 @@ function hoursSince(iso: string): number {
 }
 
 export function AdminDisputesPage() {
+  const { t } = useTranslation();
   const [page, setPage] = useState(1);
   const [zoneId, setZoneId] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -87,22 +90,24 @@ export function AdminDisputesPage() {
       <div>
         <div className="flex items-center gap-2">
           <h1 className="font-display text-display-sm font-semibold text-ink">
-            Dispute Queue
+            {t("disputes.title")}
           </h1>
           <RefreshButton onRefresh={refetch} refreshing={isFetching} what="disputes" />
         </div>
-        <p className="text-ink-muted mt-1 text-sm">
-          Complaints a citizen disputed after resolution — each is waiting for your
-          ruling.
-        </p>
+        <p className="text-ink-muted mt-1 text-sm">{t("disputes.subtitle")}</p>
         {summary && (
           <p className="text-ink-muted mt-2 text-sm">
-            <span className="font-medium text-ink">{summary.total}</span> dispute
-            {summary.total === 1 ? "" : "s"} pending, oldest filed {summary.oldestAgo}.
+            {t("disputes.summary", {
+              count: summary.total,
+              oldest: summary.oldestAgo,
+            })}
             {overdueCount > 0 && (
               <span className="text-sla-overdue ml-2 inline-flex items-center gap-1 font-medium">
                 <AlertTriangle className="size-3.5 shrink-0" aria-hidden="true" />
-                {overdueCount} waiting {OVERDUE_THRESHOLD_HOURS}h+
+                {t("disputes.overdueCount", {
+                  count: overdueCount,
+                  hours: OVERDUE_THRESHOLD_HOURS,
+                })}
               </span>
             )}
           </p>
@@ -111,7 +116,7 @@ export function AdminDisputesPage() {
 
       <div className="flex flex-wrap gap-4 rounded-lg border border-line bg-surface p-4">
         <div className="min-w-[10rem] flex-1">
-          <Label htmlFor="dispute-zone-filter">Zone</Label>
+          <Label htmlFor="dispute-zone-filter">{t("filters.zone")}</Label>
           <Combobox
             id="dispute-zone-filter"
             value={zoneId}
@@ -120,13 +125,13 @@ export function AdminDisputesPage() {
               resetPage();
             }}
             options={[
-              { value: "", label: "All zones" },
+              { value: "", label: t("filters.allZones") },
               ...(zones?.map((z) => ({ value: z.id, label: z.name })) ?? []),
             ]}
           />
         </div>
         <div className="min-w-[10rem] flex-1">
-          <Label htmlFor="dispute-category-filter">Category</Label>
+          <Label htmlFor="dispute-category-filter">{t("filters.category")}</Label>
           <Combobox
             id="dispute-category-filter"
             value={categoryId}
@@ -135,13 +140,13 @@ export function AdminDisputesPage() {
               resetPage();
             }}
             options={[
-              { value: "", label: "All categories" },
+              { value: "", label: t("filters.allCategories") },
               ...(categories?.map((c) => ({ value: c.id, label: c.name })) ?? []),
             ]}
           />
         </div>
         <div className="min-w-[12rem] flex-1">
-          <Label htmlFor="dispute-sort">Sort by</Label>
+          <Label htmlFor="dispute-sort">{t("filters.sortBy")}</Label>
           <Combobox
             id="dispute-sort"
             value={sort}
@@ -149,7 +154,10 @@ export function AdminDisputesPage() {
               setSort(v);
               resetPage();
             }}
-            options={SORT_OPTIONS}
+            options={SORT_OPTIONS.map((option) => ({
+              value: option.value,
+              label: t(option.labelKey),
+            }))}
           />
         </div>
       </div>
@@ -163,8 +171,8 @@ export function AdminDisputesPage() {
       ) : rows.length === 0 ? (
         <EmptyState
           icon={Gavel}
-          title="No pending disputes"
-          description="When a citizen disputes a resolution, it'll show up here for your ruling."
+          title={t("disputes.empty")}
+          description={t("disputes.emptyBody")}
           className="rounded-lg border border-line bg-surface"
         />
       ) : (
@@ -201,8 +209,11 @@ export function AdminDisputesPage() {
                         overdue ? "text-sla-overdue font-semibold" : "text-ink-faint",
                       )}
                     >
-                      {c.id} · disputed {relativeTime(c.updatedAt ?? c.createdAt)}
-                      {overdue && " · overdue for ruling"}
+                      {t("disputes.disputedLine", {
+                        complaintId: c.id,
+                        when: relativeTime(c.updatedAt ?? c.createdAt),
+                      })}
+                      {overdue && t("disputes.overdueSuffix")}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">

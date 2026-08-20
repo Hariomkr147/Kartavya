@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -30,6 +31,7 @@ import { useZoneSummary } from "@/hooks/useZoneSummary";
 import { useOfficerQueue } from "@/hooks/useOfficerQueue";
 import { useOfficerQueueUpdates } from "@/hooks/useOfficerQueueUpdates";
 import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
+import type { TranslationKey } from "@/i18n";
 import type { ComplaintStatus } from "@/types/api";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 
@@ -55,11 +57,11 @@ const PRIORITY_PREVIEW_COUNT = 5;
 
 type AnalyticsPeriod = "all_time" | "this_month" | "last_30_days" | "last_7_days";
 
-const PERIOD_OPTIONS: { value: AnalyticsPeriod; label: string }[] = [
-  { value: "all_time", label: "All time" },
-  { value: "this_month", label: "This month" },
-  { value: "last_30_days", label: "Last 30 days" },
-  { value: "last_7_days", label: "Last 7 days" },
+const PERIOD_OPTIONS: { value: AnalyticsPeriod; labelKey: TranslationKey }[] = [
+  { value: "all_time", labelKey: "period.allTime" },
+  { value: "this_month", labelKey: "period.thisMonth" },
+  { value: "last_30_days", labelKey: "period.last30Days" },
+  { value: "last_7_days", labelKey: "period.last7Days" },
 ];
 
 /** Maps a period choice onto the `dateFrom`/`dateTo` params `/officer/analytics`
@@ -87,6 +89,7 @@ function isToday(iso: string): boolean {
 }
 
 export function OfficerDashboardPage() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const [period, setPeriod] = useState<AnalyticsPeriod>("all_time");
   const analyticsParams = useMemo(() => periodToRange(period), [period]);
@@ -133,24 +136,27 @@ export function OfficerDashboardPage() {
         <div>
           <p className="text-ink-faint text-sm font-medium">{formatFullDate()}</p>
           <h1 className="font-display text-display-sm mt-0.5 font-semibold text-ink">
-            {analytics?.zoneName ?? "Zone"} Dashboard
+            {t("officerDashboard.title", {
+              zone: analytics?.zoneName ?? t("filters.zone"),
+            })}
           </h1>
-          <p className="text-ink-muted mt-1 text-sm">
-            Live status for your assigned zone — most urgent complaints first.
-          </p>
+          <p className="text-ink-muted mt-1 text-sm">{t("officerDashboard.subtitle")}</p>
         </div>
         <div className="mt-1 flex items-center gap-2">
           <span className="text-ink-muted bg-surface-hover inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium">
             <Radio className="text-status-resolved size-3.5 shrink-0" aria-hidden="true" />
-            Live
+            {t("officerDashboard.live")}
           </span>
           <div className="w-40">
             <Combobox
               id="officer-analytics-period"
-              aria-label="Analytics period"
+              aria-label={t("officerDashboard.analyticsPeriod")}
               value={period}
               onChange={(v) => setPeriod(v as AnalyticsPeriod)}
-              options={PERIOD_OPTIONS}
+              options={PERIOD_OPTIONS.map((option) => ({
+                value: option.value,
+                label: t(option.labelKey),
+              }))}
             />
           </div>
           <RefreshButton
@@ -178,12 +184,12 @@ export function OfficerDashboardPage() {
         >
           <StatCard
             icon={ClipboardList}
-            label="Active complaints"
+            label={t("citizenDashboard.activeComplaints")}
             value={analytics?.activeComplaints ?? 0}
           />
           <StatCard
             icon={AlertTriangle}
-            label="Overdue"
+            label={t("sla.OVERDUE")}
             value={analytics?.overdueCount ?? 0}
             accent={
               analytics?.overdueCount && analytics.overdueCount > 0 ? "bad" : "brand"
@@ -191,15 +197,17 @@ export function OfficerDashboardPage() {
           />
           <StatCard
             icon={Boxes}
-            label="Active clusters"
+            label={t("zoneSummary.activeClusters")}
             value={zoneSummary?.activeClusters ?? 0}
           />
           <StatCard
             icon={Clock}
-            label="Avg. resolution (this month)"
+            label={t("officerDashboard.avgResolution")}
             value={
               analytics?.avgResolutionHoursThisMonth != null
-                ? `${Math.round(analytics.avgResolutionHoursThisMonth)}h`
+                ? t("common.hoursShort", {
+                    hours: Math.round(analytics.avgResolutionHoursThisMonth),
+                  })
                 : "—"
             }
           />
@@ -208,9 +216,7 @@ export function OfficerDashboardPage() {
 
       {period !== "all_time" && (
         <p className="text-ink-faint -mt-4 text-xs">
-          Active and Overdue count complaints filed in the selected period. Active
-          clusters and average resolution ignore it — clusters are a live count, and
-          the contract pins average resolution to the current calendar month.
+          {t("officerDashboard.periodNote")}
         </p>
       )}
 
@@ -222,25 +228,25 @@ export function OfficerDashboardPage() {
           className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-5 py-3"
         >
           <p className="text-ink-faint text-xs font-medium tracking-wide uppercase">
-            Your active queue
+            {t("officerDashboard.yourQueue")}
           </p>
           <Link
             to="/officer/queue?tab=mine"
             className="text-ink-muted hover:text-ink inline-flex items-center gap-1.5 text-sm hover:underline"
           >
             <UserCheck className="text-brand size-4" aria-hidden="true" />
-            {assignedToYouCount} assigned to you
+            {t("officerDashboard.assignedToYou", { count: assignedToYouCount })}
           </Link>
           <Link
             to="/officer/queue?tab=unassigned"
             className="text-ink-muted hover:text-ink inline-flex items-center gap-1.5 text-sm hover:underline"
           >
             <CircleDot className="text-ink-faint size-4" aria-hidden="true" />
-            {unassignedCount} unassigned
+            {t("officerDashboard.unassigned", { count: unassignedCount })}
           </Link>
           <span className="text-ink-muted inline-flex items-center gap-1.5 text-sm">
             <RefreshCcw className="text-ink-faint size-4" aria-hidden="true" />
-            {updatedTodayCount} updated today
+            {t("officerDashboard.updatedToday", { count: updatedTodayCount })}
           </span>
         </motion.div>
       )}
@@ -249,10 +255,10 @@ export function OfficerDashboardPage() {
         <section className="space-y-3 lg:col-span-2">
           <div className="flex items-center justify-between">
             <h2 className="font-display text-lg font-semibold text-ink">
-              Needs attention
+              {t("officerDashboard.needsAttention")}
             </h2>
             <LinkButton to="/officer/queue" variant="ghost" size="sm">
-              Open queue
+              {t("officerDashboard.openQueue")}
               <ArrowRight className="size-4" aria-hidden="true" />
             </LinkButton>
           </div>
@@ -266,8 +272,8 @@ export function OfficerDashboardPage() {
           ) : priorityItems.length === 0 ? (
             <EmptyState
               icon={CheckCircle2}
-              title="Nothing urgent"
-              description="Your zone's queue is caught up — nice work."
+              title={t("officerDashboard.nothingUrgent")}
+              description={t("officerDashboard.nothingUrgentBody")}
               className="rounded-lg border border-line bg-surface"
             />
           ) : (
@@ -290,13 +296,17 @@ export function OfficerDashboardPage() {
           <div className="rounded-lg border border-line bg-surface p-5">
             <div className="flex items-center gap-2">
               <Boxes className="text-brand size-5" aria-hidden="true" />
-              <p className="font-display text-base font-semibold text-ink">Clusters</p>
+              <p className="font-display text-base font-semibold text-ink">
+                {t("nav.clusters")}
+              </p>
             </div>
             <p className="text-ink mt-3 font-mono text-3xl font-semibold">
               {zoneSummary?.activeClusters ?? 0}
             </p>
             <p className="text-ink-muted mt-1 text-sm">
-              active of {zoneSummary?.totalClusters ?? 0} total
+              {t("officerDashboard.activeOfTotal", {
+                total: zoneSummary?.totalClusters ?? 0,
+              })}
             </p>
             <LinkButton
               to="/officer/clusters"
@@ -304,21 +314,23 @@ export function OfficerDashboardPage() {
               size="sm"
               className="mt-4 w-full"
             >
-              View clusters
+              {t("zoneSummary.viewClusters")}
             </LinkButton>
           </div>
 
           <div className="rounded-lg border border-line bg-surface p-5">
-            <p className="font-display text-base font-semibold text-ink">Zone totals</p>
+            <p className="font-display text-base font-semibold text-ink">
+              {t("officerDashboard.zoneTotals")}
+            </p>
             <dl className="mt-3 space-y-2 text-sm">
               <div className="flex justify-between">
-                <dt className="text-ink-muted">Total complaints</dt>
+                <dt className="text-ink-muted">{t("zoneSummary.totalComplaints")}</dt>
                 <dd className="font-medium text-ink">
                   {zoneSummary?.totalComplaints ?? 0}
                 </dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-ink-muted">Resolved</dt>
+                <dt className="text-ink-muted">{t("status.RESOLVED")}</dt>
                 <dd className="font-medium text-ink">
                   {zoneSummary?.resolvedComplaints ?? 0}
                 </dd>
@@ -328,7 +340,9 @@ export function OfficerDashboardPage() {
 
           {categoryChartData.length > 0 && (
             <div className="rounded-lg border border-line bg-surface p-5">
-              <p className="font-display text-base font-semibold text-ink">By category</p>
+              <p className="font-display text-base font-semibold text-ink">
+                {t("officerDashboard.byCategory")}
+              </p>
               <HorizontalBarChart data={categoryChartData} className="mt-3" />
             </div>
           )}

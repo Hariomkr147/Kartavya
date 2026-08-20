@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import { ClipboardList, Copy, Download, MoreHorizontal, Search, X } from "lucide-react";
 import { DatePicker } from "@/components/ui/DatePicker";
@@ -39,6 +40,7 @@ import { iconForCategory } from "@/lib/categoryIcons";
 import { relativeTime } from "@/lib/datetime";
 import { exportComplaintsCsv, type GetAdminComplaintsParams } from "@/services/admin";
 import { ApiRequestError } from "@/services/http";
+import type { TranslationKey } from "@/i18n";
 import type { Complaint, ComplaintStatus, SlaLabel } from "@/types/api";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 
@@ -56,26 +58,18 @@ const ALL_STATUSES: ComplaintStatus[] = [
   "UNRESOLVABLE",
 ];
 
-const SORT_OPTIONS: { value: string; label: string }[] = [
-  { value: "-createdAt", label: "Newest filed first" },
-  { value: "createdAt", label: "Oldest filed first" },
-  { value: "-updatedAt", label: "Recently updated first" },
-  { value: "updatedAt", label: "Least recently updated first" },
-  { value: "-severity", label: "Highest severity first" },
-  { value: "severity", label: "Lowest severity first" },
-  { value: "-sla", label: "Most SLA time used first" },
-  { value: "sla", label: "Least SLA time used first" },
-  { value: "-upvotes", label: "Most upvoted first" },
-  { value: "upvotes", label: "Least upvoted first" },
+const SORT_OPTIONS: { value: string; labelKey: TranslationKey }[] = [
+  { value: "-createdAt", labelKey: "adminComplaints.sort.newestFiled" },
+  { value: "createdAt", labelKey: "adminComplaints.sort.oldestFiled" },
+  { value: "-updatedAt", labelKey: "adminComplaints.sort.recentlyUpdated" },
+  { value: "updatedAt", labelKey: "adminComplaints.sort.leastRecentlyUpdated" },
+  { value: "-severity", labelKey: "adminComplaints.sort.severityHigh" },
+  { value: "severity", labelKey: "adminComplaints.sort.severityLow" },
+  { value: "-sla", labelKey: "adminComplaints.sort.slaMost" },
+  { value: "sla", labelKey: "adminComplaints.sort.slaLeast" },
+  { value: "-upvotes", labelKey: "adminComplaints.sort.upvotesMost" },
+  { value: "upvotes", labelKey: "adminComplaints.sort.upvotesLeast" },
 ];
-
-function humanizeStatus(status: ComplaintStatus): string {
-  return status
-    .toLowerCase()
-    .split("_")
-    .map((w) => w[0].toUpperCase() + w.slice(1))
-    .join(" ");
-}
 
 function dateSerialize(d: Date | undefined): string | undefined {
   return d ? d.toISOString() : undefined;
@@ -96,6 +90,8 @@ function pageDeserialize(raw: string): number {
 const PAGE_SIZE = 15;
 
 export function AdminComplaintsPage() {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? "en";
   const { toast } = useToast();
   const [zoneId, setZoneId] = useSearchParamState("zone", "");
   const [categoryId, setCategoryId] = useSearchParamState("category", "");
@@ -199,7 +195,7 @@ export function AdminComplaintsPage() {
       URL.revokeObjectURL(url);
     } catch (error) {
       toast({
-        title: "Export failed",
+        title: t("adminComplaints.exportFailed"),
         description: error instanceof ApiRequestError ? error.message : undefined,
         variant: "error",
       });
@@ -210,14 +206,26 @@ export function AdminComplaintsPage() {
 
   function handleExportVisiblePage() {
     exportRowsToCsv("admin-complaints-page.csv", rows, [
-      { header: "ID", accessor: (c: Complaint) => c.id },
-      { header: "Category", accessor: (c: Complaint) => c.category.name },
-      { header: "Zone", accessor: (c: Complaint) => c.zoneName ?? "" },
-      { header: "Status", accessor: (c: Complaint) => c.status },
-      { header: "Severity", accessor: (c: Complaint) => c.severityLabel ?? "" },
-      { header: "SLA", accessor: (c: Complaint) => c.slaLabel ?? "" },
-      { header: "Filed at", accessor: (c: Complaint) => c.createdAt },
-      { header: "Officer ID", accessor: (c: Complaint) => c.assignedOfficerId ?? "" },
+      { header: t("adminComplaints.columns.id"), accessor: (c: Complaint) => c.id },
+      { header: t("filters.category"), accessor: (c: Complaint) => c.category.name },
+      { header: t("filters.zone"), accessor: (c: Complaint) => c.zoneName ?? "" },
+      {
+        header: t("filters.status"),
+        accessor: (c: Complaint) => t(`status.${c.status}`),
+      },
+      {
+        header: t("filters.severity"),
+        accessor: (c: Complaint) => (c.severityLabel ? t(`severity.${c.severityLabel}`) : ""),
+      },
+      {
+        header: t("columns.sla"),
+        accessor: (c: Complaint) => (c.slaLabel ? t(`sla.${c.slaLabel}`) : ""),
+      },
+      { header: t("adminComplaints.columns.filedAt"), accessor: (c: Complaint) => c.createdAt },
+      {
+        header: t("adminComplaints.columns.officerId"),
+        accessor: (c: Complaint) => c.assignedOfficerId ?? "",
+      },
     ]);
   }
 
@@ -225,12 +233,12 @@ export function AdminComplaintsPage() {
     try {
       await navigator.clipboard.writeText(window.location.href);
       toast({
-        title: "Link copied",
-        description: "This filtered view is now on your clipboard.",
+        title: t("feed.linkCopied"),
+        description: t("adminComplaints.linkCopiedBody"),
         variant: "success",
       });
     } catch {
-      toast({ title: "Couldn't copy link", variant: "error" });
+      toast({ title: t("feed.linkCopyFailed"), variant: "error" });
     }
   }
 
@@ -239,7 +247,9 @@ export function AdminComplaintsPage() {
     if (zoneId) {
       chips.push({
         key: "zone",
-        label: `Zone: ${zones?.find((z) => z.id === zoneId)?.name ?? zoneId}`,
+        label: t("adminComplaints.chips.zone", {
+          zone: zones?.find((z) => z.id === zoneId)?.name ?? zoneId,
+        }),
         onRemove: () => {
           setZoneId("");
           resetPage();
@@ -249,7 +259,9 @@ export function AdminComplaintsPage() {
     if (categoryId) {
       chips.push({
         key: "category",
-        label: `Category: ${categories?.find((c) => c.id === categoryId)?.name ?? categoryId}`,
+        label: t("adminComplaints.chips.category", {
+          category: categories?.find((c) => c.id === categoryId)?.name ?? categoryId,
+        }),
         onRemove: () => {
           setCategoryId("");
           resetPage();
@@ -259,7 +271,7 @@ export function AdminComplaintsPage() {
     if (slaLabel) {
       chips.push({
         key: "sla",
-        label: `SLA: ${slaLabel.replace("_", " ").toLowerCase()}`,
+        label: t("adminComplaints.chips.sla", { sla: t(`sla.${slaLabel}`) }),
         onRemove: () => {
           setSlaLabel("");
           resetPage();
@@ -269,7 +281,7 @@ export function AdminComplaintsPage() {
     if (dateFrom) {
       chips.push({
         key: "from",
-        label: `From: ${dateFrom.toLocaleDateString()}`,
+        label: t("adminComplaints.chips.from", { date: dateFrom.toLocaleDateString(locale) }),
         onRemove: () => {
           setDateFrom(undefined);
           resetPage();
@@ -279,7 +291,7 @@ export function AdminComplaintsPage() {
     if (dateTo) {
       chips.push({
         key: "to",
-        label: `To: ${dateTo.toLocaleDateString()}`,
+        label: t("adminComplaints.chips.to", { date: dateTo.toLocaleDateString(locale) }),
         onRemove: () => {
           setDateTo(undefined);
           resetPage();
@@ -289,7 +301,7 @@ export function AdminComplaintsPage() {
     if (search.trim()) {
       chips.push({
         key: "q",
-        label: `Search: "${search.trim()}"`,
+        label: t("adminComplaints.chips.search", { search: search.trim() }),
         onRemove: () => {
           setSearch("");
           resetPage();
@@ -299,13 +311,13 @@ export function AdminComplaintsPage() {
     for (const status of statuses) {
       chips.push({
         key: `status-${status}`,
-        label: humanizeStatus(status),
+        label: t(`status.${status}`),
         onRemove: () => toggleStatus(status),
       });
     }
     return chips;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoneId, categoryId, slaLabel, dateFrom, dateTo, search, statuses, zones, categories]);
+  }, [zoneId, categoryId, slaLabel, dateFrom, dateTo, search, statuses, zones, categories, t, locale]);
 
   function handleClearAllFilters() {
     setRawSearchParams(
@@ -327,7 +339,7 @@ export function AdminComplaintsPage() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="font-display text-display-sm font-semibold text-ink">
-              Complaints
+              {t("nav.complaints")}
             </h1>
             <RefreshButton
               onRefresh={refetch}
@@ -335,28 +347,26 @@ export function AdminComplaintsPage() {
               what="complaints"
             />
           </div>
-          <p className="text-ink-muted mt-1 text-sm">
-            Every complaint across every zone, with full filtering.
-          </p>
+          <p className="text-ink-muted mt-1 text-sm">{t("adminComplaints.subtitle")}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={handleCopyLink}>
             <Copy className="size-4" aria-hidden="true" />
-            Copy link to this view
+            {t("adminComplaints.copyLink")}
           </Button>
           <Dropdown align="end">
             <DropdownTrigger>
               <Button variant="outline" size="sm" loading={exporting}>
                 <Download className="size-4" aria-hidden="true" />
-                Export (CSV)
+                {t("adminComplaints.export")}
               </Button>
             </DropdownTrigger>
             <DropdownMenu>
               <DropdownItem onSelect={handleExportVisiblePage}>
-                Export visible rows (respects search)
+                {t("adminComplaints.exportVisible")}
               </DropdownItem>
               <DropdownItem onSelect={handleExport}>
-                Export full filtered set (ignores search)
+                {t("adminComplaints.exportAll")}
               </DropdownItem>
             </DropdownMenu>
           </Dropdown>
@@ -381,7 +391,7 @@ export function AdminComplaintsPage() {
             onClick={handleClearAllFilters}
             className="text-brand text-xs font-medium hover:underline"
           >
-            Clear all
+            {t("adminComplaints.clearAll")}
           </button>
         </div>
       )}
@@ -389,7 +399,7 @@ export function AdminComplaintsPage() {
       <div className="space-y-4 rounded-lg border border-line bg-surface p-4">
         <div className="flex flex-wrap gap-4">
           <div className="min-w-[10rem] flex-1">
-            <Label htmlFor="zone-filter">Zone</Label>
+            <Label htmlFor="zone-filter">{t("filters.zone")}</Label>
             <Combobox
               id="zone-filter"
               value={zoneId}
@@ -398,23 +408,23 @@ export function AdminComplaintsPage() {
                 resetPage();
               }}
               options={[
-                { value: "", label: "All zones" },
+                { value: "", label: t("filters.allZones") },
                 ...(zones?.map((z) => ({ value: z.id, label: z.name })) ?? []),
               ]}
             />
           </div>
           <div className="min-w-[10rem] flex-1">
-            <Label htmlFor="category-filter">Category</Label>
+            <Label htmlFor="category-filter">{t("filters.category")}</Label>
             <Combobox
               id="category-filter"
               value={categoryId}
-              placeholder="All categories"
+              placeholder={t("filters.allCategories")}
               onChange={(next) => {
                 setCategoryId(next);
                 resetPage();
               }}
               options={[
-                { value: "", label: "All categories" },
+                { value: "", label: t("filters.allCategories") },
                 ...(categories?.map((c) => ({
                   value: c.id,
                   label: c.name,
@@ -430,7 +440,7 @@ export function AdminComplaintsPage() {
             />
           </div>
           <div className="min-w-[10rem] flex-1">
-            <Label htmlFor="sla-filter">SLA</Label>
+            <Label htmlFor="sla-filter">{t("columns.sla")}</Label>
             <Combobox
               id="sla-filter"
               value={slaLabel}
@@ -439,15 +449,15 @@ export function AdminComplaintsPage() {
                 resetPage();
               }}
               options={[
-                { value: "", label: "All" },
-                { value: "ON_TIME", label: "On time" },
-                { value: "DELAYED", label: "Delayed" },
-                { value: "OVERDUE", label: "Overdue" },
+                { value: "", label: t("adminUsers.all") },
+                { value: "ON_TIME", label: t("sla.ON_TIME") },
+                { value: "DELAYED", label: t("sla.DELAYED") },
+                { value: "OVERDUE", label: t("sla.OVERDUE") },
               ]}
             />
           </div>
           <div className="min-w-[9rem] flex-1">
-            <Label htmlFor="date-from">From</Label>
+            <Label htmlFor="date-from">{t("filters.from")}</Label>
             <DatePicker
               id="date-from"
               value={dateFrom}
@@ -459,7 +469,7 @@ export function AdminComplaintsPage() {
             />
           </div>
           <div className="min-w-[9rem] flex-1">
-            <Label htmlFor="date-to">To</Label>
+            <Label htmlFor="date-to">{t("filters.to")}</Label>
             <DatePicker
               id="date-to"
               value={dateTo}
@@ -474,7 +484,7 @@ export function AdminComplaintsPage() {
 
         <div className="flex flex-wrap gap-4">
           <div className="min-w-[12rem] flex-1">
-            <Label htmlFor="sort-order">Sort by</Label>
+            <Label htmlFor="sort-order">{t("filters.sortBy")}</Label>
             <Combobox
               id="sort-order"
               value={sort}
@@ -482,14 +492,17 @@ export function AdminComplaintsPage() {
                 setSort(v);
                 resetPage();
               }}
-              options={SORT_OPTIONS}
+              options={SORT_OPTIONS.map((option) => ({
+                value: option.value,
+                label: t(option.labelKey),
+              }))}
             />
           </div>
           <div className="min-w-[12rem] flex-1">
-            <Label htmlFor="complaint-search">Search this page</Label>
+            <Label htmlFor="complaint-search">{t("adminUsers.searchPage")}</Label>
             <Input
               id="complaint-search"
-              placeholder="ID, category, or zone…"
+              placeholder={t("adminComplaints.searchPlaceholder")}
               value={search}
               leftIcon={<Search className="size-4" aria-hidden="true" />}
               onChange={(e) => setSearch(e.target.value)}
@@ -498,7 +511,7 @@ export function AdminComplaintsPage() {
         </div>
 
         <div>
-          <Label id="status-filter-label">Status</Label>
+          <Label id="status-filter-label">{t("filters.status")}</Label>
           <div
             role="group"
             aria-labelledby="status-filter-label"
@@ -516,7 +529,7 @@ export function AdminComplaintsPage() {
                     : "bg-surface-hover text-ink-muted hover:text-ink rounded-full px-2.5 py-1 text-xs font-medium transition-colors"
                 }
               >
-                {humanizeStatus(status)}
+                {t(`status.${status}`)}
               </button>
             ))}
           </div>
@@ -532,8 +545,8 @@ export function AdminComplaintsPage() {
       ) : rows.length === 0 ? (
         <EmptyState
           icon={ClipboardList}
-          title="No complaints match"
-          description="Try loosening a filter or clearing the search box."
+          title={t("officerQueue.noMatch")}
+          description={t("adminComplaints.noMatchBody")}
           className="rounded-lg border border-line bg-surface"
         />
       ) : (
@@ -547,16 +560,20 @@ export function AdminComplaintsPage() {
           <Table>
             <TableHead>
               <TableRow>
-                <TableHeaderCell className="w-14">Photo</TableHeaderCell>
-                <TableHeaderCell>Category</TableHeaderCell>
-                <TableHeaderCell>Zone</TableHeaderCell>
-                <TableHeaderCell>Status</TableHeaderCell>
-                <TableHeaderCell>Severity</TableHeaderCell>
-                <TableHeaderCell>SLA</TableHeaderCell>
-                <TableHeaderCell>Upvotes</TableHeaderCell>
-                <TableHeaderCell>Officer</TableHeaderCell>
-                <TableHeaderCell>Filed</TableHeaderCell>
-                <TableHeaderCell className="text-right">Actions</TableHeaderCell>
+                <TableHeaderCell className="w-14">
+                  {t("columns.photo")}
+                </TableHeaderCell>
+                <TableHeaderCell>{t("filters.category")}</TableHeaderCell>
+                <TableHeaderCell>{t("filters.zone")}</TableHeaderCell>
+                <TableHeaderCell>{t("filters.status")}</TableHeaderCell>
+                <TableHeaderCell>{t("filters.severity")}</TableHeaderCell>
+                <TableHeaderCell>{t("columns.sla")}</TableHeaderCell>
+                <TableHeaderCell>{t("columns.upvotes")}</TableHeaderCell>
+                <TableHeaderCell>{t("roles.officer")}</TableHeaderCell>
+                <TableHeaderCell>{t("columns.filed")}</TableHeaderCell>
+                <TableHeaderCell className="text-right">
+                  {t("columns.actions")}
+                </TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -604,8 +621,10 @@ export function AdminComplaintsPage() {
                     </TableCell>
                     <TableCell className="text-ink-muted text-sm">
                       {c.assignedOfficerId == null
-                        ? "Unassigned"
-                        : `Officer #${c.assignedOfficerId}`}
+                        ? t("officerQueue.tabs.unassigned")
+                        : t("statusTimeline.officer", {
+                            officerId: c.assignedOfficerId,
+                          })}
                     </TableCell>
                     <TableCell className="text-ink-muted text-sm">
                       {relativeTime(c.createdAt)}
@@ -613,13 +632,17 @@ export function AdminComplaintsPage() {
                     <TableCell className="text-right">
                       <Dropdown align="end">
                         <DropdownTrigger>
-                          <Button size="sm" variant="ghost" aria-label="More actions">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            aria-label={t("common.moreActions")}
+                          >
                             <MoreHorizontal className="size-4" aria-hidden="true" />
                           </Button>
                         </DropdownTrigger>
                         <DropdownMenu>
                           <DropdownItem onSelect={() => setReassigningComplaint(c)}>
-                            Reassign zone…
+                            {t("adminComplaints.reassignZone")}
                           </DropdownItem>
                         </DropdownMenu>
                       </Dropdown>
@@ -657,6 +680,7 @@ function ReassignZoneModal({
   complaint: Complaint;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const { data: zones } = useZones();
   const override = useOverrideComplaint(complaint.id);
@@ -667,19 +691,15 @@ function ReassignZoneModal({
   async function handleSave() {
     setError(null);
     if (!zoneId || zoneId === complaint.zoneId) {
-      setError("Choose a different zone.");
+      setError(t("adminComplaints.chooseDifferentZone"));
       return;
     }
     try {
       await override.mutateAsync({ zoneId, reason: reason.trim() || undefined });
-      toast({ title: "Zone reassigned", variant: "success" });
+      toast({ title: t("adminComplaints.zoneReassigned"), variant: "success" });
       onClose();
     } catch (err) {
-      setError(
-        err instanceof ApiRequestError
-          ? err.message
-          : "Something went wrong. Please try again.",
-      );
+      setError(err instanceof ApiRequestError ? err.message : t("errors.generic"));
     }
   }
 
@@ -687,15 +707,15 @@ function ReassignZoneModal({
     <Modal
       open
       onClose={onClose}
-      title={`Reassign ${complaint.id}`}
-      description="Recorded in the status history with you as the actor."
+      title={t("adminComplaints.reassignTitle", { complaintId: complaint.id })}
+      description={t("adminComplaints.reassignBody")}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button loading={override.isPending} onClick={handleSave}>
-            Reassign
+            {t("adminComplaints.reassign")}
           </Button>
         </>
       }
@@ -711,7 +731,7 @@ function ReassignZoneModal({
         )}
         <div>
           <Label htmlFor="reassign-zone" required>
-            New zone
+            {t("adminComplaints.newZone")}
           </Label>
           <Combobox
             id="reassign-zone"
@@ -721,12 +741,12 @@ function ReassignZoneModal({
           />
         </div>
         <div>
-          <Label htmlFor="reassign-reason">Reason (recommended)</Label>
+          <Label htmlFor="reassign-reason">{t("adminComplaints.reasonRecommended")}</Label>
           <Input
             id="reassign-reason"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="Why is this being reassigned?"
+            placeholder={t("adminComplaints.reasonPlaceholder")}
           />
         </div>
       </div>

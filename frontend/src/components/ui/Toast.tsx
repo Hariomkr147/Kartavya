@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import {
   createContext,
   useCallback,
@@ -86,6 +87,7 @@ const VARIANT_CLASSES: Record<ToastVariant, string> = {
 };
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [history, setHistory] = useState<ToastHistoryItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -170,30 +172,31 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         <div
           className="fixed bottom-4 right-4 z-[100] flex w-full max-w-sm flex-col gap-2"
           role="region"
-          aria-label="Notifications"
+          aria-label={t("notifications.title")}
         >
-          {toasts.map((t) => {
-            const Icon = VARIANT_ICON[t.variant];
+          {/* `item`, not `t` — `t` is the translation function in this scope. */}
+          {toasts.map((item) => {
+            const Icon = VARIANT_ICON[item.variant];
             return (
               <div
-                key={t.id}
-                role={t.variant === "error" ? "alert" : "status"}
+                key={item.id}
+                role={item.variant === "error" ? "alert" : "status"}
                 className="animate-in slide-in-from-bottom-2 fade-in flex items-start gap-3 rounded-lg border border-line bg-surface p-4 shadow-lg duration-150"
               >
                 <Icon
-                  className={cn("mt-0.5 size-5 shrink-0", VARIANT_CLASSES[t.variant])}
+                  className={cn("mt-0.5 size-5 shrink-0", VARIANT_CLASSES[item.variant])}
                   aria-hidden="true"
                 />
                 <div className="flex-1">
-                  <p className="text-sm font-medium text-ink">{t.title}</p>
-                  {t.description && (
-                    <p className="text-ink-muted mt-0.5 text-sm">{t.description}</p>
+                  <p className="text-sm font-medium text-ink">{item.title}</p>
+                  {item.description && (
+                    <p className="text-ink-muted mt-0.5 text-sm">{item.description}</p>
                   )}
                 </div>
                 <button
                   type="button"
-                  onClick={() => dismiss(t.id)}
-                  aria-label="Dismiss notification"
+                  onClick={() => dismiss(item.id)}
+                  aria-label={t("notifications.dismiss")}
                   className="text-ink-faint hover:text-ink"
                 >
                   <X className="size-4" aria-hidden="true" />

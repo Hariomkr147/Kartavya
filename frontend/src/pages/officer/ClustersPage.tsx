@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
 import { Boxes, List, Map as MapIcon, Search } from "lucide-react";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -48,6 +49,7 @@ function isClusterView(value: string): value is ClusterView {
 }
 
 export function OfficerClustersPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [view, setView] = useSearchParamState<ClusterView>("view", "list", {
@@ -114,26 +116,24 @@ export function OfficerClustersPage() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="font-display text-display-sm font-semibold text-ink">
-              Clusters
+              {t("nav.clusters")}
             </h1>
             <RefreshButton onRefresh={refetch} refreshing={isFetching} what="clusters" />
           </div>
-          <p className="text-ink-muted mt-1 text-sm">
-            Nearby same-category reports grouped as one physical issue in your zone.
-          </p>
+          <p className="text-ink-muted mt-1 text-sm">{t("clusters.officerSubtitle")}</p>
         </div>
         <Tabs value={view} onValueChange={(v) => setView(v as ClusterView)}>
           <TabsList>
             <TabsTrigger value="list">
               <span className="inline-flex items-center gap-1.5">
                 <List className="size-3.5" aria-hidden="true" />
-                List
+                {t("feed.list")}
               </span>
             </TabsTrigger>
             <TabsTrigger value="map">
               <span className="inline-flex items-center gap-1.5">
                 <MapIcon className="size-3.5" aria-hidden="true" />
-                Map
+                {t("feed.map")}
               </span>
             </TabsTrigger>
           </TabsList>
@@ -142,11 +142,11 @@ export function OfficerClustersPage() {
 
       <div className="flex flex-wrap gap-4 rounded-lg border border-line bg-surface p-4">
         <div className="min-w-[12rem] flex-1">
-          <Label htmlFor="cluster-search">Search</Label>
+          <Label htmlFor="cluster-search">{t("filters.search")}</Label>
           <Input
             id="cluster-search"
             leftIcon={<Search className="size-4" aria-hidden="true" />}
-            placeholder="Cluster ID or category…"
+            placeholder={t("clusters.searchPlaceholder")}
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -155,7 +155,7 @@ export function OfficerClustersPage() {
           />
         </div>
         <div className="min-w-[10rem] flex-1">
-          <Label htmlFor="cluster-category">Category</Label>
+          <Label htmlFor="cluster-category">{t("filters.category")}</Label>
           <Combobox
             id="cluster-category"
             value={categoryId}
@@ -164,13 +164,13 @@ export function OfficerClustersPage() {
               resetForFilterChange();
             }}
             options={[
-              { value: "", label: "All categories" },
+              { value: "", label: t("filters.allCategories") },
               ...categoryOptions.map(([id, name]) => ({ value: id, label: name })),
             ]}
           />
         </div>
         <div className="min-w-[10rem] flex-1">
-          <Label htmlFor="cluster-severity">Severity</Label>
+          <Label htmlFor="cluster-severity">{t("filters.severity")}</Label>
           <Combobox
             id="cluster-severity"
             value={severity}
@@ -179,11 +179,11 @@ export function OfficerClustersPage() {
               resetForFilterChange();
             }}
             options={[
-              { value: "", label: "All severities" },
-              { value: "LOW", label: "Low" },
-              { value: "MEDIUM", label: "Medium" },
-              { value: "HIGH", label: "High" },
-              { value: "CRITICAL", label: "Critical" },
+              { value: "", label: t("filters.allSeverities") },
+              ...SEVERITY_VALUES.map((value) => ({
+                value,
+                label: t(`severity.${value}`),
+              })),
             ]}
           />
         </div>
@@ -198,8 +198,8 @@ export function OfficerClustersPage() {
       ) : total === 0 ? (
         <EmptyState
           icon={Boxes}
-          title="No clusters match"
-          description="Try a different filter, or check back once more citizens have reported nearby issues."
+          title={t("clusters.noMatch")}
+          description={t("clusters.noMatchBody")}
           className="rounded-lg border border-line bg-surface"
         />
       ) : view === "map" ? (
@@ -237,12 +237,11 @@ export function OfficerClustersPage() {
                   </div>
 
                   <div className="text-ink-muted flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                    <span>{t("clusters.reports", { count: cluster.reportCount })}</span>
                     <span>
-                      {cluster.reportCount} report{cluster.reportCount === 1 ? "" : "s"}
-                    </span>
-                    <span>
-                      {cluster.uniqueReporterCount} unique reporter
-                      {cluster.uniqueReporterCount === 1 ? "" : "s"}
+                      {t("clusters.uniqueReporters", {
+                        count: cluster.uniqueReporterCount,
+                      })}
                     </span>
                     <span>{relativeTime(cluster.createdAt)}</span>
                   </div>
@@ -253,8 +252,10 @@ export function OfficerClustersPage() {
                         key={status}
                         className="bg-surface-hover text-ink-muted rounded-full px-2 py-0.5 text-xs"
                       >
-                        {cluster.statusSummary[status]}{" "}
-                        {status.replace(/_/g, " ").toLowerCase()}
+                        {t("clusters.statusCount", {
+                          count: cluster.statusSummary[status],
+                          status: t(`status.${status}`).toLowerCase(),
+                        })}
                       </span>
                     ))}
                   </div>

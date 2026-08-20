@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +35,7 @@ export function StatusTriadChart({
   size = 140,
   className,
 }: StatusTriadChartProps) {
+  const { t } = useTranslation();
   const total = segments.reduce((sum, s) => sum + s.value, 0);
   const nonZero = segments.filter((s) => s.value > 0);
 
@@ -46,7 +48,7 @@ export function StatusTriadChart({
               data={
                 nonZero.length > 0
                   ? nonZero
-                  : [{ label: "None yet", value: 1, tone: "neutral" as const }]
+                  : [{ label: t("charts.noneYet"), value: 1, tone: "neutral" as const }]
               }
               dataKey="value"
               nameKey="label"

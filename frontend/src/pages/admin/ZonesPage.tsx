@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import {
   ChevronDown,
@@ -49,6 +50,7 @@ import type { Zone } from "@/types/api";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 
 export function AdminZonesPage() {
+  const { t } = useTranslation();
   const [tab, setTab] = useState("zones");
   // Same query key as ZonesTab's own `useZones`, so this shares the cache
   // and refetching here updates the table below.
@@ -60,27 +62,25 @@ export function AdminZonesPage() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="font-display text-display-sm font-semibold text-ink">
-              Zones &amp; SLAs
+              {t("nav.zonesAndSlas")}
             </h1>
             <RefreshButton onRefresh={refetch} refreshing={isFetching} what="zones" />
           </div>
-          <p className="text-ink-muted mt-1 text-sm">
-            Manage zones, category SLA targets, and per-zone AI health reports.
-          </p>
+          <p className="text-ink-muted mt-1 text-sm">{t("adminZones.subtitle")}</p>
         </div>
         <Link
           to="/admin/settings"
           className="text-ink-muted hover:text-ink inline-flex items-center gap-1.5 text-sm font-medium hover:underline"
         >
           <SlidersHorizontal className="size-4" aria-hidden="true" />
-          System settings
+          {t("adminZones.systemSettings")}
         </Link>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="zones">Zones</TabsTrigger>
-          <TabsTrigger value="slas">SLAs</TabsTrigger>
+          <TabsTrigger value="zones">{t("adminDashboard.zones")}</TabsTrigger>
+          <TabsTrigger value="slas">{t("adminZones.slas")}</TabsTrigger>
         </TabsList>
         <TabsContent value="zones" className="mt-6">
           <ZonesTab />
@@ -94,6 +94,7 @@ export function AdminZonesPage() {
 }
 
 function ZonesTab() {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const { data: zones, isLoading } = useZones();
   const { data: analytics } = useAdminAnalytics();
@@ -128,13 +129,11 @@ function ZonesTab() {
     setDeleteError(null);
     try {
       await deleteZone.mutateAsync(deletingZone.id);
-      toast({ title: "Zone deleted", variant: "success" });
+      toast({ title: t("adminZones.deleted"), variant: "success" });
       setDeletingZone(null);
     } catch (error) {
       setDeleteError(
-        error instanceof ApiRequestError
-          ? error.message
-          : "Something went wrong. Please try again.",
+        error instanceof ApiRequestError ? error.message : t("errors.generic"),
       );
     }
   }
@@ -143,10 +142,10 @@ function ZonesTab() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-[14rem] flex-1 sm:max-w-xs">
-          <Label htmlFor="zone-search">Search zones</Label>
+          <Label htmlFor="zone-search">{t("adminZones.searchZones")}</Label>
           <Input
             id="zone-search"
-            placeholder="Code or name…"
+            placeholder={t("adminZones.searchPlaceholder")}
             value={search}
             leftIcon={<Search className="size-4" aria-hidden="true" />}
             onChange={(e) => setSearch(e.target.value)}
@@ -154,25 +153,29 @@ function ZonesTab() {
         </div>
         <Button size="sm" onClick={() => setCreateOpen(true)}>
           <Plus className="size-4" aria-hidden="true" />
-          Create zone
+          {t("adminZones.createZone")}
         </Button>
       </div>
 
       {isLoading ? (
         <Skeleton className="h-48 w-full" />
       ) : visibleZones.length === 0 ? (
-        <p className="text-ink-muted text-sm">No zones match &ldquo;{search}&rdquo;.</p>
+        <p className="text-ink-muted text-sm">
+          {t("adminZones.noMatch", { search })}
+        </p>
       ) : (
         <Table>
           <TableHead>
             <TableRow>
               <TableHeaderCell className="w-8" />
-              <TableHeaderCell>Code</TableHeaderCell>
-              <TableHeaderCell>Name</TableHeaderCell>
-              <TableHeaderCell>Status</TableHeaderCell>
-              <TableHeaderCell>Pending</TableHeaderCell>
-              <TableHeaderCell>Overdue</TableHeaderCell>
-              <TableHeaderCell className="text-right">Actions</TableHeaderCell>
+              <TableHeaderCell>{t("adminZones.code")}</TableHeaderCell>
+              <TableHeaderCell>{t("adminUsers.name")}</TableHeaderCell>
+              <TableHeaderCell>{t("filters.status")}</TableHeaderCell>
+              <TableHeaderCell>{t("adminDashboard.pending")}</TableHeaderCell>
+              <TableHeaderCell>{t("sla.OVERDUE")}</TableHeaderCell>
+              <TableHeaderCell className="text-right">
+                {t("columns.actions")}
+              </TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -188,7 +191,9 @@ function ZonesTab() {
                         onClick={() => setExpandedZoneId(expanded ? null : zone.id)}
                         aria-expanded={expanded}
                         aria-label={
-                          expanded ? "Collapse zone detail" : "Expand zone detail"
+                          expanded
+                            ? t("adminDashboard.collapseZone")
+                            : t("adminDashboard.expandZone")
                         }
                         className="text-ink-muted hover:text-ink flex size-6 items-center justify-center rounded"
                       >
@@ -206,7 +211,7 @@ function ZonesTab() {
                       {zone.name}
                       {zone.isCatchAll && (
                         <span className="bg-surface-hover text-ink-muted ml-2 rounded-full px-2 py-0.5 text-xs">
-                          Catch-all
+                          {t("adminZones.catchAll")}
                         </span>
                       )}
                     </TableCell>
@@ -218,7 +223,7 @@ function ZonesTab() {
                             : "bg-status-closed-subtle text-status-closed rounded-full px-2.5 py-1 text-xs font-medium"
                         }
                       >
-                        {zone.isActive ? "Active" : "Deactivated"}
+                        {zone.isActive ? t("account.active") : t("account.deactivated")}
                       </span>
                     </TableCell>
                     <TableCell>
@@ -248,17 +253,21 @@ function ZonesTab() {
                           variant="outline"
                           onClick={() => setAssigningZone(zone)}
                         >
-                          Assign officer
+                          {t("adminZones.assignOfficer")}
                         </Button>
                         <Dropdown align="end">
                           <DropdownTrigger>
-                            <Button size="sm" variant="ghost" aria-label="More actions">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              aria-label={t("common.moreActions")}
+                            >
                               <MoreHorizontal className="size-4" aria-hidden="true" />
                             </Button>
                           </DropdownTrigger>
                           <DropdownMenu>
                             <DropdownItem onSelect={() => setEditingZone(zone)}>
-                              Edit
+                              {t("common.edit")}
                             </DropdownItem>
                             {!zone.isCatchAll && (
                               <DropdownItem
@@ -268,7 +277,7 @@ function ZonesTab() {
                                   setDeleteError(null);
                                 }}
                               >
-                                Delete
+                                {t("common.delete")}
                               </DropdownItem>
                             )}
                           </DropdownMenu>
@@ -302,19 +311,19 @@ function ZonesTab() {
       <Modal
         open={deletingZone !== null}
         onClose={() => setDeletingZone(null)}
-        title="Delete zone"
-        description={`Permanently delete ${deletingZone?.name}? This only works if nothing references it.`}
+        title={t("adminZones.deleteTitle")}
+        description={t("adminZones.deleteBody", { name: deletingZone?.name })}
         footer={
           <>
             <Button variant="outline" onClick={() => setDeletingZone(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant="danger"
               loading={deleteZone.isPending}
               onClick={handleDelete}
             >
-              Delete
+              {t("common.delete")}
             </Button>
           </>
         }
@@ -334,6 +343,7 @@ function ZonesTab() {
 }
 
 function CreateZoneModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const createZone = useCreateZone();
   const [code, setCode] = useState("");
@@ -352,7 +362,7 @@ function CreateZoneModal({ open, onClose }: { open: boolean; onClose: () => void
   async function handleCreate() {
     setError(null);
     if (!code.trim() || !name.trim() || !center) {
-      setError("Code, name, and a centre point are all required.");
+      setError(t("adminZones.createRequired"));
       return;
     }
     try {
@@ -362,14 +372,10 @@ function CreateZoneModal({ open, onClose }: { open: boolean; onClose: () => void
         centerLat: center.lat,
         centerLng: center.lng,
       });
-      toast({ title: "Zone created", variant: "success" });
+      toast({ title: t("adminZones.created"), variant: "success" });
       resetAndClose();
     } catch (err) {
-      setError(
-        err instanceof ApiRequestError
-          ? err.message
-          : "Something went wrong. Please try again.",
-      );
+      setError(err instanceof ApiRequestError ? err.message : t("errors.generic"));
     }
   }
 
@@ -377,16 +383,16 @@ function CreateZoneModal({ open, onClose }: { open: boolean; onClose: () => void
     <Modal
       open={open}
       onClose={resetAndClose}
-      title="Create zone"
-      description="Click the map to set the zone's centre point — routing uses nearest-centroid, so every location maps to exactly one zone."
+      title={t("adminZones.createZone")}
+      description={t("adminZones.createBody")}
       size="lg"
       footer={
         <>
           <Button variant="outline" onClick={resetAndClose}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button loading={createZone.isPending} onClick={handleCreate}>
-            Create zone
+            {t("adminZones.createZone")}
           </Button>
         </>
       }
@@ -403,30 +409,30 @@ function CreateZoneModal({ open, onClose }: { open: boolean; onClose: () => void
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <Label htmlFor="zone-code" required>
-              Code
+              {t("adminZones.code")}
             </Label>
             <Input
               id="zone-code"
               placeholder="WARD-12-N"
-              hint="Permanent once created."
+              hint={t("adminZones.codeHint")}
               value={code}
               onChange={(e) => setCode(e.target.value)}
             />
           </div>
           <div>
             <Label htmlFor="zone-name" required>
-              Name
+              {t("adminUsers.name")}
             </Label>
             <Input
               id="zone-name"
-              placeholder="Ward 12 – North"
+              placeholder={t("adminZones.namePlaceholder")}
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
           </div>
         </div>
         <div>
-          <Label required>Centre point</Label>
+          <Label required>{t("adminZones.centrePoint")}</Label>
           <MapPicker
             value={center}
             onChange={setCenter}
@@ -445,6 +451,7 @@ function CreateZoneModal({ open, onClose }: { open: boolean; onClose: () => void
 }
 
 function EditZoneModal({ zone, onClose }: { zone: Zone; onClose: () => void }) {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const updateZone = useUpdateZone(zone.id);
   const [name, setName] = useState(zone.name);
@@ -455,14 +462,10 @@ function EditZoneModal({ zone, onClose }: { zone: Zone; onClose: () => void }) {
     setError(null);
     try {
       await updateZone.mutateAsync({ name: name.trim() || undefined, isActive });
-      toast({ title: "Zone updated", variant: "success" });
+      toast({ title: t("adminZones.updated"), variant: "success" });
       onClose();
     } catch (err) {
-      setError(
-        err instanceof ApiRequestError
-          ? err.message
-          : "Something went wrong. Please try again.",
-      );
+      setError(err instanceof ApiRequestError ? err.message : t("errors.generic"));
     }
   }
 
@@ -470,15 +473,15 @@ function EditZoneModal({ zone, onClose }: { zone: Zone; onClose: () => void }) {
     <Modal
       open
       onClose={onClose}
-      title={`Edit ${zone.name}`}
-      description="The zone code can't be changed here."
+      title={t("adminUsers.editTitle", { name: zone.name })}
+      description={t("adminZones.editBody")}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button loading={updateZone.isPending} onClick={handleSave}>
-            Save changes
+            {t("common.saveChanges")}
           </Button>
         </>
       }
@@ -494,7 +497,7 @@ function EditZoneModal({ zone, onClose }: { zone: Zone; onClose: () => void }) {
         )}
         <div>
           <Label htmlFor="edit-zone-name" required>
-            Name
+            {t("adminUsers.name")}
           </Label>
           <Input
             id="edit-zone-name"
@@ -504,7 +507,7 @@ function EditZoneModal({ zone, onClose }: { zone: Zone; onClose: () => void }) {
         </div>
         <Checkbox
           id="edit-zone-active"
-          label="Zone is active (accepts new complaints)"
+          label={t("adminZones.zoneActive")}
           checked={isActive}
           onChange={(e) => setIsActive(e.target.checked)}
         />
@@ -514,6 +517,7 @@ function EditZoneModal({ zone, onClose }: { zone: Zone; onClose: () => void }) {
 }
 
 function AssignOfficerModal({ zone, onClose }: { zone: Zone; onClose: () => void }) {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const { data: officers, isLoading } = useAdminUsers({ role: "OFFICER", pageSize: 100 });
   const assignOfficer = useAssignOfficerToZone(zone.id);
@@ -523,19 +527,15 @@ function AssignOfficerModal({ zone, onClose }: { zone: Zone; onClose: () => void
   async function handleAssign() {
     setError(null);
     if (!officerId) {
-      setError("Choose an officer.");
+      setError(t("adminZones.chooseOfficer"));
       return;
     }
     try {
       await assignOfficer.mutateAsync(officerId);
-      toast({ title: "Officer assigned", variant: "success" });
+      toast({ title: t("adminZones.officerAssigned"), variant: "success" });
       onClose();
     } catch (err) {
-      setError(
-        err instanceof ApiRequestError
-          ? err.message
-          : "Something went wrong. Please try again.",
-      );
+      setError(err instanceof ApiRequestError ? err.message : t("errors.generic"));
     }
   }
 
@@ -543,15 +543,15 @@ function AssignOfficerModal({ zone, onClose }: { zone: Zone; onClose: () => void
     <Modal
       open
       onClose={onClose}
-      title={`Assign officer to ${zone.name}`}
-      description="Takes effect immediately — the officer's non-terminal complaints in their old zone become unassigned."
+      title={t("adminZones.assignTitle", { zone: zone.name })}
+      description={t("adminZones.assignBody")}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button loading={assignOfficer.isPending} onClick={handleAssign}>
-            Assign
+            {t("adminZones.assign")}
           </Button>
         </>
       }
@@ -567,7 +567,7 @@ function AssignOfficerModal({ zone, onClose }: { zone: Zone; onClose: () => void
         )}
         <div>
           <Label htmlFor="assign-officer" required>
-            Officer
+            {t("roles.officer")}
           </Label>
           {isLoading ? (
             <Skeleton className="h-11 w-full" />
@@ -577,7 +577,7 @@ function AssignOfficerModal({ zone, onClose }: { zone: Zone; onClose: () => void
               value={officerId}
               onChange={setOfficerId}
               options={[
-                { value: "", label: "Select an officer…" },
+                { value: "", label: t("adminZones.selectOfficer") },
                 ...(officers?.data.map((o) => ({
                   value: o.id,
                   label: `${o.name} (${o.email})`,
@@ -592,6 +592,7 @@ function AssignOfficerModal({ zone, onClose }: { zone: Zone; onClose: () => void
 }
 
 function SlasTab() {
+  const { t } = useTranslation();
   const { data: categories, isLoading } = useCategories();
 
   if (isLoading) return <Skeleton className="h-64 w-full" />;
@@ -599,15 +600,16 @@ function SlasTab() {
   return (
     <div className="space-y-3">
       <p className="text-ink-muted -mt-1 text-sm">
-        Applies to complaints accepted after the change — work already in progress keeps
-        its original target.
+        {t("adminZones.slaNote")}
       </p>
       <Table>
         <TableHead>
           <TableRow>
-            <TableHeaderCell>Category</TableHeaderCell>
-            <TableHeaderCell>Target (hours)</TableHeaderCell>
-            <TableHeaderCell className="text-right">Actions</TableHeaderCell>
+            <TableHeaderCell>{t("filters.category")}</TableHeaderCell>
+            <TableHeaderCell>{t("adminZones.targetHours")}</TableHeaderCell>
+            <TableHeaderCell className="text-right">
+              {t("columns.actions")}
+            </TableHeaderCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -634,6 +636,7 @@ function SlaRow({
   name: string;
   targetHours: number;
 }) {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const updateSla = useUpdateSla(categoryId);
   const [value, setValue] = useState(String(targetHours));
@@ -644,14 +647,14 @@ function SlaRow({
     setError(null);
     const parsed = Number(value);
     if (!Number.isInteger(parsed) || parsed < 1) {
-      setError("Must be a whole number ≥ 1.");
+      setError(t("adminSettings.wholeNumber"));
       return;
     }
     try {
       await updateSla.mutateAsync(parsed);
-      toast({ title: `${name} SLA updated`, variant: "success" });
+      toast({ title: t("adminZones.slaUpdated", { name }), variant: "success" });
     } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : "Couldn't update.");
+      setError(err instanceof ApiRequestError ? err.message : t("adminSettings.updateFailed"));
     }
   }
 
@@ -676,7 +679,7 @@ function SlaRow({
           loading={updateSla.isPending}
           onClick={handleSave}
         >
-          Save
+          {t("common.save")}
         </Button>
       </TableCell>
     </TableRow>

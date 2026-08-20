@@ -1,4 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import type { TranslationKey } from "@/i18n";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -28,14 +31,16 @@ import { AnimatedOutlet } from "@/components/layout/AnimatedOutlet";
 import { cn } from "@/lib/utils";
 
 export interface NavItem {
-  label: string;
+  /** Translation key, resolved at render — see `routes/navConfig.ts`. */
+  labelKey: TranslationKey;
   to: string;
   icon: LucideIcon;
   end?: boolean;
 }
 
 export interface AppShellProps {
-  roleLabel: string;
+  /** Translation key for the role shown in the header (`roles.citizen`, ...). */
+  roleLabelKey: TranslationKey;
   accountPath: string;
   navItems: NavItem[];
 }
@@ -90,6 +95,7 @@ function buildBreadcrumb(
   pathname: string,
   navItems: NavItem[],
   params: Record<string, string | undefined>,
+  t: TFunction,
 ): BreadcrumbSegment[] {
   const section = [...navItems]
     .sort((a, b) => b.to.length - a.to.length)
@@ -100,15 +106,17 @@ function buildBreadcrumb(
   const paramId = Object.values(params).find((value): value is string => Boolean(value));
   if (paramId && pathname !== section.to) {
     return [
-      { label: section.label, to: section.to },
+      { label: t(section.labelKey), to: section.to },
       { label: paramId, mono: true },
     ];
   }
 
-  return [{ label: section.label }];
+  return [{ label: t(section.labelKey) }];
 }
 
-export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
+export function AppShell({ roleLabelKey, accountPath, navItems }: AppShellProps) {
+  const { t } = useTranslation();
+  const roleLabel = t(roleLabelKey);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -117,8 +125,8 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
   const [collapsed, setCollapsed] = useState(readStoredCollapsed);
 
   const breadcrumb = useMemo(
-    () => buildBreadcrumb(location.pathname, navItems, params),
-    [location.pathname, navItems, params],
+    () => buildBreadcrumb(location.pathname, navItems, params, t),
+    [location.pathname, navItems, params, t],
   );
 
   function toggleCollapsed() {
@@ -146,7 +154,7 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
         {navItems.map((item) => (
           <Tooltip
             key={item.to}
-            content={item.label}
+            content={t(item.labelKey)}
             side="right"
             className="w-full"
             disabled={!opts.collapsedRail}
@@ -155,7 +163,7 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
               to={item.to}
               end={item.end}
               onClick={() => setMobileNavOpen(false)}
-              aria-label={opts.collapsedRail ? item.label : undefined}
+              aria-label={opts.collapsedRail ? t(item.labelKey) : undefined}
               className={({ isActive }) =>
                 cn(
                   "flex w-full items-center gap-3 rounded-md py-2 text-sm font-medium transition-colors",
@@ -171,7 +179,9 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
             >
               <item.icon className="size-5 shrink-0" aria-hidden="true" />
               <AnimatePresence initial={false}>
-                {!opts.collapsedRail && <FadeLabel key="label">{item.label}</FadeLabel>}
+                {!opts.collapsedRail && (
+                  <FadeLabel key="label">{t(item.labelKey)}</FadeLabel>
+                )}
               </AnimatePresence>
             </NavLink>
           </Tooltip>
@@ -193,7 +203,7 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
           <button
             type="button"
             onClick={toggleCollapsed}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={collapsed ? t("shell.expandSidebar") : t("shell.collapseSidebar")}
             className={cn(
               "text-ink-faint hover:bg-surface-hover hover:text-ink flex w-full items-center gap-3 rounded-md py-2 text-sm font-medium transition-colors",
               collapsed ? "justify-center px-0" : "px-3",
@@ -205,7 +215,7 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
               <PanelLeftClose className="size-5 shrink-0" aria-hidden="true" />
             )}
             <AnimatePresence initial={false}>
-              {!collapsed && <FadeLabel key="label">Collapse</FadeLabel>}
+              {!collapsed && <FadeLabel key="label">{t("shell.collapse")}</FadeLabel>}
             </AnimatePresence>
           </button>
         </div>
@@ -224,7 +234,7 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
               <button
                 type="button"
                 onClick={() => setMobileNavOpen(false)}
-                aria-label="Close navigation"
+                aria-label={t("shell.closeNavigation")}
                 className="text-ink-muted hover:text-ink -m-1 rounded-md p-1"
               >
                 <X className="size-5" aria-hidden="true" />
@@ -241,7 +251,7 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
             <button
               type="button"
               onClick={() => setMobileNavOpen(true)}
-              aria-label="Open navigation"
+              aria-label={t("shell.openNavigation")}
               className="text-ink-muted hover:bg-surface-hover -ml-1 inline-flex size-9 shrink-0 items-center justify-center rounded-md md:hidden"
             >
               <Menu className="size-5" aria-hidden="true" />
@@ -256,7 +266,7 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
                 <span className="text-ink-faint hidden sm:inline" aria-hidden="true">
                   /
                 </span>
-                <nav aria-label="Breadcrumb" className="min-w-0">
+                <nav aria-label={t("shell.breadcrumb")} className="min-w-0">
                   <ol className="flex min-w-0 items-center gap-1.5 text-sm">
                     {breadcrumb.map((segment, index) => (
                       <li key={index} className="flex min-w-0 items-center gap-1.5">
@@ -309,7 +319,7 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
                 <button
                   type="button"
                   className="flex items-center gap-2 rounded-md py-1 pr-1 pl-2 hover:bg-surface-hover"
-                  aria-label="Account menu"
+                  aria-label={t("shell.accountMenu")}
                 >
                   <span className="hidden text-sm font-medium text-ink sm:inline">
                     {label}
@@ -325,10 +335,10 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
                   <p className="text-ink-faint text-xs">{roleLabel}</p>
                 </div>
                 <DropdownItem onSelect={() => navigate(accountPath)}>
-                  <UserIcon className="size-4" /> Account
+                  <UserIcon className="size-4" /> {t("shell.account")}
                 </DropdownItem>
                 <DropdownItem destructive onSelect={handleLogout}>
-                  <LogOut className="size-4" /> Log out
+                  <LogOut className="size-4" /> {t("shell.logOut")}
                 </DropdownItem>
               </DropdownMenu>
             </Dropdown>

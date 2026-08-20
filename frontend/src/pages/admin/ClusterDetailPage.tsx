@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, FileQuestion } from "lucide-react";
 import { StatusPill, SeverityPill, SlaPill } from "@/components/ui/pills";
@@ -36,15 +37,8 @@ const STATUS_ORDER: ComplaintStatus[] = [
   "UNRESOLVABLE",
 ];
 
-function humanStatusLabel(status: ComplaintStatus): string {
-  return status
-    .toLowerCase()
-    .split("_")
-    .map((word) => word[0].toUpperCase() + word.slice(1))
-    .join(" ");
-}
-
 export function AdminClusterDetailPage() {
+  const { t } = useTranslation();
   const { clusterId } = useParams<{ clusterId: string }>();
   const {
     data: cluster,
@@ -69,13 +63,13 @@ export function AdminClusterDetailPage() {
     return (
       <EmptyState
         icon={FileQuestion}
-        title="Cluster not found"
+        title={t("clusterDetail.notFound")}
         action={
           <Link
             to="/admin/clusters"
             className="text-brand text-sm font-medium hover:underline"
           >
-            Back to Clusters
+            {t("clusterDetail.backToClusters")}
           </Link>
         }
         className="mx-auto max-w-md py-24"
@@ -86,7 +80,7 @@ export function AdminClusterDetailPage() {
   const zoneName = zones?.find((z) => z.id === cluster.zoneId)?.name ?? cluster.zoneId;
   const statuses = STATUS_ORDER.filter((s) => cluster.statusSummary[s]);
   const statusChartData = statuses.map((status) => ({
-    label: humanStatusLabel(status),
+    label: t(`status.${status}`),
     value: cluster.statusSummary[status],
   }));
 
@@ -97,7 +91,7 @@ export function AdminClusterDetailPage() {
         className="text-ink-muted inline-flex items-center gap-1.5 text-sm hover:text-ink"
       >
         <ArrowLeft className="size-4" aria-hidden="true" />
-        Clusters
+        {t("nav.clusters")}
       </Link>
 
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -117,7 +111,11 @@ export function AdminClusterDetailPage() {
               <RefreshButton onRefresh={refetch} refreshing={isFetching} what="this cluster" />
             </div>
             <p className="text-ink-faint font-mono text-xs">
-              {cluster.id} · {zoneName} · formed {relativeTime(cluster.createdAt)}
+              {t("adminClusterDetail.formedLine", {
+                clusterId: cluster.id,
+                zone: zoneName,
+                when: relativeTime(cluster.createdAt),
+              })}
             </p>
           </div>
         </div>
@@ -125,20 +123,25 @@ export function AdminClusterDetailPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-4 rounded-lg border border-line bg-surface p-4 sm:grid-cols-3">
-        <Stat label="Reports" value={cluster.reportCount} />
-        <Stat label="Unique reporters" value={cluster.uniqueReporterCount} />
-        <Stat label="Severity score" value={cluster.severityScore} />
+        <Stat label={t("clusterDetail.reports")} value={cluster.reportCount} />
+        <Stat
+          label={t("clusterDetail.uniqueReporters")}
+          value={cluster.uniqueReporterCount}
+        />
+        <Stat label={t("clusterDetail.severityScore")} value={cluster.severityScore} />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 sm:items-start">
         <div className="rounded-lg border border-line bg-surface p-4">
           <h2 className="font-display mb-3 text-base font-semibold text-ink">
-            Member status breakdown
+            {t("clusterDetail.statusBreakdown")}
           </h2>
           <HorizontalBarChart data={statusChartData} />
         </div>
         <div className="rounded-lg border border-line bg-surface p-4">
-          <h2 className="font-display mb-3 text-base font-semibold text-ink">Centroid</h2>
+          <h2 className="font-display mb-3 text-base font-semibold text-ink">
+            {t("clusterDetail.centroid")}
+          </h2>
           <MiniMap
             pins={[
               {
@@ -155,17 +158,17 @@ export function AdminClusterDetailPage() {
 
       <section>
         <h2 className="font-display mb-3 text-base font-semibold text-ink">
-          Member complaints
+          {t("clusterDetail.memberComplaints")}
         </h2>
         <Table>
           <TableHead>
             <TableRow>
-              <TableHeaderCell className="w-16">Photo</TableHeaderCell>
-              <TableHeaderCell>Complaint</TableHeaderCell>
-              <TableHeaderCell>Status</TableHeaderCell>
-              <TableHeaderCell>Severity</TableHeaderCell>
-              <TableHeaderCell>SLA</TableHeaderCell>
-              <TableHeaderCell>Filed</TableHeaderCell>
+              <TableHeaderCell className="w-16">{t("columns.photo")}</TableHeaderCell>
+              <TableHeaderCell>{t("columns.complaint")}</TableHeaderCell>
+              <TableHeaderCell>{t("filters.status")}</TableHeaderCell>
+              <TableHeaderCell>{t("filters.severity")}</TableHeaderCell>
+              <TableHeaderCell>{t("columns.sla")}</TableHeaderCell>
+              <TableHeaderCell>{t("columns.filed")}</TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>

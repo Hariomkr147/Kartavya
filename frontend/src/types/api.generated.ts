@@ -165,7 +165,7 @@ export interface paths {
         put?: never;
         /**
          * File a new complaint
-         * @description A citizen files a complaint by choosing one of the 12 categories, uploading 1 to 3 photos (JPEG or PNG, max 5 MB each), and sharing a location (latitude/longitude).
+         * @description A citizen files a complaint by choosing one of the 12 categories, uploading 1 to 3 photos (JPEG or PNG, max 2 MB each), and sharing a location (latitude/longitude).
          *
          *     On submission the server automatically:
          *     - routes the complaint to the citizen-confirmed `zoneId` (validated
@@ -1372,7 +1372,7 @@ export interface components {
             categoryId: string;
             /** @description Free-text description of the issue. */
             description?: string;
-            /** @description 1 to 3 photos (JPEG or PNG, max 5 MB each). Each becomes its own evidence record (`sequence` 1, 2, 3…) with its own independent AI pre-screening note. */
+            /** @description 1 to 3 photos (JPEG or PNG, max 2 MB each). Each becomes its own evidence record (`sequence` 1, 2, 3…) with its own independent AI pre-screening note. */
             photos: string[];
             /**
              * Format: double
@@ -1555,7 +1555,7 @@ export interface components {
         SubmitEvidenceRequest: {
             /**
              * Format: binary
-             * @description JPEG or PNG, max 5 MB.
+             * @description JPEG or PNG, max 2 MB.
              */
             photo: string;
         };
@@ -1625,7 +1625,7 @@ export interface components {
             reason: string;
             /**
              * Format: binary
-             * @description Required proof that the issue persists — JPEG or PNG, max 5 MB. The burden of evidence for a dispute is on the citizen, the same way it is for the original complaint. Stored as the next `sequence` in the complaint's evidence history; it is never routed through an officer's evidence-review verdict, so its `verdict` stays permanently null — the admin judges it directly when ruling on the dispute.
+             * @description Required proof that the issue persists — JPEG or PNG, max 2 MB. The burden of evidence for a dispute is on the citizen, the same way it is for the original complaint. Stored as the next `sequence` in the complaint's evidence history; it is never routed through an officer's evidence-review verdict, so its `verdict` stays permanently null — the admin judges it directly when ruling on the dispute.
              */
             photo: string;
         };

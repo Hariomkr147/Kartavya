@@ -51,7 +51,8 @@ def validate_photo(*, stream: Any, declared_mime: str | None, max_bytes: int) ->
     if not payload:
         raise ValidationError("Photo file is empty.")
     if len(payload) > max_bytes:
-        raise ValidationError("Photo exceeds the 5 MB upload limit.")
+        limit_mb = max_bytes / (1024 * 1024)
+        raise ValidationError(f"Photo exceeds the {limit_mb:g} MB upload limit.")
     return detected_mime
 
 

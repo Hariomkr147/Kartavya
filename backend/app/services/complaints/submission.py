@@ -69,7 +69,7 @@ def create_complaint(
     if not zone or not zone.is_active:
         raise ValidationError("The specified zone does not exist or is inactive.")
 
-    max_bytes = current_app.config.get("MAX_UPLOAD_BYTES", 5 * 1024 * 1024)
+    max_bytes = current_app.config["MAX_UPLOAD_BYTES"]
     validated_photos = []
     for photo in photos:
         declared_mime = getattr(photo, "content_type", None)

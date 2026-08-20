@@ -116,7 +116,7 @@ class BaseConfig:
         # thing that actually enforces privacy, not the storage backend.
         self.STORAGE_PROVIDER = os.environ.get("STORAGE_PROVIDER", "local").strip().lower()
         self.UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR", BACKEND_ROOT / "instance" / "uploads"))
-        self.MAX_UPLOAD_BYTES = _env_int("MAX_UPLOAD_BYTES", 5 * 1024 * 1024)
+        self.MAX_UPLOAD_BYTES = _env_int("MAX_UPLOAD_BYTES", 2 * 1024 * 1024)
         self.MAX_PHOTOS_PER_COMPLAINT = 3
         self.ALLOWED_PHOTO_MIME_TYPES = ("image/jpeg", "image/png")
         # STORAGE_PROVIDER=supabase only. The service_role key bypasses the

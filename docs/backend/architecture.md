@@ -837,7 +837,7 @@ The backend's only involvement is recording `complaints.category_suggested_by_ma
 Validate then persist:
 
 - JPEG or PNG only — ⚠️ check **magic bytes**, not just the `Content-Type` header, which a client controls.
-- Maximum 5 MB per photo; 1–3 photos per complaint.
+- Maximum 2 MB per photo; 1–3 photos per complaint.
 - Write under a generated key, `<complaint_id>/<uuid>.<ext>`; store that key in `complaint_evidence.file_path`.
 - ⚠️ Never store the client's filename (path traversal), and never store the image bytes in SQLite.
 
@@ -889,7 +889,7 @@ Three rules, and the whole design rests on them:
 | `PHOTO_SIGNING_KEY` | ⚠️ separate secret from `JWT_SECRET`; same fail-fast rule |
 | `PHOTO_URL_TTL_SECONDS` | 86400 (24 h) |
 | `STORAGE_PROVIDER` | `local` (default) or `supabase` — see Part 12 |
-| `UPLOAD_DIR`, `MAX_UPLOAD_BYTES` | 5 MB. `UPLOAD_DIR` only matters on `STORAGE_PROVIDER=local` |
+| `UPLOAD_DIR`, `MAX_UPLOAD_BYTES` | 2 MB. `UPLOAD_DIR` only matters on `STORAGE_PROVIDER=local` |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET` | `STORAGE_PROVIDER=supabase` only; ⚠️ fail fast at startup outside development if the provider is `supabase` and either is missing |
 | `AI_PROVIDER`, `AI_TIMEOUT_SECONDS` | `stub` / `local` / `remote` / `null` |
 | `CLUSTER_RADIUS_METERS` | 100 |

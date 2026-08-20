@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +31,7 @@ export function Modal({
   size = "md",
   className,
 }: ModalProps) {
+  const { t } = useTranslation();
   const dialogRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<Element | null>(null);
   const titleId = useId();
@@ -120,7 +122,7 @@ export function Modal({
             <button
               type="button"
               onClick={onClose}
-              aria-label="Close dialog"
+              aria-label={t("modal.close")}
               className="text-ink-faint hover:bg-surface-hover hover:text-ink -m-1 rounded-md p-1 transition-colors"
             >
               <X className="size-5" aria-hidden="true" />

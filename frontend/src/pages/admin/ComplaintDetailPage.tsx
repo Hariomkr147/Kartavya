@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -48,14 +49,6 @@ const ALL_STATUSES: ComplaintStatus[] = [
   "UNRESOLVABLE",
 ];
 
-function humanizeStatus(status: ComplaintStatus): string {
-  return status
-    .toLowerCase()
-    .split("_")
-    .map((w) => w[0].toUpperCase() + w.slice(1))
-    .join(" ");
-}
-
 const AT_OR_PAST_UNDER_REVIEW = new Set<ComplaintStatus>([
   "UNDER_REVIEW",
   "IN_PROGRESS",
@@ -67,6 +60,7 @@ const AT_OR_PAST_UNDER_REVIEW = new Set<ComplaintStatus>([
 ]);
 
 export function AdminComplaintDetailPage() {
+  const { t } = useTranslation();
   const { complaintId } = useParams<{ complaintId: string }>();
   const { toast } = useToast();
   const {
@@ -109,13 +103,13 @@ export function AdminComplaintDetailPage() {
     return (
       <EmptyState
         icon={FileQuestion}
-        title="Complaint not found"
+        title={t("complaintDetail.notFound")}
         action={
           <Link
             to="/admin/complaints"
             className="text-brand text-sm font-medium hover:underline"
           >
-            Back to Complaints
+            {t("adminComplaintDetail.backToComplaints")}
           </Link>
         }
         className="mx-auto max-w-md py-24"
@@ -142,7 +136,7 @@ export function AdminComplaintDetailPage() {
         zoneId: zoneId || undefined,
         reason: reason.trim() || undefined,
       });
-      toast({ title: "Override applied", variant: "success" });
+      toast({ title: t("adminComplaintDetail.overrideApplied"), variant: "success" });
       setStatus("");
       setCategoryId("");
       setZoneId("");
@@ -150,9 +144,7 @@ export function AdminComplaintDetailPage() {
       setOverrideConfirmOpen(false);
     } catch (error) {
       setOverrideError(
-        error instanceof ApiRequestError
-          ? error.message
-          : "Something went wrong. Please try again.",
+        error instanceof ApiRequestError ? error.message : t("errors.generic"),
       );
     }
   }
@@ -160,11 +152,11 @@ export function AdminComplaintDetailPage() {
   function requestDisputeConfirmation() {
     setDisputeError(null);
     if (!verdict) {
-      setDisputeError("Choose a verdict.");
+      setDisputeError(t("officerComplaint.chooseVerdict"));
       return;
     }
     if (!disputeReason.trim()) {
-      setDisputeError("A reason is required.");
+      setDisputeError(t("officerComplaint.reasonRequired"));
       return;
     }
     setDisputeConfirmOpen(true);
@@ -173,21 +165,24 @@ export function AdminComplaintDetailPage() {
   async function handleDisputeReview() {
     setDisputeError(null);
     if (!verdict) {
-      setDisputeError("Choose a verdict.");
+      setDisputeError(t("officerComplaint.chooseVerdict"));
       return;
     }
     if (!disputeReason.trim()) {
-      setDisputeError("A reason is required.");
+      setDisputeError(t("officerComplaint.reasonRequired"));
       return;
     }
     try {
       await reviewDispute.mutateAsync({ verdict, reason: disputeReason.trim() });
       toast({
-        title: verdict === "UPHELD" ? "Dispute upheld" : "Dispute rejected",
+        title:
+          verdict === "UPHELD"
+            ? t("adminComplaintDetail.disputeUpheld")
+            : t("adminComplaintDetail.disputeRejected"),
         description:
           verdict === "UPHELD"
-            ? "Sent back to the officer as In Progress."
-            : "The original resolution stands; complaint closed.",
+            ? t("adminComplaintDetail.disputeUpheldBody")
+            : t("adminComplaintDetail.disputeRejectedBody"),
         variant: "success",
       });
       setVerdict("");
@@ -195,9 +190,7 @@ export function AdminComplaintDetailPage() {
       setDisputeConfirmOpen(false);
     } catch (error) {
       setDisputeError(
-        error instanceof ApiRequestError
-          ? error.message
-          : "Something went wrong. Please try again.",
+        error instanceof ApiRequestError ? error.message : t("errors.generic"),
       );
     }
   }
@@ -212,7 +205,7 @@ export function AdminComplaintDetailPage() {
         className="text-ink-muted inline-flex items-center gap-1.5 text-sm hover:text-ink"
       >
         <ArrowLeft className="size-4" aria-hidden="true" />
-        Complaints
+        {t("nav.complaints")}
       </Link>
 
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -232,8 +225,11 @@ export function AdminComplaintDetailPage() {
               <RefreshButton onRefresh={refetch} refreshing={isFetching} what="this complaint" />
             </div>
             <p className="text-ink-faint font-mono text-xs">
-              {complaint.id} · {complaint.zoneName} · filed{" "}
-              {relativeTime(complaint.createdAt)}
+              {t("adminComplaintDetail.filedLine", {
+                complaintId: complaint.id,
+                zone: complaint.zoneName,
+                when: relativeTime(complaint.createdAt),
+              })}
             </p>
           </div>
         </div>
@@ -250,28 +246,32 @@ export function AdminComplaintDetailPage() {
             <div className="flex items-center gap-2 rounded-md border border-line bg-surface p-3 text-sm">
               <UserRound className="text-ink-muted size-4 shrink-0" aria-hidden="true" />
               <span className="text-ink-muted">
-                Reporter:{" "}
+                {t("adminComplaintDetail.reporter")}{" "}
                 <span className="font-medium text-ink">{complaint.reporter.name}</span>
                 {complaint.reporter.email && ` · ${complaint.reporter.email}`}
                 {complaint.reporter.displayName &&
-                  ` · public handle "${complaint.reporter.displayName}"`}
+                  t("adminComplaintDetail.publicHandle", {
+                    handle: complaint.reporter.displayName,
+                  })}
               </span>
             </div>
           )}
 
           <div className="text-ink-muted flex items-center gap-2 rounded-md border border-line bg-surface p-3 text-sm">
             <ShieldCheck className="size-4 shrink-0" aria-hidden="true" />
-            Assigned:{" "}
-            {complaint.assignedOfficerId == null
-              ? "Unassigned"
-              : officers.describe(complaint.assignedOfficerId)}
+            {t("officerComplaint.assigned", {
+              assignee:
+                complaint.assignedOfficerId == null
+                  ? t("officerQueue.tabs.unassigned")
+                  : officers.describe(complaint.assignedOfficerId),
+            })}
           </div>
 
           {(complaint.severityScore != null || complaint.clusterId) && (
             <div className="text-ink-muted flex flex-wrap items-center gap-x-5 gap-y-1.5 rounded-md border border-line bg-surface p-3 text-sm">
               {complaint.severityScore != null && (
                 <span>
-                  Severity score:{" "}
+                  {t("adminComplaintDetail.severityScore")}{" "}
                   <span className="font-mono font-medium text-ink">
                     {complaint.severityScore}
                   </span>
@@ -283,7 +283,7 @@ export function AdminComplaintDetailPage() {
                   className="hover:text-ink flex items-center gap-1.5 hover:underline"
                 >
                   <Layers className="size-4 shrink-0" aria-hidden="true" />
-                  Part of cluster{" "}
+                  {t("adminComplaintDetail.partOfCluster")}{" "}
                   <span className="font-mono text-ink">{complaint.clusterId}</span>
                 </Link>
               )}
@@ -299,7 +299,7 @@ export function AdminComplaintDetailPage() {
           {complaint.latitude != null && complaint.longitude != null && (
             <section>
               <h2 className="font-display mb-3 text-base font-semibold text-ink">
-                Location
+                {t("fileComplaint.location")}
               </h2>
               <MiniMap
                 pins={[
@@ -317,7 +317,7 @@ export function AdminComplaintDetailPage() {
           {complaint.evidence && complaint.evidence.length > 0 && (
             <section>
               <h2 className="font-display mb-3 text-base font-semibold text-ink">
-                Evidence
+                {t("complaintDetail.evidence")}
               </h2>
               <EvidenceGallery
                 evidence={complaint.evidence}
@@ -331,13 +331,11 @@ export function AdminComplaintDetailPage() {
               <div className="flex items-center gap-2">
                 <Gavel className="text-status-reopened size-5" aria-hidden="true" />
                 <h2 className="font-display text-base font-semibold text-ink">
-                  Rule on this dispute
+                  {t("adminComplaintDetail.ruleTitle")}
                 </h2>
               </div>
               <p className="text-ink-muted mt-1 text-sm">
-                The citizen disputed the resolution. Uphold to send it back to the officer
-                as In Progress, or reject to keep the original resolution and close it.
-                Neither outcome credits points.
+                {t("adminComplaintDetail.ruleBody")}
               </p>
               {disputeError && (
                 <p
@@ -353,25 +351,25 @@ export function AdminComplaintDetailPage() {
                   variant={verdict === "UPHELD" ? "primary" : "outline"}
                   onClick={() => setVerdict("UPHELD")}
                 >
-                  Uphold dispute
+                  {t("adminComplaintDetail.uphold")}
                 </Button>
                 <Button
                   size="sm"
                   variant={verdict === "REJECTED" ? "danger" : "outline"}
                   onClick={() => setVerdict("REJECTED")}
                 >
-                  Reject dispute
+                  {t("adminComplaintDetail.rejectDispute")}
                 </Button>
               </div>
               <div className="mt-3">
                 <Label htmlFor="dispute-review-reason" required>
-                  Reason
+                  {t("common.reason")}
                 </Label>
                 <Textarea
                   id="dispute-review-reason"
                   value={disputeReason}
                   onChange={(e) => setDisputeReason(e.target.value)}
-                  placeholder="Your justification, recorded on the status history."
+                  placeholder={t("adminComplaintDetail.justification")}
                 />
               </div>
               <Button
@@ -381,7 +379,7 @@ export function AdminComplaintDetailPage() {
                 loading={reviewDispute.isPending}
                 onClick={requestDisputeConfirmation}
               >
-                Submit ruling
+                {t("adminComplaintDetail.submitRuling")}
               </Button>
             </section>
           )}
@@ -389,11 +387,12 @@ export function AdminComplaintDetailPage() {
           <section className="rounded-lg border border-line bg-surface p-4">
             <div className="flex items-center gap-2">
               <Sliders className="text-brand size-5" aria-hidden="true" />
-              <h2 className="font-display text-base font-semibold text-ink">Override</h2>
+              <h2 className="font-display text-base font-semibold text-ink">
+                {t("adminComplaintDetail.override")}
+              </h2>
             </div>
             <p className="text-ink-muted mt-1 text-sm">
-              Correct the category, force a status, or reassign the zone. Every change
-              here is recorded in the status history with you as the actor.
+              {t("adminComplaintDetail.overrideBody")}
             </p>
             {overrideError && (
               <p
@@ -405,37 +404,37 @@ export function AdminComplaintDetailPage() {
             )}
             <div className="mt-3 grid gap-4 sm:grid-cols-3">
               <div>
-                <Label htmlFor="override-status">Status</Label>
+                <Label htmlFor="override-status">{t("filters.status")}</Label>
                 <Combobox
                   id="override-status"
                   value={status}
                   onChange={(v) => setStatus(v as ComplaintStatus | "")}
                   options={[
-                    { value: "", label: "No change" },
-                    ...ALL_STATUSES.map((s) => ({ value: s, label: humanizeStatus(s) })),
+                    { value: "", label: t("adminComplaintDetail.noChange") },
+                    ...ALL_STATUSES.map((s) => ({ value: s, label: t(`status.${s}`) })),
                   ]}
                 />
               </div>
               <div>
-                <Label htmlFor="override-category">Category</Label>
+                <Label htmlFor="override-category">{t("filters.category")}</Label>
                 <Combobox
                   id="override-category"
                   value={categoryId}
                   onChange={setCategoryId}
                   options={[
-                    { value: "", label: "No change" },
+                    { value: "", label: t("adminComplaintDetail.noChange") },
                     ...(categories?.map((c) => ({ value: c.id, label: c.name })) ?? []),
                   ]}
                 />
               </div>
               <div>
-                <Label htmlFor="override-zone">Zone</Label>
+                <Label htmlFor="override-zone">{t("filters.zone")}</Label>
                 <Combobox
                   id="override-zone"
                   value={zoneId}
                   onChange={setZoneId}
                   options={[
-                    { value: "", label: "No change" },
+                    { value: "", label: t("adminComplaintDetail.noChange") },
                     ...(zones?.map((z) => ({ value: z.id, label: z.name })) ?? []),
                   ]}
                 />
@@ -443,18 +442,18 @@ export function AdminComplaintDetailPage() {
             </div>
             {willBackfillSla && (
               <p className="text-ink-faint mt-3 text-xs">
-                The SLA timer hasn't started on this complaint yet — forcing it to{" "}
-                {humanizeStatus(status as ComplaintStatus)} will backfill the timer to
-                start now, using the category's current SLA target.
+                {t("adminComplaintDetail.slaBackfill", {
+                  status: t(`status.${status as ComplaintStatus}`),
+                })}
               </p>
             )}
             <div className="mt-3">
-              <Label htmlFor="override-reason">Reason (recommended)</Label>
+              <Label htmlFor="override-reason">{t("adminComplaints.reasonRecommended")}</Label>
               <Textarea
                 id="override-reason"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder="Why is this override being made?"
+                placeholder={t("adminComplaintDetail.overrideReasonPlaceholder")}
               />
             </div>
             <Button
@@ -464,7 +463,7 @@ export function AdminComplaintDetailPage() {
               loading={override.isPending}
               onClick={requestOverrideConfirmation}
             >
-              Apply override
+              {t("adminComplaintDetail.applyOverride")}
             </Button>
           </section>
         </div>
@@ -482,15 +481,15 @@ export function AdminComplaintDetailPage() {
       <Modal
         open={overrideConfirmOpen}
         onClose={() => setOverrideConfirmOpen(false)}
-        title="Confirm override"
-        description="This is recorded in the status history with you as the actor and can't be undone from here."
+        title={t("adminComplaintDetail.confirmOverride")}
+        description={t("adminComplaintDetail.confirmOverrideBody")}
         footer={
           <>
             <Button variant="outline" onClick={() => setOverrideConfirmOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button loading={override.isPending} onClick={handleOverride}>
-              Apply override
+              {t("adminComplaintDetail.applyOverride")}
             </Button>
           </>
         }
@@ -498,13 +497,13 @@ export function AdminComplaintDetailPage() {
         <ul className="text-ink-muted space-y-1 text-sm">
           {status && (
             <li>
-              Status →{" "}
-              <span className="font-medium text-ink">{humanizeStatus(status)}</span>
+              {t("filters.status")} →{" "}
+              <span className="font-medium text-ink">{t(`status.${status}`)}</span>
             </li>
           )}
           {categoryId && (
             <li>
-              Category →{" "}
+              {t("filters.category")} →{" "}
               <span className="font-medium text-ink">
                 {categories?.find((c) => c.id === categoryId)?.name ?? categoryId}
               </span>
@@ -512,44 +511,46 @@ export function AdminComplaintDetailPage() {
           )}
           {zoneId && (
             <li>
-              Zone →{" "}
+              {t("filters.zone")} →{" "}
               <span className="font-medium text-ink">
                 {zones?.find((z) => z.id === zoneId)?.name ?? zoneId}
               </span>
             </li>
           )}
-          {reason.trim() && <li>Reason: &ldquo;{reason.trim()}&rdquo;</li>}
+          {reason.trim() && (
+            <li>{t("adminComplaintDetail.reasonLine", { reason: reason.trim() })}</li>
+          )}
         </ul>
       </Modal>
 
       <Modal
         open={disputeConfirmOpen}
         onClose={() => setDisputeConfirmOpen(false)}
-        title="Confirm dispute ruling"
-        description="Neither outcome credits points, and this can't be undone from here."
+        title={t("adminComplaintDetail.confirmRuling")}
+        description={t("adminComplaintDetail.confirmRulingBody")}
         footer={
           <>
             <Button variant="outline" onClick={() => setDisputeConfirmOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant={verdict === "REJECTED" ? "danger" : "primary"}
               loading={reviewDispute.isPending}
               onClick={handleDisputeReview}
             >
-              Submit ruling
+              {t("adminComplaintDetail.submitRuling")}
             </Button>
           </>
         }
       >
         <p className="text-ink-muted text-sm">
           {verdict === "UPHELD"
-            ? "The dispute will be upheld — this complaint goes back to the officer as In Progress."
-            : "The dispute will be rejected — the original resolution stands and the complaint is closed."}
+            ? t("adminComplaintDetail.willUphold")
+            : t("adminComplaintDetail.willReject")}
         </p>
         {disputeReason.trim() && (
           <p className="text-ink-muted mt-2 text-sm">
-            Reason: &ldquo;{disputeReason.trim()}&rdquo;
+            {t("adminComplaintDetail.reasonLine", { reason: disputeReason.trim() })}
           </p>
         )}
       </Modal>

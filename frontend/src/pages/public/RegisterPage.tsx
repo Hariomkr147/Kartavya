@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -13,23 +15,30 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useZones } from "@/hooks/useZones";
 import { ApiRequestError } from "@/services/http";
 import { cn } from "@/lib/utils";
+import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
+import type { TranslationKey } from "@/i18n";
 
-const registerSchema = z
-  .object({
-    name: z.string().min(1, "Full name is required"),
-    email: z.string().min(1, "Email is required").email("Enter a valid email address"),
-    password: z.string().min(8, "Password must be at least 8 characters"),
-    confirmPassword: z.string().min(1, "Confirm your password"),
-    zoneId: z.string().min(1, "Choose your zone"),
-  })
-  .refine((values) => values.password === values.confirmPassword, {
-    message: "Passwords don't match",
-    path: ["confirmPassword"],
-  });
+const buildRegisterSchema = (t: TFunction) =>
+  z
+    .object({
+      name: z.string().min(1, t("validation.nameRequired")),
+      email: z
+        .string()
+        .min(1, t("validation.emailRequired"))
+        .email(t("validation.emailInvalid")),
+      password: z.string().min(8, t("validation.passwordMinLength")),
+      confirmPassword: z.string().min(1, t("validation.confirmPassword")),
+      zoneId: z.string().min(1, t("validation.zoneRequired")),
+    })
+    .refine((values) => values.password === values.confirmPassword, {
+      message: t("validation.passwordsMismatch"),
+      path: ["confirmPassword"],
+    });
 
-type RegisterFormValues = z.infer<typeof registerSchema>;
+type RegisterFormValues = z.infer<ReturnType<typeof buildRegisterSchema>>;
 
 export function RegisterPage() {
+  const { t } = useTranslation();
   const { register: registerCitizen } = useAuth();
   const navigate = useNavigate();
   const { data: zones, isLoading: zonesLoading } = useZones();
@@ -44,7 +53,7 @@ export function RegisterPage() {
     setError,
     formState: { errors, isSubmitting },
   } = useForm<RegisterFormValues>({
-    resolver: zodResolver(registerSchema),
+    resolver: zodResolver(useMemo(() => buildRegisterSchema(t), [t])),
     defaultValues: { zoneId: "" },
   });
 
@@ -66,13 +75,16 @@ export function RegisterPage() {
         return;
       }
       if (error instanceof ApiRequestError) setFormError(error.message);
-      else setFormError("Something went wrong. Please try again.");
+      else setFormError(t("errors.generic"));
     }
   }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-canvas px-4 py-12">
       <div className="w-full max-w-sm">
+        <div className="mb-2 flex justify-end">
+          <LanguageSwitcher />
+        </div>
         <Link to="/" className="mb-8 flex items-center justify-center gap-2">
           <ShieldCheck className="text-brand size-7" aria-hidden="true" />
           <span className="font-display text-xl font-semibold text-ink">Kartavya</span>
@@ -80,11 +92,9 @@ export function RegisterPage() {
 
         <div className="rounded-lg border border-line bg-surface p-6 shadow-xs">
           <h1 className="font-display text-2xl font-semibold text-ink">
-            Create a citizen account
+            {t("register.title")}
           </h1>
-          <p className="text-ink-muted mt-1 text-sm">
-            Officers and admins are added by an administrator.
-          </p>
+          <p className="text-ink-muted mt-1 text-sm">{t("register.subtitle")}</p>
 
           <form className="mt-6 space-y-4" onSubmit={handleSubmit(onSubmit)} noValidate>
             {formError && (
@@ -97,7 +107,7 @@ export function RegisterPage() {
             )}
             <div>
               <Label htmlFor="name" required>
-                Full name
+                {t("fields.fullName")}
               </Label>
               <Input
                 id="name"
@@ -109,7 +119,7 @@ export function RegisterPage() {
             </div>
             <div>
               <Label htmlFor="email" required>
-                Email
+                {t("fields.email")}
               </Label>
               <Input
                 id="email"
@@ -122,20 +132,22 @@ export function RegisterPage() {
             </div>
             <div>
               <Label htmlFor="password" required>
-                Password
+                {t("fields.password")}
               </Label>
               <Input
                 id="password"
                 type={showPassword ? "text" : "password"}
                 autoComplete="new-password"
-                hint={!errors.password ? "At least 8 characters." : undefined}
+                hint={!errors.password ? t("register.passwordHint") : undefined}
                 error={errors.password?.message}
                 rightIcon={
                   <button
                     type="button"
                     tabIndex={-1}
                     onClick={() => setShowPassword((v) => !v)}
-                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    aria-label={
+                      showPassword ? t("fields.hidePassword") : t("fields.showPassword")
+                    }
                     className="text-ink-faint hover:text-ink"
                   >
                     {showPassword ? (
@@ -151,14 +163,14 @@ export function RegisterPage() {
               {capsLockOn && (
                 <p className="text-status-needs_more_evidence mt-1.5 flex items-center gap-1 text-xs">
                   <ShieldAlert className="size-3.5" aria-hidden="true" />
-                  Caps Lock is on
+                  {t("login.capsLock")}
                 </p>
               )}
               <PasswordStrengthMeter password={passwordValue} />
             </div>
             <div>
               <Label htmlFor="confirmPassword" required>
-                Confirm password
+                {t("fields.confirmPassword")}
               </Label>
               <Input
                 id="confirmPassword"
@@ -171,7 +183,7 @@ export function RegisterPage() {
             </div>
             <div>
               <Label htmlFor="zoneId" required>
-                Your zone
+                {t("fields.yourZone")}
               </Label>
               {zonesLoading ? (
                 <Skeleton className="h-11 w-full" />
@@ -188,7 +200,7 @@ export function RegisterPage() {
                       error={errors.zoneId?.message}
                       placeholderDisabled
                       options={[
-                        { value: "", label: "Choose a zone…" },
+                        { value: "", label: t("fields.chooseZone") },
                         ...(zones?.map((zone) => ({
                           value: zone.id,
                           label: zone.name,
@@ -200,15 +212,15 @@ export function RegisterPage() {
               )}
             </div>
             <Button type="submit" className="w-full" loading={isSubmitting}>
-              Create account
+              {t("register.submit")}
             </Button>
           </form>
         </div>
 
         <p className="text-ink-muted mt-6 text-center text-sm">
-          Already have an account?{" "}
+          {t("register.haveAccount")}{" "}
           <Link to="/login" className="text-brand font-medium hover:underline">
-            Sign in
+            {t("login.title")}
           </Link>
         </p>
       </div>
@@ -218,11 +230,19 @@ export function RegisterPage() {
 
 interface PasswordStrength {
   score: 0 | 1 | 2 | 3 | 4;
-  label: string;
+  labelKey: TranslationKey | null;
 }
 
+const STRENGTH_LABEL_KEYS: TranslationKey[] = [
+  "passwordStrength.veryWeak",
+  "passwordStrength.weak",
+  "passwordStrength.fair",
+  "passwordStrength.good",
+  "passwordStrength.strong",
+];
+
 function scorePassword(password: string): PasswordStrength {
-  if (!password) return { score: 0, label: "" };
+  if (!password) return { score: 0, labelKey: null };
   let score = 0;
   if (password.length >= 8) score++;
   if (password.length >= 12) score++;
@@ -230,8 +250,7 @@ function scorePassword(password: string): PasswordStrength {
   if (/\d/.test(password)) score++;
   if (/[^A-Za-z0-9]/.test(password)) score++;
   const clamped = Math.min(4, score) as 0 | 1 | 2 | 3 | 4;
-  const labels = ["Very weak", "Weak", "Fair", "Good", "Strong"];
-  return { score: clamped, label: labels[clamped] };
+  return { score: clamped, labelKey: STRENGTH_LABEL_KEYS[clamped] };
 }
 
 const STRENGTH_BAR_CLASSES = [
@@ -244,8 +263,9 @@ const STRENGTH_BAR_CLASSES = [
 
 /** Tiny local strength meter — duplicated across Account/Register/Login rather than shared, since those pages live in different owned directories. */
 function PasswordStrengthMeter({ password }: { password: string }) {
+  const { t } = useTranslation();
   if (!password) return null;
-  const { score, label } = scorePassword(password);
+  const { score, labelKey } = scorePassword(password);
   return (
     <div className="mt-1.5" aria-live="polite">
       <div className="flex gap-1">
@@ -260,7 +280,7 @@ function PasswordStrengthMeter({ password }: { password: string }) {
           />
         ))}
       </div>
-      <p className="text-ink-faint mt-1 text-xs">{label}</p>
+      <p className="text-ink-faint mt-1 text-xs">{labelKey ? t(labelKey) : ""}</p>
     </div>
   );
 }

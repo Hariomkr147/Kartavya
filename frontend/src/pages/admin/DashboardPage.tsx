@@ -1,4 +1,6 @@
 import { Fragment, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -58,12 +60,17 @@ const SEVERITY_VAR: Record<SeverityLabel, string> = {
 type ZoneSortKey =
   "zoneName" | "pending" | "overdue" | "resolvedThisMonth" | "avgResolutionHours";
 
-function zoneLabel(zone: ZoneMetrics): string {
-  return zone.zoneName ?? zone.zoneId ?? "Unknown zone";
+function zoneLabel(zone: ZoneMetrics, t: TFunction): string {
+  return zone.zoneName ?? zone.zoneId ?? t("adminDashboard.unknownZone");
 }
 
-function citizenLabel(citizen: { displayName?: string; citizenId: string }): string {
-  return citizen.displayName ?? `Citizen #${citizen.citizenId}`;
+function citizenLabel(
+  citizen: { displayName?: string; citizenId: string },
+  t: TFunction,
+): string {
+  return (
+    citizen.displayName ?? t("gamification.citizenNumber", { citizenId: citizen.citizenId })
+  );
 }
 
 /** Weighted by each zone's own resolved-this-month count, not a plain mean
@@ -81,6 +88,7 @@ function weightedAvgResolutionHours(zones: ZoneMetrics[]): number | null {
 }
 
 export function AdminDashboardPage() {
+  const { t, i18n } = useTranslation();
   const { data: analytics, isLoading, isFetching, refetch } = useAdminAnalytics();
   const { data: zonesList } = useZones();
   const { data: trend, isLoading: trendLoading } = useComplaintVolumeTrend(14);
@@ -95,11 +103,16 @@ export function AdminDashboardPage() {
   const catchAllZone = zonesList?.find((z) => z.isCatchAll);
   const catchAllMetrics = zones.find((z) => z.zoneId === catchAllZone?.id);
 
+  // Recharts keys the bars and the legend off these property names, so they
+  // are translated here rather than kept as English identifiers.
+  const pendingLabel = t("adminDashboard.pending");
+  const overdueLabel = t("sla.OVERDUE");
+  const resolvedLabel = t("adminDashboard.resolvedThisMonth");
   const chartData = zones.map((z) => ({
-    name: zoneLabel(z),
-    Pending: z.pending ?? 0,
-    Overdue: z.overdue ?? 0,
-    "Resolved this month": z.resolvedThisMonth ?? 0,
+    name: zoneLabel(z, t),
+    [pendingLabel]: z.pending ?? 0,
+    [overdueLabel]: z.overdue ?? 0,
+    [resolvedLabel]: z.resolvedThisMonth ?? 0,
   }));
 
   const maxSeverity = Math.max(
@@ -112,7 +125,7 @@ export function AdminDashboardPage() {
     sort,
     toggleSort,
   } = useSortableRows<ZoneMetrics, ZoneSortKey>(zones, {
-    zoneName: (z) => zoneLabel(z),
+    zoneName: (z) => zoneLabel(z, t),
     pending: (z) => z.pending ?? 0,
     overdue: (z) => z.overdue ?? 0,
     resolvedThisMonth: (z) => z.resolvedThisMonth ?? 0,
@@ -120,24 +133,24 @@ export function AdminDashboardPage() {
   });
 
   const generatedTime = analytics?.generatedAt
-    ? new Date(analytics.generatedAt).toLocaleTimeString("en-GB")
+    ? new Date(analytics.generatedAt).toLocaleTimeString(i18n.resolvedLanguage ?? "en")
     : null;
 
   function handleExportTable() {
     exportRowsToCsv("admin-dashboard-zones-on-screen.csv", sortedZones, [
-      { header: "Zone", accessor: (z: ZoneMetrics) => zoneLabel(z) },
-      { header: "Pending", accessor: (z: ZoneMetrics) => z.pending ?? 0 },
-      { header: "Overdue", accessor: (z: ZoneMetrics) => z.overdue ?? 0 },
+      { header: t("filters.zone"), accessor: (z: ZoneMetrics) => zoneLabel(z, t) },
+      { header: pendingLabel, accessor: (z: ZoneMetrics) => z.pending ?? 0 },
+      { header: overdueLabel, accessor: (z: ZoneMetrics) => z.overdue ?? 0 },
       {
-        header: "Resolved (this month)",
+        header: resolvedLabel,
         accessor: (z: ZoneMetrics) => z.resolvedThisMonth ?? 0,
       },
       {
-        header: "Avg. resolution (hours)",
+        header: t("adminDashboard.avgResolutionHours"),
         accessor: (z: ZoneMetrics) => z.avgResolutionHours ?? "",
       },
       ...SEVERITY_ORDER.map((severity) => ({
-        header: `Severity: ${severity}`,
+        header: t("adminDashboard.severityColumn", { severity: t(`severity.${severity}`) }),
         accessor: (z: ZoneMetrics) => z.severityHeat?.[severity] ?? 0,
       })),
     ]);
@@ -149,11 +162,9 @@ export function AdminDashboardPage() {
         <div>
           <p className="text-ink-faint text-sm font-medium">{formatFullDate()}</p>
           <h1 className="font-display text-display-sm mt-0.5 font-semibold text-ink">
-            Admin Dashboard
+            {t("adminDashboard.title")}
           </h1>
-          <p className="text-ink-muted mt-1 text-sm">
-            Live cross-zone overview.
-          </p>
+          <p className="text-ink-muted mt-1 text-sm">{t("adminDashboard.subtitle")}</p>
         </div>
         <div className="mt-1 flex items-center gap-2">
           {generatedTime && (
@@ -162,7 +173,7 @@ export function AdminDashboardPage() {
                 className="text-status-resolved size-3.5 shrink-0"
                 aria-hidden="true"
               />
-              Live as of {generatedTime}
+              {t("adminDashboard.liveAsOf", { time: generatedTime })}
             </span>
           )}
           <RefreshButton
@@ -186,24 +197,32 @@ export function AdminDashboardPage() {
           animate="show"
           className="grid gap-4 sm:grid-cols-5"
         >
-          <StatCard icon={MapPinned} label="Zones" value={zones.length} />
-          <StatCard icon={Building2} label="Pending complaints" value={totalPending} />
+          <StatCard icon={MapPinned} label={t("adminDashboard.zones")} value={zones.length} />
+          <StatCard
+            icon={Building2}
+            label={t("adminDashboard.pendingComplaints")}
+            value={totalPending}
+          />
           <StatCard
             icon={AlertTriangle}
-            label="Overdue"
+            label={overdueLabel}
             value={totalOverdue}
             accent={totalOverdue > 0 ? "bad" : "brand"}
           />
           <StatCard
             icon={CheckCircle2}
-            label="Resolved (mo.)"
+            label={t("adminDashboard.resolvedMonth")}
             value={totalResolved}
             accent="good"
           />
           <StatCard
             icon={Clock}
-            label="Avg. resolution"
-            value={avgResolution != null ? `${Math.round(avgResolution)}h` : "—"}
+            label={t("adminDashboard.avgResolution")}
+            value={
+              avgResolution != null
+                ? t("common.hoursShort", { hours: Math.round(avgResolution) })
+                : "—"
+            }
           />
         </motion.div>
       )}
@@ -218,17 +237,17 @@ export function AdminDashboardPage() {
           <div className="flex items-center gap-3">
             <AlertTriangle className="text-sla-overdue size-5 shrink-0" aria-hidden="true" />
             <p className="text-sm text-ink">
-              <span className="font-semibold">{catchAllMetrics?.pending}</span> complaint
-              {catchAllMetrics?.pending === 1 ? "" : "s"} sitting in{" "}
-              <span className="font-medium">{catchAllZone.name}</span> (the catch-all
-              zone) — a real zone was likely a poor match and needs manual assignment.
+              {t("adminDashboard.catchAllWarning", {
+                count: catchAllMetrics?.pending ?? 0,
+                zone: catchAllZone.name,
+              })}
             </p>
           </div>
           <Link
             to={`/admin/complaints?zone=${catchAllZone.id}`}
             className="text-brand shrink-0 text-sm font-medium hover:underline"
           >
-            Review &amp; reassign →
+            {t("adminDashboard.reviewReassign")}
           </Link>
         </motion.section>
       )}
@@ -241,11 +260,9 @@ export function AdminDashboardPage() {
           className="rounded-lg border border-line bg-surface p-5"
         >
           <h2 className="font-display mb-1 text-base font-semibold text-ink">
-            Complaint Tracker
+            {t("adminDashboard.tracker")}
           </h2>
-          <p className="text-ink-faint mb-4 text-xs">
-            Here's an overview of what has happened over the past 14 days.
-          </p>
+          <p className="text-ink-faint mb-4 text-xs">{t("adminDashboard.trackerBody")}</p>
           <TrendLineChart data={trend} height={180} />
         </motion.section>
       )}
@@ -258,7 +275,7 @@ export function AdminDashboardPage() {
           className="rounded-lg border border-line bg-surface p-5"
         >
           <h2 className="font-display mb-4 text-base font-semibold text-ink">
-            Complaint load by zone
+            {t("adminDashboard.loadByZone")}
           </h2>
           <div className="h-72 w-full">
             <ResponsiveContainer width="100%" height="100%">
@@ -281,14 +298,18 @@ export function AdminDashboardPage() {
                   }}
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="Pending" fill="var(--color-brand)" radius={[4, 4, 0, 0]} />
                 <Bar
-                  dataKey="Overdue"
+                  dataKey={pendingLabel}
+                  fill="var(--color-brand)"
+                  radius={[4, 4, 0, 0]}
+                />
+                <Bar
+                  dataKey={overdueLabel}
                   fill="var(--color-sla-overdue)"
                   radius={[4, 4, 0, 0]}
                 />
                 <Bar
-                  dataKey="Resolved this month"
+                  dataKey={resolvedLabel}
                   fill="var(--color-status-resolved)"
                   radius={[4, 4, 0, 0]}
                 />
@@ -301,7 +322,7 @@ export function AdminDashboardPage() {
       {isLoading ? (
         <Skeleton className="h-64 w-full" />
       ) : zones.length === 0 ? (
-        <p className="text-ink-muted text-sm">No zones have been created yet.</p>
+        <p className="text-ink-muted text-sm">{t("adminDashboard.noZones")}</p>
       ) : (
         <motion.section
           initial={{ opacity: 0, y: 12 }}
@@ -311,17 +332,15 @@ export function AdminDashboardPage() {
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="font-display text-base font-semibold text-ink">
-              Per-zone detail
+              {t("adminDashboard.perZoneDetail")}
             </h2>
             <Button variant="outline" size="sm" onClick={handleExportTable}>
               <Download className="size-4" aria-hidden="true" />
-              Export table on screen (CSV)
+              {t("adminDashboard.exportTable")}
             </Button>
           </div>
           <p className="text-ink-faint -mt-1 text-xs">
-            Exports exactly what&apos;s rendered below. For the full filtered complaint
-            export, use the Complaints page instead. Expand a row for total/active/
-            resolved complaint and cluster counts.
+            {t("adminDashboard.exportNote")}
           </p>
           <Table>
             <TableHead>
@@ -332,38 +351,38 @@ export function AdminDashboardPage() {
                   direction={sort.direction}
                   onSort={() => toggleSort("zoneName")}
                 >
-                  Zone
+                  {t("filters.zone")}
                 </SortableHeaderCell>
                 <SortableHeaderCell
                   active={sort.key === "pending"}
                   direction={sort.direction}
                   onSort={() => toggleSort("pending")}
                 >
-                  Pending
+                  {pendingLabel}
                 </SortableHeaderCell>
                 <SortableHeaderCell
                   active={sort.key === "overdue"}
                   direction={sort.direction}
                   onSort={() => toggleSort("overdue")}
                 >
-                  Overdue
+                  {overdueLabel}
                 </SortableHeaderCell>
                 <SortableHeaderCell
                   active={sort.key === "resolvedThisMonth"}
                   direction={sort.direction}
                   onSort={() => toggleSort("resolvedThisMonth")}
                 >
-                  Resolved (mo.)
+                  {t("adminDashboard.resolvedMonth")}
                 </SortableHeaderCell>
                 <SortableHeaderCell
                   active={sort.key === "avgResolutionHours"}
                   direction={sort.direction}
                   onSort={() => toggleSort("avgResolutionHours")}
                 >
-                  Avg. resolution
+                  {t("adminDashboard.avgResolution")}
                 </SortableHeaderCell>
-                <TableHeaderCell>Severity heat</TableHeaderCell>
-                <TableHeaderCell>Top citizens</TableHeaderCell>
+                <TableHeaderCell>{t("adminDashboard.severityHeat")}</TableHeaderCell>
+                <TableHeaderCell>{t("adminDashboard.topCitizens")}</TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -380,7 +399,11 @@ export function AdminDashboardPage() {
                               setExpandedZoneId(expanded ? null : (zone.zoneId ?? null))
                             }
                             aria-expanded={expanded}
-                            aria-label={expanded ? "Collapse zone detail" : "Expand zone detail"}
+                            aria-label={
+                              expanded
+                                ? t("adminDashboard.collapseZone")
+                                : t("adminDashboard.expandZone")
+                            }
                             className="text-ink-muted hover:text-ink flex size-6 items-center justify-center rounded"
                           >
                             {expanded ? (
@@ -397,10 +420,10 @@ export function AdminDashboardPage() {
                             to={`/admin/complaints?zone=${zone.zoneId}`}
                             className="hover:underline"
                           >
-                            {zoneLabel(zone)}
+                            {zoneLabel(zone, t)}
                           </Link>
                         ) : (
-                          zoneLabel(zone)
+                          zoneLabel(zone, t)
                         )}
                       </TableCell>
                       <TableCell>
@@ -448,7 +471,9 @@ export function AdminDashboardPage() {
                       </TableCell>
                       <TableCell className="text-ink-muted">
                         {zone.avgResolutionHours != null
-                          ? `${Math.round(zone.avgResolutionHours)}h`
+                          ? t("common.hoursShort", {
+                              hours: Math.round(zone.avgResolutionHours),
+                            })
                           : "—"}
                       </TableCell>
                       <TableCell>
@@ -460,7 +485,7 @@ export function AdminDashboardPage() {
                             return (
                               <span
                                 key={severity}
-                                title={`${severity}: ${count}`}
+                                title={`${t(`severity.${severity}`)}: ${count}`}
                                 style={{
                                   backgroundColor: `color-mix(in oklch, var(${SEVERITY_VAR[severity]}) ${Math.round(opacity * 100)}%, transparent)`,
                                 }}
@@ -483,9 +508,13 @@ export function AdminDashboardPage() {
                                 <span className="text-ink-faint w-3.5 shrink-0 text-right text-xs">
                                   {i + 1}.
                                 </span>
-                                <span className="truncate">{citizenLabel(citizen)}</span>
+                                <span className="truncate">
+                                  {citizenLabel(citizen, t)}
+                                </span>
                                 <span className="text-ink-faint shrink-0 text-xs">
-                                  {citizen.points} CSP
+                                  {t("adminDashboard.cspAmount", {
+                                    points: citizen.points,
+                                  })}
                                 </span>
                               </li>
                             ))}

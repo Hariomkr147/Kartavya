@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   Bell,
   CheckCircle2,
@@ -42,6 +43,7 @@ function EntryShell({ href, children }: { href?: string; children: ReactNode }) 
 
 /** Session log of this app's own toasts, plus anything `notify()` files while the user was away — nothing persists across a reload, it's a convenience recall, not a real notification backend. */
 export function NotificationCenter() {
+  const { t } = useTranslation();
   const { history, unreadCount, markHistoryRead, clearHistory } = useToast();
 
   return (
@@ -51,7 +53,9 @@ export function NotificationCenter() {
           type="button"
           onClick={markHistoryRead}
           aria-label={
-            unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"
+            unreadCount > 0
+              ? t("notifications.withUnread", { count: unreadCount })
+              : t("notifications.title")
           }
           className="text-ink-muted hover:bg-surface-hover hover:text-ink relative inline-flex size-10 items-center justify-center rounded-md transition-colors"
         >
@@ -65,7 +69,7 @@ export function NotificationCenter() {
       </DropdownTrigger>
       <DropdownMenu className="w-80 max-w-[90vw] p-0">
         <div className="flex items-center justify-between border-b border-line px-3 py-2">
-          <p className="text-sm font-medium text-ink">Notifications</p>
+          <p className="text-sm font-medium text-ink">{t("notifications.title")}</p>
           {history.length > 0 && (
             <button
               type="button"
@@ -73,14 +77,14 @@ export function NotificationCenter() {
               className="text-ink-faint hover:text-ink flex items-center gap-1 text-xs"
             >
               <Trash2 className="size-3.5" aria-hidden="true" />
-              Clear
+              {t("notifications.clear")}
             </button>
           )}
         </div>
         <div className="max-h-80 overflow-y-auto">
           {history.length === 0 ? (
             <p className="text-ink-faint px-3 py-6 text-center text-sm">
-              Nothing yet — actions you take will show up here.
+              {t("notifications.empty")}
             </p>
           ) : (
             history.map((item) => {

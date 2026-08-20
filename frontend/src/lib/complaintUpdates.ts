@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import type { Complaint, ComplaintStatus } from "@/types/api";
 
 /**
@@ -33,22 +34,16 @@ export interface ComplaintUpdate {
   href: string;
 }
 
-const STATUS_MESSAGES: Record<ComplaintStatus, string> = {
-  SUBMITTED: "is queued for an officer to pick up",
-  EVIDENCE_UNDER_REVIEW: "is having its photos checked",
-  NEEDS_MORE_EVIDENCE: "needs a clearer photo from you",
-  REJECTED: "was rejected by an officer",
-  UNDER_REVIEW: "was accepted — the resolution clock is running",
-  IN_PROGRESS: "is being worked on now",
-  UNDER_RESOLUTION: "is being wrapped up",
-  RESOLVED: "was marked fixed — please confirm it",
-  CLOSED: "is now closed",
-  REOPENED: "was reopened for review",
-  UNRESOLVABLE: "was marked unresolvable",
-};
-
+/**
+ * The sentence is built from one whole-message key per status rather than a
+ * shared frame plus a fragment: languages differ on where the category and
+ * the verb phrase land in a sentence, and a fragment table can't be reordered
+ * by a translator.
+ */
 export function updateMessage(update: ComplaintUpdate): string {
-  return `Your ${update.categoryName.toLowerCase()} report ${STATUS_MESSAGES[update.to]}.`;
+  return i18n.t(`complaintUpdates.${update.to}`, {
+    category: update.categoryName.toLowerCase(),
+  });
 }
 
 export function snapshotOf(complaints: Complaint[]): ComplaintSnapshot {

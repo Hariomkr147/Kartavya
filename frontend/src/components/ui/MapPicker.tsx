@@ -4,6 +4,7 @@ import L from "leaflet";
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
+import { useTranslation } from "react-i18next";
 import { LocateFixed } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MapSearchBox } from "@/components/ui/MapSearchBox";
@@ -75,6 +76,7 @@ function ClickHandler({ onChange }: { onChange: (value: LatLng) => void }) {
 }
 
 function RecenterButton({ onLocate }: { onLocate: (value: LatLng) => void }) {
+  const { t } = useTranslation();
   const map = useMap();
   return (
     <button
@@ -86,8 +88,8 @@ function RecenterButton({ onLocate }: { onLocate: (value: LatLng) => void }) {
           map.flyTo(next, 15);
         });
       }}
-      title="Use my current location"
-      aria-label="Use my current location"
+      title={t("map.useMyLocation")}
+      aria-label={t("map.useMyLocation")}
       className="absolute top-2 right-2 z-[1000] inline-flex size-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted shadow-sm hover:text-ink"
     >
       <LocateFixed className="size-4" aria-hidden="true" />

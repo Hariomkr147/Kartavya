@@ -1,4 +1,5 @@
 import { RefreshCw } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button, type ButtonVariant } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { cn } from "@/lib/utils";
@@ -41,12 +42,12 @@ export interface RefreshButtonProps {
 export function RefreshButton({
   onRefresh,
   refreshing = false,
-  what,
   variant = "ghost",
   withLabel = false,
   className,
 }: RefreshButtonProps) {
-  const label = what ? `Refresh ${what}` : "Refresh";
+  const { t } = useTranslation();
+  const label = t("common.refreshNow");
 
   const button = (
     <Button
@@ -65,7 +66,7 @@ export function RefreshButton({
         className={cn("size-4 shrink-0", refreshing && "animate-spin")}
         aria-hidden="true"
       />
-      {withLabel && <span>Refresh</span>}
+      {withLabel && <span>{label}</span>}
     </Button>
   );
 

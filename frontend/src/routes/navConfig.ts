@@ -13,28 +13,32 @@ import {
 } from "lucide-react";
 import type { NavItem } from "@/components/layout/AppShell";
 
+// Nav items are module constants (they never change per render), so they
+// carry translation keys rather than resolved strings — the shell and the
+// command palette translate them at render time, which is also what makes
+// them follow a language switch.
 export const citizenNavItems: NavItem[] = [
-  { label: "Dashboard", to: "/citizen", icon: LayoutDashboard, end: true },
-  { label: "File a Complaint", to: "/citizen/file", icon: FilePlus2 },
-  { label: "My Complaints", to: "/citizen/complaints", icon: ClipboardList },
-  { label: "Feed", to: "/citizen/feed", icon: Rss },
-  { label: "My Kartavya", to: "/citizen/gamification", icon: Trophy },
+  { labelKey: "nav.dashboard", to: "/citizen", icon: LayoutDashboard, end: true },
+  { labelKey: "nav.fileComplaint", to: "/citizen/file", icon: FilePlus2 },
+  { labelKey: "nav.myComplaints", to: "/citizen/complaints", icon: ClipboardList },
+  { labelKey: "nav.feed", to: "/citizen/feed", icon: Rss },
+  { labelKey: "nav.myKartavya", to: "/citizen/gamification", icon: Trophy },
 ];
 
 export const officerNavItems: NavItem[] = [
-  { label: "Dashboard", to: "/officer", icon: LayoutDashboard, end: true },
-  { label: "Queue", to: "/officer/queue", icon: ClipboardList },
-  { label: "Clusters", to: "/officer/clusters", icon: Boxes },
+  { labelKey: "nav.dashboard", to: "/officer", icon: LayoutDashboard, end: true },
+  { labelKey: "nav.queue", to: "/officer/queue", icon: ClipboardList },
+  { labelKey: "nav.clusters", to: "/officer/clusters", icon: Boxes },
 ];
 
 export const adminNavItems: NavItem[] = [
-  { label: "Dashboard", to: "/admin", icon: LayoutDashboard, end: true },
-  { label: "Complaints", to: "/admin/complaints", icon: ClipboardList },
-  { label: "Clusters", to: "/admin/clusters", icon: Boxes },
-  { label: "Disputes", to: "/admin/disputes", icon: Gavel },
-  { label: "Users", to: "/admin/users", icon: Users },
-  { label: "Zones & SLAs", to: "/admin/zones", icon: MapPinned },
-  { label: "Officers", to: "/admin/officers", icon: UserCog },
-  { label: "Leaderboard", to: "/admin/leaderboard", icon: Trophy },
-  { label: "Settings", to: "/admin/settings", icon: Settings },
+  { labelKey: "nav.dashboard", to: "/admin", icon: LayoutDashboard, end: true },
+  { labelKey: "nav.complaints", to: "/admin/complaints", icon: ClipboardList },
+  { labelKey: "nav.clusters", to: "/admin/clusters", icon: Boxes },
+  { labelKey: "nav.disputes", to: "/admin/disputes", icon: Gavel },
+  { labelKey: "nav.users", to: "/admin/users", icon: Users },
+  { labelKey: "nav.zonesAndSlas", to: "/admin/zones", icon: MapPinned },
+  { labelKey: "nav.officers", to: "/admin/officers", icon: UserCog },
+  { labelKey: "nav.leaderboard", to: "/admin/leaderboard", icon: Trophy },
+  { labelKey: "nav.settings", to: "/admin/settings", icon: Settings },
 ];

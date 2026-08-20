@@ -42,7 +42,7 @@ export function OfficerShell() {
     <>
       <OfficerQueueUpdatesWatcher />
       <AppShell
-        roleLabel="Officer"
+        roleLabelKey="roles.officer"
         accountPath="/officer/account"
         navItems={officerNavItems}
       />

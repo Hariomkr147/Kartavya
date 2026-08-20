@@ -1,4 +1,6 @@
 import { useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import {
   Bot,
   BotOff,
@@ -14,19 +16,28 @@ import { PhotoThumb } from "@/components/ui/PhotoThumb";
 import { relativeTime, absoluteDateTime } from "@/lib/datetime";
 import { screeningPhase } from "@/lib/aiScreening";
 import { cn } from "@/lib/utils";
+import type { TranslationKey } from "@/i18n";
 import type { Evidence, EvidenceVerdict } from "@/types/api";
 
 const VERDICT_CONFIG: Record<
   EvidenceVerdict,
-  { label: string; icon: typeof CheckCircle2; className: string }
+  { labelKey: TranslationKey; icon: typeof CheckCircle2; className: string }
 > = {
-  VALID: { label: "Accepted", icon: CheckCircle2, className: "text-status-resolved" },
+  VALID: {
+    labelKey: "evidence.verdict.VALID",
+    icon: CheckCircle2,
+    className: "text-status-resolved",
+  },
   NEEDS_MORE_EVIDENCE: {
-    label: "Needed more evidence",
+    labelKey: "evidence.verdict.NEEDS_MORE_EVIDENCE",
     icon: AlertTriangle,
     className: "text-status-needs_more_evidence",
   },
-  REJECTED: { label: "Rejected", icon: XCircle, className: "text-status-rejected" },
+  REJECTED: {
+    labelKey: "evidence.verdict.REJECTED",
+    icon: XCircle,
+    className: "text-status-rejected",
+  },
 };
 
 /**
@@ -65,13 +76,13 @@ function screeningBadge(note: {
  * text-ink-faint since this renders over the lightbox's dark overlay, not
  * the page surface.
  */
-function aiScreeningDescription(item: Evidence): ReactNode {
+function aiScreeningDescription(item: Evidence, t: TFunction): ReactNode {
   const phase = item.aiConfidenceNote ? screeningPhase(item.aiConfidenceNote) : null;
   if (phase === "pending") {
     return (
       <span className="flex items-center gap-1.5 text-xs text-white/70">
         <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
-        Analyzing photo {item.sequence}…
+        {t("evidence.analyzingPhoto", { sequence: item.sequence })}
       </span>
     );
   }
@@ -87,7 +98,7 @@ function aiScreeningDescription(item: Evidence): ReactNode {
     return (
       <span className="flex items-center gap-1.5 text-xs text-white/70">
         <BotOff className="size-3.5 shrink-0" aria-hidden="true" />
-        AI screening was unavailable — an officer will review it directly.
+        {t("evidence.aiUnavailableShort")}
       </span>
     );
   }
@@ -102,15 +113,19 @@ export function EvidenceGallery({
   /** See StatusTimeline — admin-only name resolution, "Officer #7" otherwise. */
   officerLabel?: (officerId: string) => string;
 }) {
+  const { t } = useTranslation();
   const labelForOfficer = officerLabel ?? ((id: string) => `Officer #${id}`);
   const sorted = [...evidence].sort((a, b) => a.sequence - b.sequence);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   const lightboxImages = sorted.map((item) => ({
     src: item.photoUrl,
-    alt: `Evidence photo ${item.sequence}`,
-    caption: `Photo #${item.sequence} · submitted ${absoluteDateTime(item.submittedAt)}`,
-    description: aiScreeningDescription(item),
+    alt: t("evidence.photoAlt", { sequence: item.sequence }),
+    caption: t("evidence.photoCaption", {
+      sequence: item.sequence,
+      when: absoluteDateTime(item.submittedAt),
+    }),
+    description: aiScreeningDescription(item, t),
   }));
 
   return (
@@ -125,12 +140,12 @@ export function EvidenceGallery({
             <button
               type="button"
               onClick={() => setLightboxIndex(index)}
-              aria-label={`View photo ${item.sequence} full-size`}
+              aria-label={t("evidence.viewFullSize", { sequence: item.sequence })}
               className="group relative block w-full"
             >
               <PhotoThumb
                 src={item.photoUrl}
-                alt={`Evidence photo ${item.sequence}`}
+                alt={t("evidence.photoAlt", { sequence: item.sequence })}
                 className="h-48 w-full object-cover"
                 iconClassName="text-ink-faint size-8"
               />
@@ -154,20 +169,23 @@ export function EvidenceGallery({
                     className="size-3.5 shrink-0 animate-spin"
                     aria-hidden="true"
                   />
-                  Analyzing…
+                  {t("evidence.analyzing")}
                 </span>
               )}
               {phase === "unavailable" && (
                 <span className="bg-surface/90 text-ink-muted absolute top-2 right-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium shadow-sm">
                   <BotOff className="size-3.5 shrink-0" aria-hidden="true" />
-                  AI unavailable
+                  {t("evidence.aiUnavailable")}
                 </span>
               )}
             </button>
             <div className="space-y-2 p-3">
               <div className="flex items-center justify-between">
                 <span className="text-ink-faint text-xs font-medium">
-                  Photo #{item.sequence} · {relativeTime(item.submittedAt)}
+                  {t("evidence.photoMeta", {
+                    sequence: item.sequence,
+                    when: relativeTime(item.submittedAt),
+                  })}
                 </span>
                 {verdict && (
                   <span
@@ -177,7 +195,7 @@ export function EvidenceGallery({
                     )}
                   >
                     <verdict.icon className="size-3.5" aria-hidden="true" />
-                    {verdict.label}
+                    {t(verdict.labelKey)}
                   </span>
                 )}
               </div>
@@ -189,8 +207,7 @@ export function EvidenceGallery({
               )}
               {phase === "unavailable" && (
                 <p className="text-ink-faint text-xs">
-                  AI screening was unavailable for this photo — an officer will review it
-                  directly.
+                  {t("evidence.aiUnavailableLong")}
                 </p>
               )}
               {item.reviewedByOfficerId && (

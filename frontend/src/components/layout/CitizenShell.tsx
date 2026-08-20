@@ -42,7 +42,7 @@ export function CitizenShell() {
     <>
       <ComplaintUpdatesWatcher />
       <AppShell
-        roleLabel="Citizen"
+        roleLabelKey="roles.citizen"
         accountPath="/citizen/account"
         navItems={citizenNavItems}
       />

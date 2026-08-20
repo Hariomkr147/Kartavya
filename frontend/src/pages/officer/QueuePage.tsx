@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import { ArrowUp, ClipboardList, Hand, Layers, Search, X } from "lucide-react";
 import { Input } from "@/components/ui/Input";
@@ -36,6 +37,7 @@ import { relativeTime } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 import { ApiRequestError } from "@/services/http";
 import type { GetOfficerQueueParams } from "@/services/officer";
+import type { TranslationKey } from "@/i18n";
 import type { Complaint, ComplaintStatus, SeverityLabel, SlaLabel } from "@/types/api";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 
@@ -52,15 +54,15 @@ const ACTIVE_STATUSES: ComplaintStatus[] = [
 
 type QueueTab = "active" | "overdue" | "unassigned" | "mine";
 
-const TAB_LABELS: Record<QueueTab, string> = {
-  active: "All Active",
-  overdue: "Overdue",
-  unassigned: "Unassigned",
-  mine: "My Queue",
+const TAB_LABEL_KEYS: Record<QueueTab, TranslationKey> = {
+  active: "officerQueue.tabs.active",
+  overdue: "sla.OVERDUE",
+  unassigned: "officerQueue.tabs.unassigned",
+  mine: "officerQueue.tabs.mine",
 };
 
 function isQueueTab(value: string): value is QueueTab {
-  return value in TAB_LABELS;
+  return value in TAB_LABEL_KEYS;
 }
 
 const SEVERITY_VALUES: SeverityLabel[] = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
@@ -109,6 +111,7 @@ const PAGE_SIZE = 10;
 const FETCH_SIZE = 100;
 
 export function OfficerQueuePage() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { toast } = useToast();
   const [tab, setTab] = useSearchParamState<QueueTab>("tab", "active", {
@@ -289,9 +292,7 @@ export function OfficerQueuePage() {
    * three of eight is a normal result here, not a failure of the action.
    */
   async function handleBatchClaim() {
-    const claimable = rows.filter(
-      (c) => selected.has(c.id) && c.status === "SUBMITTED",
-    );
+    const claimable = rows.filter((c) => selected.has(c.id) && c.status === "SUBMITTED");
     if (claimable.length === 0) {
       toast({
         title: "Nothing to claim",
@@ -321,7 +322,10 @@ export function OfficerQueuePage() {
 
     setSelected(new Set());
     toast({
-      title: claimed > 0 ? `Claimed ${claimed} complaint${claimed === 1 ? "" : "s"}` : "Couldn't claim any of those",
+      title:
+        claimed > 0
+          ? `Claimed ${claimed} complaint${claimed === 1 ? "" : "s"}`
+          : "Couldn't claim any of those",
       description:
         failed.length > 0
           ? `${failed.length} were already taken or had moved on: ${failed.join(", ")}`
@@ -335,13 +339,13 @@ export function OfficerQueuePage() {
     try {
       await claim.mutateAsync(complaintId);
       toast({
-        title: "Complaint claimed",
-        description: "It's now in your evidence-review queue.",
+        title: t("officerQueue.claimed"),
+        description: t("officerQueue.claimedBody"),
         variant: "success",
       });
     } catch (error) {
       toast({
-        title: "Couldn't claim this complaint",
+        title: t("officerQueue.claimFailed"),
         description: error instanceof ApiRequestError ? error.message : undefined,
         variant: "error",
       });
@@ -355,7 +359,7 @@ export function OfficerQueuePage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <h1 className="font-display text-display-sm font-semibold text-ink">
-            Complaint Queue
+            {t("officerQueue.title")}
           </h1>
           <RefreshButton onRefresh={refetch} refreshing={isFetching} what="the queue" />
         </div>
@@ -369,9 +373,9 @@ export function OfficerQueuePage() {
         }}
       >
         <TabsList>
-          {(Object.keys(TAB_LABELS) as QueueTab[]).map((key) => (
+          {(Object.keys(TAB_LABEL_KEYS) as QueueTab[]).map((key) => (
             <TabsTrigger key={key} value={key}>
-              {TAB_LABELS[key]}
+              {t(TAB_LABEL_KEYS[key])}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -379,11 +383,11 @@ export function OfficerQueuePage() {
 
       <div className="flex flex-wrap gap-4 rounded-lg border border-line bg-surface p-4">
         <div className="min-w-[12rem] flex-1">
-          <Label htmlFor="queue-search">Search</Label>
+          <Label htmlFor="queue-search">{t("filters.search")}</Label>
           <Input
             id="queue-search"
             leftIcon={<Search className="size-4" aria-hidden="true" />}
-            placeholder="Complaint ID or category…"
+            placeholder={t("officerQueue.searchPlaceholder")}
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -392,7 +396,7 @@ export function OfficerQueuePage() {
           />
         </div>
         <div className="min-w-[10rem] flex-1">
-          <Label htmlFor="queue-category">Category</Label>
+          <Label htmlFor="queue-category">{t("filters.category")}</Label>
           <Combobox
             id="queue-category"
             value={categoryId}
@@ -401,13 +405,13 @@ export function OfficerQueuePage() {
               resetForFilterChange();
             }}
             options={[
-              { value: "", label: "All categories" },
+              { value: "", label: t("filters.allCategories") },
               ...(categories?.map((c) => ({ value: c.id, label: c.name })) ?? []),
             ]}
           />
         </div>
         <div className="min-w-[10rem] flex-1">
-          <Label htmlFor="queue-severity">Severity</Label>
+          <Label htmlFor="queue-severity">{t("filters.severity")}</Label>
           <Combobox
             id="queue-severity"
             value={severity}
@@ -416,11 +420,11 @@ export function OfficerQueuePage() {
               resetForFilterChange();
             }}
             options={[
-              { value: "", label: "All severities" },
-              { value: "LOW", label: "Low" },
-              { value: "MEDIUM", label: "Medium" },
-              { value: "HIGH", label: "High" },
-              { value: "CRITICAL", label: "Critical" },
+              { value: "", label: t("filters.allSeverities") },
+              ...SEVERITY_VALUES.map((value) => ({
+                value,
+                label: t(`severity.${value}`),
+              })),
             ]}
           />
         </div>
@@ -440,7 +444,7 @@ export function OfficerQueuePage() {
           <div className="flex items-end">
             <Button variant="ghost" size="sm" onClick={clearFilters}>
               <X className="size-3.5" aria-hidden="true" />
-              Clear filters
+              {t("filters.clear")}
             </Button>
           </div>
         )}
@@ -449,19 +453,19 @@ export function OfficerQueuePage() {
       {selected.size > 0 && (
         <div className="bg-brand/10 border-brand/30 flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3">
           <p className="text-sm font-medium text-ink">
-            {selected.size} selected
+            {t("officerQueue.selected", { count: selected.size })}
             {selectedClusterCount > 0 && (
               <span className="text-ink-muted font-normal">
-                {" "}
-                · spanning {selectedClusterCount} cluster
-                {selectedClusterCount === 1 ? "" : "s"}
+                {t("officerQueue.selectedClusters", {
+                  count: selectedClusterCount,
+                })}
               </span>
             )}
           </p>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
               <X className="size-4" aria-hidden="true" />
-              Clear
+              {t("notifications.clear")}
             </Button>
             <Button
               size="sm"
@@ -474,7 +478,7 @@ export function OfficerQueuePage() {
               Claim {selectedClaimableCount > 0 ? selectedClaimableCount : ""}
             </Button>
             <Button size="sm" onClick={() => setBatchOpen(true)}>
-              Batch update status…
+              {t("officerQueue.batchUpdate")}
             </Button>
           </div>
         </div>
@@ -489,8 +493,8 @@ export function OfficerQueuePage() {
       ) : total === 0 ? (
         <EmptyState
           icon={ClipboardList}
-          title="No complaints match"
-          description="Try a different tab or filter."
+          title={t("officerQueue.noMatch")}
+          description={t("officerQueue.noMatchBody")}
           className="rounded-lg border border-line bg-surface"
         />
       ) : (
@@ -500,38 +504,42 @@ export function OfficerQueuePage() {
               <TableRow>
                 <TableHeaderCell className="w-10">
                   <Checkbox
-                    aria-label="Select all on this page"
+                    aria-label={t("officerQueue.selectAll")}
                     checked={allSelectedOnPage}
                     indeterminate={someSelectedOnPage}
                     onChange={toggleSelectAll}
                     disabled={selectablePageIds.length === 0}
                   />
                 </TableHeaderCell>
-                <TableHeaderCell className="w-14">Photo</TableHeaderCell>
+                <TableHeaderCell className="w-14">{t("columns.photo")}</TableHeaderCell>
                 <SortableHeaderCell {...sortableProps("category")}>
-                  Category
+                  {t("filters.category")}
                 </SortableHeaderCell>
                 <SortableHeaderCell {...sortableProps("status")}>
-                  Status
+                  {t("filters.status")}
                 </SortableHeaderCell>
                 <SortableHeaderCell {...sortableProps("severity")}>
-                  Severity
+                  {t("filters.severity")}
                 </SortableHeaderCell>
-                <SortableHeaderCell {...sortableProps("sla")}>SLA</SortableHeaderCell>
+                <SortableHeaderCell {...sortableProps("sla")}>
+                  {t("columns.sla")}
+                </SortableHeaderCell>
                 <SortableHeaderCell {...sortableProps("upvotes")}>
-                  Upvotes
+                  {t("columns.upvotes")}
                 </SortableHeaderCell>
-                <TableHeaderCell>Assigned</TableHeaderCell>
+                <TableHeaderCell>{t("columns.assigned")}</TableHeaderCell>
                 <SortableHeaderCell {...sortableProps("createdAt")}>
-                  Filed
+                  {t("columns.filed")}
                 </SortableHeaderCell>
-                <TableHeaderCell className="text-right">Actions</TableHeaderCell>
+                <TableHeaderCell className="text-right">
+                  {t("columns.actions")}
+                </TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {paged.length === 0 ? (
                 <DataTableEmpty colSpan={10}>
-                  <p className="text-ink-muted text-sm">No complaints on this page.</p>
+                  <p className="text-ink-muted text-sm">{t("officerQueue.emptyPage")}</p>
                 </DataTableEmpty>
               ) : (
                 paged.map((c) => (
@@ -545,13 +553,13 @@ export function OfficerQueuePage() {
                   >
                     <TableCell>
                       <Checkbox
-                        aria-label={`Select ${c.id}`}
+                        aria-label={t("officerQueue.selectRow", { complaintId: c.id })}
                         checked={selected.has(c.id)}
                         onChange={() => toggleRow(c.id)}
                         disabled={c.status === "REOPENED"}
                         title={
                           c.status === "REOPENED"
-                            ? "Reopened complaints are under admin dispute review and can't be batch-updated by an officer."
+                            ? t("officerQueue.reopenedLocked")
                             : undefined
                         }
                       />
@@ -560,7 +568,7 @@ export function OfficerQueuePage() {
                       <Link
                         to={`/officer/queue/${c.id}`}
                         className="bg-surface-hover flex size-10 items-center justify-center overflow-hidden rounded-md"
-                        aria-label={`Open ${c.id}`}
+                        aria-label={t("officerQueue.openRow", { complaintId: c.id })}
                       >
                         <PhotoThumb
                           src={c.photoUrl}
@@ -610,10 +618,12 @@ export function OfficerQueuePage() {
                     </TableCell>
                     <TableCell className="text-ink-muted text-sm">
                       {c.assignedOfficerId == null
-                        ? "Unassigned"
+                        ? t("officerQueue.tabs.unassigned")
                         : c.assignedOfficerId === user?.id
-                          ? "You"
-                          : `Officer #${c.assignedOfficerId}`}
+                          ? t("statusTimeline.you")
+                          : t("statusTimeline.officer", {
+                              officerId: c.assignedOfficerId,
+                            })}
                     </TableCell>
                     <TableCell className="text-ink-muted text-sm">
                       {relativeTime(c.createdAt)}
@@ -627,14 +637,14 @@ export function OfficerQueuePage() {
                           disabled={claimingId !== null && claimingId !== c.id}
                           onClick={() => handleClaim(c.id)}
                         >
-                          Claim
+                          {t("officerQueue.claim")}
                         </Button>
                       ) : (
                         <Link
                           to={`/officer/queue/${c.id}`}
                           className="text-brand text-sm font-medium hover:underline"
                         >
-                          View
+                          {t("common.view")}
                         </Link>
                       )}
                     </TableCell>

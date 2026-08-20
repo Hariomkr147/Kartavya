@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -25,28 +27,35 @@ import { useToast } from "@/components/ui/Toast";
 import { ApiRequestError } from "@/services/http";
 import { absoluteDateTime } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
+import type { TranslationKey } from "@/i18n";
 
-const profileSchema = z.object({
-  name: z.string().min(1, "Full name is required"),
-  displayName: z.string().optional(),
-  email: z.string().min(1, "Email is required").email("Enter a valid email address"),
-  zoneId: z.string().optional(),
-});
-type ProfileFormValues = z.infer<typeof profileSchema>;
-
-const passwordSchema = z
-  .object({
-    currentPassword: z.string().min(1, "Current password is required"),
-    newPassword: z.string().min(8, "New password must be at least 8 characters"),
-    confirmNewPassword: z.string().min(1, "Confirm your new password"),
-  })
-  .refine((v) => v.newPassword === v.confirmNewPassword, {
-    message: "Passwords don't match",
-    path: ["confirmNewPassword"],
+const buildProfileSchema = (t: TFunction) =>
+  z.object({
+    name: z.string().min(1, t("validation.nameRequired")),
+    displayName: z.string().optional(),
+    email: z
+      .string()
+      .min(1, t("validation.emailRequired"))
+      .email(t("validation.emailInvalid")),
+    zoneId: z.string().optional(),
   });
-type PasswordFormValues = z.infer<typeof passwordSchema>;
+type ProfileFormValues = z.infer<ReturnType<typeof buildProfileSchema>>;
+
+const buildPasswordSchema = (t: TFunction) =>
+  z
+    .object({
+      currentPassword: z.string().min(1, t("validation.currentPasswordRequired")),
+      newPassword: z.string().min(8, t("validation.newPasswordMinLength")),
+      confirmNewPassword: z.string().min(1, t("validation.confirmNewPassword")),
+    })
+    .refine((v) => v.newPassword === v.confirmNewPassword, {
+      message: t("validation.passwordsMismatch"),
+      path: ["confirmNewPassword"],
+    });
+type PasswordFormValues = z.infer<ReturnType<typeof buildPasswordSchema>>;
 
 export function AccountPage() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { data: zones, isLoading: zonesLoading } = useZones();
   const updateProfile = useUpdateProfile();
@@ -62,7 +71,7 @@ export function AccountPage() {
     setError: setProfileError,
     formState: { errors: profileErrors, isSubmitting: profileSubmitting },
   } = useForm<ProfileFormValues>({
-    resolver: zodResolver(profileSchema),
+    resolver: zodResolver(useMemo(() => buildProfileSchema(t), [t])),
     values: user
       ? {
           name: user.name,
@@ -80,7 +89,9 @@ export function AccountPage() {
     setError: setPasswordError,
     reset: resetPasswordForm,
     formState: { errors: passwordErrors, isSubmitting: passwordSubmitting },
-  } = useForm<PasswordFormValues>({ resolver: zodResolver(passwordSchema) });
+  } = useForm<PasswordFormValues>({
+    resolver: zodResolver(useMemo(() => buildPasswordSchema(t), [t])),
+  });
 
   const newPasswordValue =
     useWatch({ control: passwordControl, name: "newPassword" }) ?? "";
@@ -117,9 +128,7 @@ export function AccountPage() {
   const passwordIsDirty = passwordHasInput && !passwordSubmitting;
   useDirtyFormGuard(
     (profileHasEdits && !profileSubmitting) || passwordIsDirty,
-    passwordIsDirty
-      ? "Your password change hasn't been saved. Leave this page anyway?"
-      : undefined,
+    passwordIsDirty ? t("account.unsavedPassword") : undefined,
   );
 
   if (!user) return null;
@@ -134,14 +143,14 @@ export function AccountPage() {
         email: values.email,
         ...(user!.role === "CITIZEN" ? { zoneId: values.zoneId } : {}),
       });
-      toast({ title: "Profile updated", variant: "success" });
+      toast({ title: t("account.profileUpdated"), variant: "success" });
     } catch (error) {
       if (error instanceof ApiRequestError && error.code === "EMAIL_TAKEN") {
         setProfileError("email", { message: error.message });
         return;
       }
       toast({
-        title: "Couldn't update profile",
+        title: t("account.profileUpdateFailed"),
         description: error instanceof ApiRequestError ? error.message : undefined,
         variant: "error",
       });
@@ -155,14 +164,14 @@ export function AccountPage() {
         newPassword: values.newPassword,
       });
       resetPasswordForm();
-      toast({ title: "Password updated", variant: "success" });
+      toast({ title: t("account.passwordUpdated"), variant: "success" });
     } catch (error) {
       if (error instanceof ApiRequestError && error.code === "WRONG_PASSWORD") {
         setPasswordError("currentPassword", { message: error.message });
         return;
       }
       toast({
-        title: "Couldn't update password",
+        title: t("account.passwordUpdateFailed"),
         description: error instanceof ApiRequestError ? error.message : undefined,
         variant: "error",
       });
@@ -172,13 +181,15 @@ export function AccountPage() {
   return (
     <div className="mx-auto w-full max-w-2xl space-y-8">
       <div>
-        <h1 className="font-display text-display-sm font-semibold text-ink">Account</h1>
-        <p className="text-ink-muted mt-1 text-sm">Manage your profile and password.</p>
+        <h1 className="font-display text-display-sm font-semibold text-ink">
+          {t("account.title")}
+        </h1>
+        <p className="text-ink-muted mt-1 text-sm">{t("account.subtitle")}</p>
         <div className="text-ink-faint mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
           {user.createdAt && (
             <span className="flex items-center gap-1.5">
               <CalendarClock className="size-3.5" aria-hidden="true" />
-              Member since {absoluteDateTime(user.createdAt)}
+              {t("account.memberSince", { when: absoluteDateTime(user.createdAt) })}
             </span>
           )}
           <span
@@ -194,7 +205,7 @@ export function AccountPage() {
               )}
               aria-hidden="true"
             />
-            {user.active ? "Active" : "Deactivated"}
+            {user.active ? t("account.active") : t("account.deactivated")}
           </span>
         </div>
       </div>
@@ -202,7 +213,9 @@ export function AccountPage() {
       <section className="rounded-lg border border-line bg-surface p-6">
         <div className="mb-4 flex items-center gap-2">
           <UserCog className="text-brand size-5" aria-hidden="true" />
-          <h2 className="font-display text-lg font-semibold text-ink">Profile</h2>
+          <h2 className="font-display text-lg font-semibold text-ink">
+            {t("account.profile")}
+          </h2>
         </div>
         <form
           className="space-y-4"
@@ -211,7 +224,7 @@ export function AccountPage() {
         >
           <div>
             <Label htmlFor="name" required>
-              Full name
+              {t("fields.fullName")}
             </Label>
             <Input
               id="name"
@@ -221,17 +234,17 @@ export function AccountPage() {
             />
           </div>
           <div>
-            <Label htmlFor="displayName">Display name</Label>
+            <Label htmlFor="displayName">{t("fields.displayName")}</Label>
             <Input
               id="displayName"
-              hint="Shown publicly on the feed and leaderboard. Leave blank to use a masked placeholder instead."
+              hint={t("account.displayNameHint")}
               error={profileErrors.displayName?.message}
               {...registerProfile("displayName")}
             />
           </div>
           <div>
             <Label htmlFor="email" required>
-              Email
+              {t("fields.email")}
             </Label>
             <Input
               id="email"
@@ -248,11 +261,11 @@ export function AccountPage() {
             ) : (
               <div>
                 <Label htmlFor="zoneId" required>
-                  Home zone
+                  {t("account.homeZone")}
                 </Label>
                 <p className="text-ink-muted mb-2 flex items-center gap-1.5 text-sm">
                   <MapPin className="size-4" aria-hidden="true" />
-                  Current zone: {currentZoneName ?? "—"}
+                  {t("account.currentZone", { zone: currentZoneName ?? "—" })}
                 </p>
                 <Controller
                   control={profileControl}
@@ -275,19 +288,19 @@ export function AccountPage() {
 
           {user.role === "OFFICER" && (
             <div>
-              <Label>Assigned zone</Label>
+              <Label>{t("account.assignedZone")}</Label>
               <p className="text-ink-muted flex items-center gap-1.5 text-sm">
                 <MapPin className="size-4" aria-hidden="true" />
                 {currentZoneName ?? "—"}
               </p>
               <p className="text-ink-faint mt-1 text-xs">
-                Your zone is a work assignment — ask an admin to reassign it.
+                {t("account.assignedZoneHint")}
               </p>
             </div>
           )}
 
           <Button type="submit" loading={profileSubmitting}>
-            Save changes
+            {t("common.saveChanges")}
           </Button>
         </form>
       </section>
@@ -295,7 +308,9 @@ export function AccountPage() {
       <section className="rounded-lg border border-line bg-surface p-6">
         <div className="mb-4 flex items-center gap-2">
           <KeyRound className="text-brand size-5" aria-hidden="true" />
-          <h2 className="font-display text-lg font-semibold text-ink">Change password</h2>
+          <h2 className="font-display text-lg font-semibold text-ink">
+            {t("account.changePassword")}
+          </h2>
         </div>
         <form
           className="space-y-4"
@@ -304,7 +319,7 @@ export function AccountPage() {
         >
           <div>
             <Label htmlFor="currentPassword" required>
-              Current password
+              {t("fields.currentPassword")}
             </Label>
             <Input
               id="currentPassword"
@@ -316,20 +331,24 @@ export function AccountPage() {
           </div>
           <div>
             <Label htmlFor="newPassword" required>
-              New password
+              {t("fields.newPassword")}
             </Label>
             <Input
               id="newPassword"
               type={showNewPassword ? "text" : "password"}
               autoComplete="new-password"
-              hint={!passwordErrors.newPassword ? "At least 8 characters." : undefined}
+              hint={
+                !passwordErrors.newPassword ? t("register.passwordHint") : undefined
+              }
               error={passwordErrors.newPassword?.message}
               rightIcon={
                 <button
                   type="button"
                   tabIndex={-1}
                   onClick={() => setShowNewPassword((v) => !v)}
-                  aria-label={showNewPassword ? "Hide password" : "Show password"}
+                  aria-label={
+                    showNewPassword ? t("fields.hidePassword") : t("fields.showPassword")
+                  }
                   className="text-ink-faint hover:text-ink pointer-events-auto"
                 >
                   {showNewPassword ? (
@@ -345,14 +364,14 @@ export function AccountPage() {
             {newPasswordCapsLock && (
               <p className="text-status-needs_more_evidence mt-1.5 flex items-center gap-1 text-xs">
                 <ShieldAlert className="size-3.5" aria-hidden="true" />
-                Caps Lock is on
+                {t("login.capsLock")}
               </p>
             )}
             <PasswordStrengthMeter password={newPasswordValue} />
           </div>
           <div>
             <Label htmlFor="confirmNewPassword" required>
-              Confirm new password
+              {t("fields.confirmNewPassword")}
             </Label>
             <Input
               id="confirmNewPassword"
@@ -363,7 +382,7 @@ export function AccountPage() {
             />
           </div>
           <Button type="submit" variant="secondary" loading={passwordSubmitting}>
-            Update password
+            {t("account.updatePassword")}
           </Button>
         </form>
       </section>
@@ -373,11 +392,19 @@ export function AccountPage() {
 
 interface PasswordStrength {
   score: 0 | 1 | 2 | 3 | 4;
-  label: string;
+  labelKey: TranslationKey | null;
 }
 
+const STRENGTH_LABEL_KEYS: TranslationKey[] = [
+  "passwordStrength.veryWeak",
+  "passwordStrength.weak",
+  "passwordStrength.fair",
+  "passwordStrength.good",
+  "passwordStrength.strong",
+];
+
 function scorePassword(password: string): PasswordStrength {
-  if (!password) return { score: 0, label: "" };
+  if (!password) return { score: 0, labelKey: null };
   let score = 0;
   if (password.length >= 8) score++;
   if (password.length >= 12) score++;
@@ -385,8 +412,7 @@ function scorePassword(password: string): PasswordStrength {
   if (/\d/.test(password)) score++;
   if (/[^A-Za-z0-9]/.test(password)) score++;
   const clamped = Math.min(4, score) as 0 | 1 | 2 | 3 | 4;
-  const labels = ["Very weak", "Weak", "Fair", "Good", "Strong"];
-  return { score: clamped, label: labels[clamped] };
+  return { score: clamped, labelKey: STRENGTH_LABEL_KEYS[clamped] };
 }
 
 const STRENGTH_BAR_CLASSES = [
@@ -399,8 +425,9 @@ const STRENGTH_BAR_CLASSES = [
 
 /** Tiny local strength meter — duplicated across Account/Register/Login rather than shared, since those pages live in different owned directories. */
 function PasswordStrengthMeter({ password }: { password: string }) {
+  const { t } = useTranslation();
   if (!password) return null;
-  const { score, label } = scorePassword(password);
+  const { score, labelKey } = scorePassword(password);
   return (
     <div className="mt-1.5" aria-live="polite">
       <div className="flex gap-1">
@@ -415,7 +442,7 @@ function PasswordStrengthMeter({ password }: { password: string }) {
           />
         ))}
       </div>
-      <p className="text-ink-faint mt-1 text-xs">{label}</p>
+      <p className="text-ink-faint mt-1 text-xs">{labelKey ? t(labelKey) : ""}</p>
     </div>
   );
 }

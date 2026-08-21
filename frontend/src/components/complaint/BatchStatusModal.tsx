@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { CheckCircle2, XCircle } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
@@ -8,14 +9,19 @@ import { Textarea } from "@/components/ui/Textarea";
 import { StatusPill } from "@/components/ui/pills";
 import { useBatchUpdateStatus } from "@/hooks/useBatchUpdateStatus";
 import { ApiRequestError } from "@/services/http";
-import type { BatchStatusUpdateResult, ComplaintStatus, OfficerTargetStatus } from "@/types/api";
+import type { TranslationKey } from "@/i18n";
+import type {
+  BatchStatusUpdateResult,
+  ComplaintStatus,
+  OfficerTargetStatus,
+} from "@/types/api";
 
-const STATUS_OPTIONS: { value: OfficerTargetStatus; label: string }[] = [
-  { value: "IN_PROGRESS", label: "In Progress" },
-  { value: "UNDER_RESOLUTION", label: "Under Resolution" },
-  { value: "RESOLVED", label: "Resolved" },
-  { value: "NEEDS_MORE_EVIDENCE", label: "Needs More Evidence (recall)" },
-  { value: "UNRESOLVABLE", label: "Unresolvable" },
+const STATUS_OPTIONS: { value: OfficerTargetStatus; labelKey: TranslationKey }[] = [
+  { value: "IN_PROGRESS", labelKey: "status.IN_PROGRESS" },
+  { value: "UNDER_RESOLUTION", labelKey: "status.UNDER_RESOLUTION" },
+  { value: "RESOLVED", labelKey: "status.RESOLVED" },
+  { value: "NEEDS_MORE_EVIDENCE", labelKey: "batch.needsMoreEvidenceRecall" },
+  { value: "UNRESOLVABLE", labelKey: "status.UNRESOLVABLE" },
 ];
 
 const REASON_REQUIRED = new Set<OfficerTargetStatus>([
@@ -55,6 +61,7 @@ export function BatchStatusModal({
   target,
   statuses,
 }: BatchStatusModalProps) {
+  const { t } = useTranslation();
   const batch = useBatchUpdateStatus();
   const [status, setStatus] = useState<OfficerTargetStatus | "">("");
   const [reason, setReason] = useState("");
@@ -86,11 +93,11 @@ export function BatchStatusModal({
   async function handleApply() {
     setFormError(null);
     if (!status) {
-      setFormError("Choose a target status.");
+      setFormError(t("batch.chooseStatus"));
       return;
     }
     if (REASON_REQUIRED.has(status) && !reason.trim()) {
-      setFormError("A reason is required for this status.");
+      setFormError(t("batch.reasonRequired"));
       return;
     }
     try {
@@ -105,9 +112,7 @@ export function BatchStatusModal({
       setResult(response);
     } catch (error) {
       setFormError(
-        error instanceof ApiRequestError
-          ? error.message
-          : "Something went wrong. Please try again.",
+        error instanceof ApiRequestError ? error.message : t("errors.generic"),
       );
     }
   }
@@ -116,32 +121,30 @@ export function BatchStatusModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={result ? "Batch update results" : "Batch update status"}
+      title={result ? t("batch.resultsTitle") : t("batch.title")}
       description={
         result
           ? undefined
           : status
             ? eligibleCount === total
-              ? `Apply the same status change to ${eligibleCount} complaint${eligibleCount === 1 ? "" : "s"}.`
-              : `${eligibleCount} of ${total} complaint${total === 1 ? "" : "s"} can move to this status — the rest aren't in a status this change applies to and will be skipped.`
-            : `Choose a target status for up to ${total} complaint${total === 1 ? "" : "s"}. Only complaints eligible for that status will actually change.`
+              ? t("batch.descAll", { count: eligibleCount })
+              : t("batch.descPartial", { count: total, eligible: eligibleCount })
+            : t("batch.descChoose", { count: total })
       }
       footer={
         result ? (
-          <Button onClick={onClose}>Done</Button>
+          <Button onClick={onClose}>{t("common.done")}</Button>
         ) : (
           <>
             <Button variant="outline" onClick={onClose}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               loading={batch.isPending}
               disabled={!!status && eligibleCount === 0}
               onClick={handleApply}
             >
-              {status
-                ? `Apply to ${eligibleCount} complaint${eligibleCount === 1 ? "" : "s"}`
-                : "Apply"}
+              {status ? t("batch.applyTo", { count: eligibleCount }) : t("batch.apply")}
             </Button>
           </>
         )
@@ -150,8 +153,13 @@ export function BatchStatusModal({
       {result ? (
         <div className="space-y-3">
           <p className="text-ink-muted text-sm">
-            {result.summary.succeeded} of {result.summary.requested} succeeded
-            {result.summary.failed > 0 && ` · ${result.summary.failed} failed`}.
+            {t("batch.summary", {
+              succeeded: result.summary.succeeded,
+              requested: result.summary.requested,
+            })}
+            {result.summary.failed > 0 &&
+              t("batch.summaryFailed", { failed: result.summary.failed })}
+            .
           </p>
           <ul className="max-h-72 space-y-1.5 overflow-y-auto">
             {result.results.map((item) => (
@@ -190,37 +198,43 @@ export function BatchStatusModal({
           )}
           <div>
             <Label htmlFor="batch-status" required>
-              Target status
+              {t("batch.targetStatus")}
             </Label>
             <Combobox
               id="batch-status"
               value={status}
               onChange={(v) => setStatus(v as OfficerTargetStatus)}
               placeholderDisabled
-              options={[{ value: "", label: "Select a status…" }, ...STATUS_OPTIONS]}
+              options={[
+                { value: "", label: t("batch.selectStatus") },
+                ...STATUS_OPTIONS.map((option) => ({
+                  value: option.value,
+                  label: t(option.labelKey),
+                })),
+              ]}
             />
           </div>
           {status && REASON_REQUIRED.has(status) && (
             <div>
               <Label htmlFor="batch-reason" required>
-                Reason
+                {t("common.reason")}
               </Label>
               <Textarea
                 id="batch-reason"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder="Why is this batch moving to this status?"
+                placeholder={t("batch.reasonPlaceholder")}
               />
             </div>
           )}
           {status === "RESOLVED" && (
             <div>
-              <Label htmlFor="batch-note">Closing note (optional)</Label>
+              <Label htmlFor="batch-note">{t("batch.closingNote")}</Label>
               <Textarea
                 id="batch-note"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="Applied to every complaint in this batch."
+                placeholder={t("batch.notePlaceholder")}
               />
             </div>
           )}

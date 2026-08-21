@@ -76,7 +76,5 @@ def test_every_contract_path_is_routed(app):
     the expected number when the contract changes — a surprise here means either
     a new endpoint arrived or one was dropped.
     """
-    api_rules = {
-        rule.rule for rule in app.url_map.iter_rules() if rule.rule.startswith(API_PREFIX)
-    }
+    api_rules = {rule.rule for rule in app.url_map.iter_rules() if rule.rule.startswith(API_PREFIX)}
     assert len(api_rules) == 45, sorted(api_rules)

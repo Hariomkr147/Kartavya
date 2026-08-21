@@ -9,20 +9,32 @@ an officer reviews that row and is written exactly once.
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
-from app.domain.enums import EvidenceVerdict
-from app.models import ComplaintEvidence, User
+from flask import current_app
+from sqlalchemy import func, select
+
+from app.domain.enums import AiScreenStatus
+from app.domain.errors import ValidationError
+from app.extensions import db
+from app.infra.storage import read_photo_bytes, remove_photo, store_photo, validate_photo
+from app.models import ComplaintEvidence
 
 
 def next_sequence(*, complaint_id: int) -> int:
     """MAX(sequence) + 1 for this complaint.
 
-    TODO(phase 3). 1..N are the originals; N+1 onward are re-submissions and
+    1..N are the originals; N+1 onward are re-submissions and
     dispute photos. The unique (complaint_id, sequence) index is the backstop —
     compute this inside the same transaction as the insert.
     """
-    raise NotImplementedError
+    current = db.session.execute(
+        select(func.max(ComplaintEvidence.sequence)).where(
+            ComplaintEvidence.complaint_id == complaint_id
+        )
+    ).scalar_one()
+    return int(current or 0) + 1
 
 
 def attach_photos(
@@ -30,39 +42,70 @@ def attach_photos(
 ) -> list[ComplaintEvidence]:
     """Validate, persist to disk, and insert one evidence row per photo.
 
-    TODO(phase 3). Delegates the file work to `infra/storage.py` (magic-byte
+    Delegates the file work to `infra/storage.py` (magic-byte
     check, size limit, UUID filename outside the web root) and stores only the
     relative path. Never store the client's filename, and never the bytes.
 
-    Each new row starts at ai_screen_status=PENDING and gets its own
-    fire-and-forget screening job — a 3-photo complaint spawns 3 jobs.
+    Each new row starts at ai_screen_status=PENDING. Queuing the screening job
+    is the CALLER's job, and it happens after the commit — a 3-photo complaint
+    spawns 3 of them, and none of them may block the response.
     """
-    raise NotImplementedError
+    if not photos or any(photo is None for photo in photos):
+        raise ValidationError("A photo is required.")
+
+    upload_dir = current_app.config["UPLOAD_DIR"]
+    max_bytes = current_app.config["MAX_UPLOAD_BYTES"]
+    rows: list[ComplaintEvidence] = []
+    stored_paths: list[str] = []
+    sequence = next_sequence(complaint_id=complaint_id)
+    try:
+        for offset, photo in enumerate(photos):
+            mime_type = validate_photo(
+                stream=photo.stream,
+                declared_mime=photo.mimetype,
+                max_bytes=max_bytes,
+            )
+            file_path = store_photo(
+                complaint_id=complaint_id,
+                stream=photo.stream,
+                mime_type=mime_type,
+                upload_dir=upload_dir,
+            )
+            stored_paths.append(file_path)
+            row = ComplaintEvidence(
+                complaint_id=complaint_id,
+                sequence=sequence + offset,
+                file_path=file_path,
+                ai_screen_status=AiScreenStatus.PENDING,
+                created_at=now,
+            )
+            db.session.add(row)
+            rows.append(row)
+        db.session.flush()
+        return rows
+    except Exception:
+        for file_path in stored_paths:
+            remove_photo(file_path=file_path, upload_dir=upload_dir)
+        raise
 
 
-def record_verdict(
-    *,
-    evidence_id: int,
-    officer: User,
-    verdict: EvidenceVerdict,
-    reason: str | None,
-    now: datetime,
-) -> ComplaintEvidence:
-    """Stamp an officer's ruling onto the evidence row it judged.
+def photo_for_signed_request(*, evidence_id: int, upload_dir: Path) -> tuple[bytes, str] | None:
+    """Resolve an evidence row's image bytes + MIME type for `GET /evidence/{id}/photo`.
 
-    TODO(phase 4). `reason` is mandatory for NEEDS_MORE_EVIDENCE and REJECTED —
-    the domain check has already enforced that by the time this runs.
+    Returns None — never raises — for every "cannot serve this" case: no such
+    row, a path that escapes UPLOAD_DIR, a file missing from disk, or (on the
+    supabase backend) a 404 from Storage. The route turns all of them into the
+    same 403 it gives a bad signature, because a 404 here would let anyone
+    enumerate which evidence IDs exist.
 
-    A dispute-evidence row NEVER passes through here: its verdict stays
-    permanently null, because the admin judges that photo directly when ruling
-    on the dispute, and the ruling lives on status_history.
+    The signature has already been verified by the time this runs; this function
+    performs no authorization of its own and must not be called without it.
     """
-    raise NotImplementedError
-
-
-def latest_reviewable(*, complaint_id: int) -> ComplaintEvidence | None:
-    """The evidence row an officer's verdict should attach to.
-
-    TODO(phase 4). The highest-sequence row that is not dispute evidence.
-    """
-    raise NotImplementedError
+    evidence = db.session.get(ComplaintEvidence, evidence_id)
+    if evidence is None:
+        return None
+    data = read_photo_bytes(file_path=evidence.file_path, upload_dir=upload_dir)
+    if data is None:
+        return None
+    mime_type = "image/png" if evidence.file_path.lower().endswith(".png") else "image/jpeg"
+    return data, mime_type

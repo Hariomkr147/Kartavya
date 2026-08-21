@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Clock } from "lucide-react";
 import { StatusTimeline } from "./StatusTimeline";
 import { formatDuration } from "@/lib/duration";
@@ -12,6 +13,8 @@ export interface TimelineSidebarProps {
   viewerOfficerId?: string;
   /** When present (and the complaint has reached UNDER_REVIEW), renders an approximate SLA progress bar above the timeline — visual only, the complaint's own `slaLabel` pill elsewhere on the page remains the authoritative on-time/delayed/overdue read. */
   slaTargetHours?: number | null;
+  /** See StatusTimeline — admin-only officer name resolution. */
+  officerLabel?: (officerId: string) => string;
 }
 
 /**
@@ -28,7 +31,10 @@ export function TimelineSidebar({
   viewerRole,
   viewerOfficerId,
   slaTargetHours,
+  officerLabel,
 }: TimelineSidebarProps) {
+  const { t } = useTranslation();
+
   if (!statusHistory || statusHistory.length === 0) return null;
 
   const slaProgress = computeSlaProgress(statusHistory, slaTargetHours);
@@ -39,7 +45,9 @@ export function TimelineSidebar({
         <section className="rounded-lg border border-line bg-surface p-4">
           <div className="mb-2 flex items-center gap-2">
             <Clock className="text-ink-muted size-4" aria-hidden="true" />
-            <h2 className="font-display text-sm font-semibold text-ink">SLA progress</h2>
+            <h2 className="font-display text-sm font-semibold text-ink">
+              {t("timeline.slaProgress")}
+            </h2>
           </div>
           <div className="bg-surface-hover h-2 w-full overflow-hidden rounded-full">
             <div
@@ -52,20 +60,26 @@ export function TimelineSidebar({
           </div>
           <p className="text-ink-faint mt-2 text-xs">
             {slaProgress.isOverdue
-              ? `${formatDuration(Math.abs(slaProgress.msRemaining))} over the target`
-              : `${formatDuration(slaProgress.msRemaining)} remaining · ${Math.round(slaProgress.percentUsed)}% of target used`}
+              ? t("timeline.slaOverdue", {
+                  duration: formatDuration(Math.abs(slaProgress.msRemaining)),
+                })
+              : t("timeline.slaRemaining", {
+                  duration: formatDuration(slaProgress.msRemaining),
+                  percent: Math.round(slaProgress.percentUsed),
+                })}
           </p>
         </section>
       )}
       <section className="rounded-lg border border-line bg-surface p-4">
         <h2 className="font-display mb-4 text-base font-semibold text-ink">
-          Status history
+          {t("timeline.statusHistory")}
         </h2>
         <StatusTimeline
           entries={statusHistory}
           progressNotes={progressNotes}
           viewerRole={viewerRole}
           viewerOfficerId={viewerOfficerId}
+          officerLabel={officerLabel}
         />
       </section>
     </div>

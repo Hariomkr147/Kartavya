@@ -1,0 +1,120 @@
+# Render Blueprint for the Kartavya backend.
+# Deploy: Render dashboard -> New + -> Blueprint -> select this repo.
+# Free tier: no persistent disk, so SQLite resets on redeploy/restart -
+# acceptable for a demo/test deployment, not for data you need to keep.
+services:
+  - type: web
+    name: kartavya-backend
+    # `runtime` is the current field name; older Render docs call it `env`.
+    # If the blueprint validator rejects this, rename it to `env: python`.
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -e .
+    # workers=1 + gthread/threads (not multiple processes) because several
+    # gunicorn processes hitting one SQLite file produce SQLITE_BUSY under
+    # write contention - see app/__init__.py and app/jobs/scheduler.py.
+    #
+    # `seed` WITHOUT --demo: the deployment gets the reference data it cannot
+    # start without (12 categories, 6 badges, the catch-all zone, the settings
+    # row, one admin) and nothing else. --demo would add three fictional
+    # Bengaluru wards, which is wrong here for two reasons: real testers would
+    # be filing real complaints against made-up zones, and zones have no DELETE
+    # in the contract - only rename/deactivate - so a seeded zone can never be
+    # fully removed once it exists. Admins create the real zones via
+    # POST /admin/zones instead. Idempotent either way.
+    startCommand: >-
+      alembic upgrade head &&
+      flask --app app seed &&
+      gunicorn --workers 1 --worker-class gthread --threads 8 --bind 0.0.0.0:$PORT "app:create_app()"
+    healthCheckPath: /health
+    envVars:
+      - key: KARTAVYA_ENV
+        value: production
+      - key: PYTHON_VERSION
+        value: 3.12.9
+      # ⚠ SECRET, and the thing that makes data survive a restart.
+      #
+      # Unset, the app falls back to SQLite on the container's disk — which is
+      # ephemeral on the free plan, so every deploy and every restart wipes the
+      # database and re-seeds it. Point this at a hosted Postgres (Supabase's
+      # and Neon's free tiers both need no card) and complaints, users and
+      # history outlive the container.
+      #
+      # Paste the provider's POOLED connection string verbatim: app/settings.py
+      # rewrites `postgres://` / `postgresql://` to name the psycopg driver, so
+      # no hand-editing. Use the pooled endpoint, not the direct one — a free
+      # instance with 8 gunicorn threads opens more connections than the direct
+      # endpoint is meant to hold. For Supabase that's the "Transaction" string
+      # on port 6543; app/settings.py also disables server-side prepared
+      # statements for every Postgres connection, which that pooler requires.
+      #
+      # ⚠ Photos are separate from this. Unless STORAGE_PROVIDER below is set
+      # to `supabase`, uploaded photos stay on the container's ephemeral disk,
+      # so after a restart surviving complaints have evidence images that
+      # answer 403 and render as the broken-image placeholder.
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PHOTO_SIGNING_KEY
+        generateValue: true
+      # --- Photo storage: Supabase Storage, so photos survive a restart too ---
+      # local | supabase — see backend/.env.example for the full explanation.
+      # Leave at `local` (or delete these four keys) to keep today's behaviour
+      # of photos living on the ephemeral disk.
+      - key: STORAGE_PROVIDER
+        value: supabase
+      - key: SUPABASE_URL
+        sync: false
+      # ⚠ SECRET — bypasses the bucket's Row Level Security. Set in the
+      # dashboard's Environment tab, never in this file.
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # Must already exist in the Supabase project, and must be PRIVATE — this
+      # app's own signed URLs are what gate access, not a Supabase policy.
+      - key: SUPABASE_STORAGE_BUCKET
+        value: evidence-photos
+      # Without this, app/seed.py falls back to the hardcoded "changeme123",
+      # which is readable by anyone with repo access. Render generates a random
+      # value - read it from the service's Environment tab to log in as admin.
+      - key: KARTAVYA_ADMIN_PASSWORD
+        generateValue: true
+      - key: KARTAVYA_ADMIN_EMAIL
+        value: admin@kartavya.gov
+      # --- AI: OpenRouter, via the OpenAI-compatible `remote` provider --------
+      # `stub` returns hardcoded text (identical for every zone, every photo).
+      # `local` needs Ollama on localhost, which does not exist on Render.
+      # `remote` speaks OpenAI chat-completions, which is what OpenRouter serves.
+      - key: AI_PROVIDER
+        value: remote
+      - key: AI_API_URL
+        value: https://openrouter.ai/api/v1/chat/completions
+      # Vision-capable (input modalities: image, text, video), which the photo
+      # pre-screening path requires - a text-only model would degrade every
+      # screen to UNAVAILABLE.
+      - key: AI_MODEL_NAME
+        value: google/gemma-4-26b-a4b-it:free
+      # ⚠ SECRET - deliberately NOT stored in this file. `sync: false` makes
+      # Render prompt for the value in the dashboard on first sync; it is then
+      # held there, never in git. Set it under the service's Environment tab.
+      - key: AI_API_KEY
+        sync: false
+      # Measured 4-9s per call against the :free tier, so the 10s default would
+      # time out intermittently. Governs both the HTTP read and the guard's
+      # future, since build_provider passes this value to both.
+      - key: AI_TIMEOUT_SECONDS
+        value: "45"
+      # app/settings.py matches each origin EXACTLY: no wildcards, no subdomain
+      # matching, and the scheme and any port count. Vercel gives the project
+      # three stable production aliases and any of them can be the link someone
+      # actually opens, so all three are listed - a missing one fails as a
+      # browser-side CORS error while the API itself still answers 200.
+      #
+      # Vercel *preview* deployments get a unique URL per commit and are
+      # therefore NOT covered; add one explicitly to demo from a preview.
+      #
+      # localhost stays listed so `npm run dev` can hit the deployed API
+      # without another redeploy.
+      - key: CORS_ORIGINS
+        value: https://kartavya-ten.vercel.app,https://kartavya-thethinkmachines-projects.vercel.app,https://kartavya-thethinkmachine-thethinkmachines-projects.vercel.app,http://localhost:5173

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -9,8 +10,13 @@ export interface StepperProps {
 
 /** Bespoke step-progress header for multi-step ("one question at a time") flows. */
 export function Stepper({ steps, currentStep, className }: StepperProps) {
+  const { t } = useTranslation();
+
   return (
-    <ol className={cn("flex items-center gap-2", className)} aria-label="Progress">
+    <ol
+      className={cn("flex items-center gap-2", className)}
+      aria-label={t("stepper.progress")}
+    >
       {steps.map((label, index) => {
         const status =
           index < currentStep ? "done" : index === currentStep ? "current" : "upcoming";

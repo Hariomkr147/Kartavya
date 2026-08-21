@@ -60,6 +60,4 @@ def register_error_handlers(app: Flask) -> None:
         or a row's contents. None of that belongs in a response body.
         """
         logger.exception("Unhandled exception: %s", exc)
-        return error_response(
-            "INTERNAL_ERROR", "Something went wrong on our end.", 500
-        )
+        return error_response("INTERNAL_ERROR", "Something went wrong on our end.", 500)

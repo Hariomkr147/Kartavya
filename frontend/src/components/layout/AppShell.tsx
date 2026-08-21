@@ -1,4 +1,7 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import type { TranslationKey } from "@/i18n";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -28,20 +31,31 @@ import { AnimatedOutlet } from "@/components/layout/AnimatedOutlet";
 import { cn } from "@/lib/utils";
 
 export interface NavItem {
-  label: string;
+  /** Translation key, resolved at render — see `routes/navConfig.ts`. */
+  labelKey: TranslationKey;
+  /** Utility-based group shown as a heading in the expanded sidebar. */
+  sectionKey?: TranslationKey;
   to: string;
   icon: LucideIcon;
   end?: boolean;
 }
 
 export interface AppShellProps {
-  roleLabel: string;
+  /** Translation key for the role shown in the header (`roles.citizen`, ...). */
+  roleLabelKey: TranslationKey;
   accountPath: string;
   navItems: NavItem[];
 }
 
 const SIDEBAR_COLLAPSED_KEY = "kartavya-sidebar-collapsed";
-const SIDEBAR_WIDTH_EXPANDED = 240;
+// 280, not 240: the rail has to hold the longest nav label in every language,
+// and translated labels run longer than the English ones it was sized for
+// ("Zones & SLAs" is "மண்டலங்கள் மற்றும் SLAs" in Tamil, which wanted 239px of
+// the 215px a 240px rail left it). It overflowed rather than wrapped, and
+// since the nav sets `overflow-y-auto`, the x-axis computes to `auto` too —
+// so the rail grew its own horizontal scrollbar. 280 is the widest measured
+// requirement across all eleven languages, with room to spare.
+const SIDEBAR_WIDTH_EXPANDED = 280;
 const SIDEBAR_WIDTH_COLLAPSED = 72;
 const SIDEBAR_WIDTH_TRANSITION = { duration: 0.22, ease: [0.32, 0.72, 0, 1] as const };
 
@@ -58,7 +72,7 @@ function FadeLabel({ children, className }: { children: ReactNode; className?: s
       initial={{ opacity: 0 }}
       animate={{ opacity: 1, transition: LABEL_ENTER_TRANSITION }}
       exit={{ opacity: 0, transition: LABEL_EXIT_TRANSITION }}
-      className={cn("whitespace-nowrap", className)}
+      className={cn("truncate whitespace-nowrap", className)}
     >
       {children}
     </motion.span>
@@ -90,6 +104,7 @@ function buildBreadcrumb(
   pathname: string,
   navItems: NavItem[],
   params: Record<string, string | undefined>,
+  t: TFunction,
 ): BreadcrumbSegment[] {
   const section = [...navItems]
     .sort((a, b) => b.to.length - a.to.length)
@@ -100,15 +115,17 @@ function buildBreadcrumb(
   const paramId = Object.values(params).find((value): value is string => Boolean(value));
   if (paramId && pathname !== section.to) {
     return [
-      { label: section.label, to: section.to },
+      { label: t(section.labelKey), to: section.to },
       { label: paramId, mono: true },
     ];
   }
 
-  return [{ label: section.label }];
+  return [{ label: t(section.labelKey) }];
 }
 
-export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
+export function AppShell({ roleLabelKey, accountPath, navItems }: AppShellProps) {
+  const { t } = useTranslation();
+  const roleLabel = t(roleLabelKey);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -117,8 +134,8 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
   const [collapsed, setCollapsed] = useState(readStoredCollapsed);
 
   const breadcrumb = useMemo(
-    () => buildBreadcrumb(location.pathname, navItems, params),
-    [location.pathname, navItems, params],
+    () => buildBreadcrumb(location.pathname, navItems, params, t),
+    [location.pathname, navItems, params, t],
   );
 
   function toggleCollapsed() {
@@ -142,36 +159,64 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
 
   function renderNav(opts: { collapsedRail: boolean }) {
     return (
-      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-4">
-        {navItems.map((item) => (
-          <Tooltip
-            key={item.to}
-            content={item.label}
-            side="right"
-            className="w-full"
-            disabled={!opts.collapsedRail}
-          >
-            <NavLink
-              to={item.to}
-              end={item.end}
-              onClick={() => setMobileNavOpen(false)}
-              aria-label={opts.collapsedRail ? item.label : undefined}
-              className={({ isActive }) =>
-                cn(
-                  "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-brand/10 text-brand"
-                    : "text-ink-muted hover:bg-surface-hover hover:text-ink",
-                )
-              }
-            >
-              <item.icon className="size-5 shrink-0" aria-hidden="true" />
-              <AnimatePresence initial={false}>
-                {!opts.collapsedRail && <FadeLabel key="label">{item.label}</FadeLabel>}
-              </AnimatePresence>
-            </NavLink>
-          </Tooltip>
-        ))}
+      <nav className="flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-3 py-4">
+        {navItems.map((item, index) => {
+          const startsSection =
+            item.sectionKey != null &&
+            item.sectionKey !== navItems[index - 1]?.sectionKey;
+
+          return (
+            <Fragment key={item.to}>
+              {startsSection &&
+                (opts.collapsedRail ? (
+                  index > 0 && (
+                    <div className="mx-2 my-2 border-t border-line" aria-hidden="true" />
+                  )
+                ) : (
+                  <FadeLabel
+                    className={cn(
+                      "text-ink-faint px-3 pb-1 text-[0.65rem] font-semibold uppercase",
+                      index > 0 && "pt-4",
+                    )}
+                  >
+                    {t(item.sectionKey!)}
+                  </FadeLabel>
+                ))}
+              <Tooltip
+                content={t(item.labelKey)}
+                side="right"
+                className="w-full"
+                disabled={!opts.collapsedRail}
+              >
+                <NavLink
+                  to={item.to}
+                  end={item.end}
+                  onClick={() => setMobileNavOpen(false)}
+                  aria-label={opts.collapsedRail ? t(item.labelKey) : undefined}
+                  className={({ isActive }) =>
+                    cn(
+                      "flex w-full items-center gap-3 rounded-md py-2 text-sm font-medium transition-colors",
+                      // Collapsed: centre the icon on the rail's axis instead of
+                      // padding it in from the left, so the brand mark, every nav
+                      // icon, and the collapse toggle all sit on one vertical line.
+                      opts.collapsedRail ? "justify-center px-0" : "px-3",
+                      isActive
+                        ? "bg-brand/10 text-brand"
+                        : "text-ink-muted hover:bg-surface-hover hover:text-ink",
+                    )
+                  }
+                >
+                  <item.icon className="size-5 shrink-0" aria-hidden="true" />
+                  <AnimatePresence initial={false}>
+                    {!opts.collapsedRail && (
+                      <FadeLabel key="label">{t(item.labelKey)}</FadeLabel>
+                    )}
+                  </AnimatePresence>
+                </NavLink>
+              </Tooltip>
+            </Fragment>
+          );
+        })}
       </nav>
     );
   }
@@ -189,8 +234,11 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
           <button
             type="button"
             onClick={toggleCollapsed}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="text-ink-faint hover:bg-surface-hover hover:text-ink flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors"
+            aria-label={collapsed ? t("shell.expandSidebar") : t("shell.collapseSidebar")}
+            className={cn(
+              "text-ink-faint hover:bg-surface-hover hover:text-ink flex w-full items-center gap-3 rounded-md py-2 text-sm font-medium transition-colors",
+              collapsed ? "justify-center px-0" : "px-3",
+            )}
           >
             {collapsed ? (
               <PanelLeftOpen className="size-5 shrink-0" aria-hidden="true" />
@@ -198,7 +246,7 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
               <PanelLeftClose className="size-5 shrink-0" aria-hidden="true" />
             )}
             <AnimatePresence initial={false}>
-              {!collapsed && <FadeLabel key="label">Collapse</FadeLabel>}
+              {!collapsed && <FadeLabel key="label">{t("shell.collapse")}</FadeLabel>}
             </AnimatePresence>
           </button>
         </div>
@@ -211,13 +259,13 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
             onClick={() => setMobileNavOpen(false)}
             aria-hidden="true"
           />
-          <aside className="animate-in slide-in-from-left relative flex h-full w-64 flex-col bg-surface duration-200">
+          <aside className="animate-in slide-in-from-left relative flex h-full w-72 flex-col bg-surface duration-200">
             <div className="flex items-center justify-between px-4 pt-4">
               <Brand bordered={false} />
               <button
                 type="button"
                 onClick={() => setMobileNavOpen(false)}
-                aria-label="Close navigation"
+                aria-label={t("shell.closeNavigation")}
                 className="text-ink-muted hover:text-ink -m-1 rounded-md p-1"
               >
                 <X className="size-5" aria-hidden="true" />
@@ -234,7 +282,7 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
             <button
               type="button"
               onClick={() => setMobileNavOpen(true)}
-              aria-label="Open navigation"
+              aria-label={t("shell.openNavigation")}
               className="text-ink-muted hover:bg-surface-hover -ml-1 inline-flex size-9 shrink-0 items-center justify-center rounded-md md:hidden"
             >
               <Menu className="size-5" aria-hidden="true" />
@@ -249,7 +297,7 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
                 <span className="text-ink-faint hidden sm:inline" aria-hidden="true">
                   /
                 </span>
-                <nav aria-label="Breadcrumb" className="min-w-0">
+                <nav aria-label={t("shell.breadcrumb")} className="min-w-0">
                   <ol className="flex min-w-0 items-center gap-1.5 text-sm">
                     {breadcrumb.map((segment, index) => (
                       <li key={index} className="flex min-w-0 items-center gap-1.5">
@@ -302,7 +350,7 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
                 <button
                   type="button"
                   className="flex items-center gap-2 rounded-md py-1 pr-1 pl-2 hover:bg-surface-hover"
-                  aria-label="Account menu"
+                  aria-label={t("shell.accountMenu")}
                 >
                   <span className="hidden text-sm font-medium text-ink sm:inline">
                     {label}
@@ -318,10 +366,10 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
                   <p className="text-ink-faint text-xs">{roleLabel}</p>
                 </div>
                 <DropdownItem onSelect={() => navigate(accountPath)}>
-                  <UserIcon className="size-4" /> Account
+                  <UserIcon className="size-4" /> {t("shell.account")}
                 </DropdownItem>
                 <DropdownItem destructive onSelect={handleLogout}>
-                  <LogOut className="size-4" /> Log out
+                  <LogOut className="size-4" /> {t("shell.logOut")}
                 </DropdownItem>
               </DropdownMenu>
             </Dropdown>
@@ -330,8 +378,21 @@ export function AppShell({ roleLabel, accountPath, navItems }: AppShellProps) {
 
         <OfflineBanner />
 
-        <main className="flex flex-1 flex-col overflow-y-auto p-4 md:p-6">
-          <AnimatedOutlet />
+        {/*
+          The padding lives on an inner wrapper, not on the scroll container.
+          A flex column that scrolls its own overflow does not include its
+          `padding-bottom` in the scrollable extent, so the last element sat
+          flush against the bottom edge of the window once you scrolled all the
+          way down — the padding was there, but only above the fold. As part of
+          the content it scrolls like everything else.
+
+          `min-h-full` keeps a short page filling the viewport, which is what
+          the old `flex-1` on <main> was doing.
+        */}
+        <main className="flex-1 overflow-y-auto">
+          <div className="flex min-h-full flex-col p-4 md:p-6">
+            <AnimatedOutlet />
+          </div>
         </main>
       </div>
     </div>
@@ -350,14 +411,18 @@ function Brand({
   return (
     <div
       className={cn(
-        "flex h-16 shrink-0 items-center gap-2 px-4",
+        "flex h-16 shrink-0 items-center gap-2",
+        // The collapsed rail is 72px and the nav below pads 12px + 12px, so a
+        // flat px-4 here left the shield 8px to the left of every nav icon.
+        // Centring both puts them on the same axis at any rail width.
+        iconOnly ? "justify-center px-0" : "px-4",
         bordered && "border-b border-line",
       )}
     >
       <ShieldCheck className="text-brand size-6 shrink-0" aria-hidden="true" />
       <AnimatePresence initial={false}>
         {!iconOnly && (
-          <FadeLabel key="label" className="font-display text-lg font-semibold text-ink">
+          <FadeLabel key="label" className="font-brand text-lg font-semibold text-ink">
             Kartavya
           </FadeLabel>
         )}

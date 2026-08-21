@@ -1,22 +1,31 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Link, useLocation, useNavigate, type Location } from "react-router-dom";
-import { Eye, EyeOff, Mail, ShieldAlert, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, Mail, ShieldAlert, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { useAuth } from "@/contexts/AuthContext";
 import { ApiRequestError } from "@/services/http";
 import { roleHomePath } from "@/routes/roleHome";
+import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
 
-const loginSchema = z.object({
-  email: z.string().min(1, "Email is required").email("Enter a valid email address"),
-  password: z.string().min(1, "Password is required"),
-});
+// The schema is built per render rather than at module scope so its
+// validation messages follow the active language.
+const buildLoginSchema = (t: TFunction) =>
+  z.object({
+    email: z
+      .string()
+      .min(1, t("validation.emailRequired"))
+      .email(t("validation.emailInvalid")),
+    password: z.string().min(1, t("validation.passwordRequired")),
+  });
 
-type LoginFormValues = z.infer<typeof loginSchema>;
+type LoginFormValues = z.infer<ReturnType<typeof buildLoginSchema>>;
 
 const REMEMBERED_EMAIL_KEY = "kartavya-remembered-email";
 
@@ -29,6 +38,7 @@ function readRememberedEmail(): string {
 }
 
 export function LoginPage() {
+  const { t } = useTranslation();
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -41,7 +51,7 @@ export function LoginPage() {
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<LoginFormValues>({
-    resolver: zodResolver(loginSchema),
+    resolver: zodResolver(useMemo(() => buildLoginSchema(t), [t])),
     defaultValues: { email: readRememberedEmail() },
   });
 
@@ -65,23 +75,33 @@ export function LoginPage() {
       navigate(destination, { replace: true });
     } catch (error) {
       if (error instanceof ApiRequestError) setFormError(error.message);
-      else setFormError("Something went wrong. Please try again.");
+      else setFormError(t("errors.generic"));
     }
   }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-canvas px-4 py-12">
       <div className="w-full max-w-sm">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <Link
+            to="/"
+            className="text-ink-muted inline-flex items-center gap-1.5 rounded-md px-2 py-2 text-sm transition-colors hover:text-ink"
+          >
+            <ArrowLeft className="size-4 shrink-0" aria-hidden="true" />
+            {t("common.back")}
+          </Link>
+          <LanguageSwitcher />
+        </div>
         <Link to="/" className="mb-8 flex items-center justify-center gap-2">
           <ShieldCheck className="text-brand size-7" aria-hidden="true" />
-          <span className="font-display text-xl font-semibold text-ink">Kartavya</span>
+          <span className="font-brand text-xl font-semibold text-ink">Kartavya</span>
         </Link>
 
         <div className="rounded-lg border border-line bg-surface p-6 shadow-xs">
-          <h1 className="font-display text-2xl font-semibold text-ink">Sign in</h1>
-          <p className="text-ink-muted mt-1 text-sm">
-            Track your complaints, or pick up where you left off.
-          </p>
+          <h1 className="font-display text-2xl font-semibold text-ink">
+            {t("login.title")}
+          </h1>
+          <p className="text-ink-muted mt-1 text-sm">{t("login.subtitle")}</p>
 
           <form className="mt-6 space-y-4" onSubmit={handleSubmit(onSubmit)} noValidate>
             {formError && (
@@ -94,7 +114,7 @@ export function LoginPage() {
             )}
             <div>
               <Label htmlFor="email" required>
-                Email
+                {t("fields.email")}
               </Label>
               <Input
                 id="email"
@@ -107,7 +127,7 @@ export function LoginPage() {
             </div>
             <div>
               <Label htmlFor="password" required>
-                Password
+                {t("fields.password")}
               </Label>
               <Input
                 id="password"
@@ -119,7 +139,9 @@ export function LoginPage() {
                     type="button"
                     tabIndex={-1}
                     onClick={() => setShowPassword((v) => !v)}
-                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    aria-label={
+                      showPassword ? t("fields.hidePassword") : t("fields.showPassword")
+                    }
                     className="text-ink-faint hover:text-ink"
                   >
                     {showPassword ? (
@@ -135,26 +157,26 @@ export function LoginPage() {
               {capsLockOn && (
                 <p className="text-status-needs_more_evidence mt-1.5 flex items-center gap-1 text-xs">
                   <ShieldAlert className="size-3.5" aria-hidden="true" />
-                  Caps Lock is on
+                  {t("login.capsLock")}
                 </p>
               )}
             </div>
             <Button type="submit" className="w-full" loading={isSubmitting}>
-              Sign in
+              {t("login.title")}
             </Button>
           </form>
 
           {import.meta.env.VITE_USE_MOCKS === "true" && (
             <p className="text-ink-faint mt-4 text-center text-xs">
-              Demo mode — see the browser console for sample logins.
+              {t("login.demoMode")}
             </p>
           )}
         </div>
 
         <p className="text-ink-muted mt-6 text-center text-sm">
-          New to Kartavya?{" "}
+          {t("login.newHere")}{" "}
           <Link to="/register" className="text-brand font-medium hover:underline">
-            Create a citizen account
+            {t("login.createAccount")}
           </Link>
         </p>
       </div>

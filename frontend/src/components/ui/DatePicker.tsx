@@ -1,7 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
 import { CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  useAnchoredPlacement,
+  useDismissOnViewportChange,
+} from "@/hooks/useAnchoredPlacement";
 
 export interface DatePickerProps {
   value?: Date;
@@ -13,7 +18,17 @@ export interface DatePickerProps {
   id?: string;
 }
 
-const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
+/**
+ * Weekday initials come from `Intl` rather than a hardcoded English list,
+ * so the calendar header is in the reader's script. 2024-01-07 is a Sunday,
+ * matching the Sunday-first grid below.
+ */
+function weekdayLabels(locale: string): string[] {
+  const format = new Intl.DateTimeFormat(locale, { weekday: "narrow" });
+  return Array.from({ length: 7 }, (_, i) =>
+    format.format(new Date(Date.UTC(2024, 0, 7 + i))),
+  );
+}
 
 function isSameDay(a: Date, b: Date) {
   return (
@@ -27,8 +42,8 @@ function startOfDay(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-function formatDate(d: Date) {
-  return d.toLocaleDateString(undefined, {
+function formatDate(d: Date, locale: string) {
+  return d.toLocaleDateString(locale, {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -39,17 +54,23 @@ function formatDate(d: Date) {
 export function DatePicker({
   value,
   onChange,
-  placeholder = "Select date",
+  placeholder,
   minDate,
   maxDate,
   className,
   id,
 }: DatePickerProps) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? "en";
+  const weekdays = useMemo(() => weekdayLabels(locale), [locale]);
   const [open, setOpen] = useState(false);
   const [viewMonth, setViewMonth] = useState(() => value ?? new Date());
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ top: 0, left: 0 });
+  const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null);
+  const placement = useAnchoredPlacement(open, triggerRect, popoverRef, 0);
+  useDismissOnViewportChange(open, popoverRef, () => setOpen(false));
 
   useEffect(() => {
     if (!open) return;
@@ -116,6 +137,7 @@ export function DatePicker({
           setViewMonth(value ?? new Date());
           if (triggerRef.current) {
             const rect = triggerRef.current.getBoundingClientRect();
+            setTriggerRect(rect);
             setPosition({
               top: rect.bottom + window.scrollY + 4,
               left: rect.left + window.scrollX,
@@ -130,7 +152,9 @@ export function DatePicker({
         )}
       >
         <CalendarIcon className="size-4 shrink-0 text-ink-faint" aria-hidden="true" />
-        <span className="flex-1 truncate">{value ? formatDate(value) : placeholder}</span>
+        <span className="flex-1 truncate">
+          {value ? formatDate(value, locale) : (placeholder ?? t("datePicker.placeholder"))}
+        </span>
       </button>
 
       {open &&
@@ -138,28 +162,34 @@ export function DatePicker({
           <div
             ref={popoverRef}
             role="dialog"
-            aria-label="Choose date"
-            style={{ position: "absolute", top: position.top, left: position.left }}
-            className="animate-in fade-in zoom-in-95 z-50 w-64 rounded-md border border-line bg-surface p-3 shadow-md duration-100"
+            aria-label={t("datePicker.chooseDate")}
+            style={{
+              position: "absolute",
+              top: placement.measured ? placement.top : position.top,
+              left: position.left,
+              maxHeight: placement.measured ? placement.maxHeight : undefined,
+              visibility: placement.measured ? undefined : "hidden",
+            }}
+            className="animate-in fade-in zoom-in-95 z-50 w-64 overflow-y-auto overscroll-contain rounded-md border border-line bg-surface p-3 shadow-md duration-100"
           >
             <div className="mb-2 flex items-center justify-between">
               <button
                 type="button"
-                aria-label="Previous month"
+                aria-label={t("datePicker.previousMonth")}
                 onClick={() => setViewMonth(new Date(year, month - 1, 1))}
                 className="rounded-md p-1 text-ink-faint transition-colors hover:bg-surface-hover hover:text-ink"
               >
                 <ChevronLeft className="size-4" />
               </button>
               <span className="text-sm font-medium text-ink">
-                {viewMonth.toLocaleDateString(undefined, {
+                {viewMonth.toLocaleDateString(locale, {
                   month: "long",
                   year: "numeric",
                 })}
               </span>
               <button
                 type="button"
-                aria-label="Next month"
+                aria-label={t("datePicker.nextMonth")}
                 onClick={() => setViewMonth(new Date(year, month + 1, 1))}
                 className="rounded-md p-1 text-ink-faint transition-colors hover:bg-surface-hover hover:text-ink"
               >
@@ -168,7 +198,7 @@ export function DatePicker({
             </div>
 
             <div className="grid grid-cols-7 gap-1">
-              {WEEKDAY_LABELS.map((label, i) => (
+              {weekdays.map((label, i) => (
                 <div
                   key={i}
                   className="flex h-7 items-center justify-center text-xs font-medium text-ink-faint"

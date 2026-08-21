@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronRight, UserCog } from "lucide-react";
 import { Label } from "@/components/ui/Label";
 import { Combobox } from "@/components/ui/Combobox";
@@ -20,16 +21,12 @@ import { useZones } from "@/hooks/useZones";
 import { useOfficersPerformance } from "@/hooks/useOfficersPerformance";
 import { useSortableRows } from "@/hooks/useSortableRows";
 import type { OfficerPerformance, User } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 type Period = "this_month" | "last_month" | "all_time" | "custom";
 
 type OfficerSortKey =
-  | "name"
-  | "zone"
-  | "totalHandled"
-  | "onTimePct"
-  | "acceptPct"
-  | "avgResolutionHours";
+  "name" | "zone" | "totalHandled" | "onTimePct" | "acceptPct" | "avgResolutionHours";
 
 interface OfficerRow {
   officer: User;
@@ -44,6 +41,7 @@ function onTimePct(perf: OfficerPerformance | undefined): number | null {
 }
 
 export function AdminOfficersPage() {
+  const { t } = useTranslation();
   const [zoneFilter, setZoneFilter] = useState("");
   const [period, setPeriod] = useState<Period>("this_month");
   const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
@@ -51,7 +49,12 @@ export function AdminOfficersPage() {
   const [expandedOfficerId, setExpandedOfficerId] = useState<string | null>(null);
 
   const { data: zones } = useZones();
-  const { data: officers, isLoading: officersLoading } = useAdminUsers({
+  const {
+    data: officers,
+    isLoading: officersLoading,
+    isFetching: officersFetching,
+    refetch: refetchOfficers,
+  } = useAdminUsers({
     role: "OFFICER",
     zoneId: zoneFilter || undefined,
     pageSize: 100,
@@ -88,50 +91,58 @@ export function AdminOfficersPage() {
     zone: (r) => r.zoneName,
     totalHandled: (r) => r.perf?.totalHandled ?? null,
     onTimePct: (r) => onTimePct(r.perf),
-    acceptPct: (r) => (r.perf?.acceptRejectRatio != null ? r.perf.acceptRejectRatio * 100 : null),
+    acceptPct: (r) =>
+      r.perf?.acceptRejectRatio != null ? r.perf.acceptRejectRatio * 100 : null,
     avgResolutionHours: (r) => r.perf?.avgResolutionHours ?? null,
   });
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6">
       <div>
-        <h1 className="font-display text-display-sm font-semibold text-ink">Officers</h1>
-        <p className="text-ink-muted mt-1 text-sm">
-          Performance scorecards across the whole officer roster.
-        </p>
+        <div className="flex items-center gap-2">
+          <h1 className="font-display text-display-sm font-semibold text-ink">
+            {t("nav.officers")}
+          </h1>
+          <RefreshButton
+            onRefresh={refetchOfficers}
+            refreshing={officersFetching}
+            what="officers"
+          />
+        </div>
+        <p className="text-ink-muted mt-1 text-sm">{t("adminOfficers.subtitle")}</p>
       </div>
 
       <div className="flex flex-wrap gap-4 rounded-lg border border-line bg-surface p-4">
         <div className="min-w-[10rem] flex-1">
-          <Label htmlFor="officers-zone">Zone</Label>
+          <Label htmlFor="officers-zone">{t("filters.zone")}</Label>
           <Combobox
             id="officers-zone"
             value={zoneFilter}
             onChange={setZoneFilter}
             options={[
-              { value: "", label: "All zones" },
+              { value: "", label: t("filters.allZones") },
               ...(zones?.map((z) => ({ value: z.id, label: z.name })) ?? []),
             ]}
           />
         </div>
         <div className="min-w-[10rem] flex-1">
-          <Label htmlFor="officers-period">Period</Label>
+          <Label htmlFor="officers-period">{t("adminOfficers.period")}</Label>
           <Combobox
             id="officers-period"
             value={period}
             onChange={(v) => setPeriod(v as Period)}
             options={[
-              { value: "this_month", label: "This month" },
-              { value: "last_month", label: "Last month" },
-              { value: "all_time", label: "All time" },
-              { value: "custom", label: "Custom range…" },
+              { value: "this_month", label: t("period.thisMonth") },
+              { value: "last_month", label: t("period.lastMonth") },
+              { value: "all_time", label: t("period.allTime") },
+              { value: "custom", label: t("period.custom") },
             ]}
           />
         </div>
         {period === "custom" && (
           <>
             <div className="min-w-[9rem] flex-1">
-              <Label htmlFor="officers-from">From</Label>
+              <Label htmlFor="officers-from">{t("filters.from")}</Label>
               <DatePicker
                 id="officers-from"
                 value={dateFrom}
@@ -140,7 +151,7 @@ export function AdminOfficersPage() {
               />
             </div>
             <div className="min-w-[9rem] flex-1">
-              <Label htmlFor="officers-to">To</Label>
+              <Label htmlFor="officers-to">{t("filters.to")}</Label>
               <DatePicker
                 id="officers-to"
                 value={dateTo}
@@ -161,8 +172,8 @@ export function AdminOfficersPage() {
       ) : rows.length === 0 ? (
         <EmptyState
           icon={UserCog}
-          title="No officers match"
-          description="Try a different zone filter."
+          title={t("adminOfficers.noMatch")}
+          description={t("adminOfficers.noMatchBody")}
           className="rounded-lg border border-line bg-surface"
         />
       ) : (
@@ -175,42 +186,42 @@ export function AdminOfficersPage() {
                 direction={sort.direction}
                 onSort={() => toggleSort("name")}
               >
-                Officer
+                {t("roles.officer")}
               </SortableHeaderCell>
               <SortableHeaderCell
                 active={sort.key === "zone"}
                 direction={sort.direction}
                 onSort={() => toggleSort("zone")}
               >
-                Zone
+                {t("filters.zone")}
               </SortableHeaderCell>
               <SortableHeaderCell
                 active={sort.key === "totalHandled"}
                 direction={sort.direction}
                 onSort={() => toggleSort("totalHandled")}
               >
-                Handled
+                {t("adminOfficers.handled")}
               </SortableHeaderCell>
               <SortableHeaderCell
                 active={sort.key === "onTimePct"}
                 direction={sort.direction}
                 onSort={() => toggleSort("onTimePct")}
               >
-                On-time %
+                {t("adminOfficers.onTimePct")}
               </SortableHeaderCell>
               <SortableHeaderCell
                 active={sort.key === "acceptPct"}
                 direction={sort.direction}
                 onSort={() => toggleSort("acceptPct")}
               >
-                Accept rate
+                {t("adminOfficers.acceptRate")}
               </SortableHeaderCell>
               <SortableHeaderCell
                 active={sort.key === "avgResolutionHours"}
                 direction={sort.direction}
                 onSort={() => toggleSort("avgResolutionHours")}
               >
-                Avg. resolution
+                {t("adminDashboard.avgResolution")}
               </SortableHeaderCell>
             </TableRow>
           </TableHead>
@@ -228,9 +239,15 @@ export function AdminOfficersPage() {
                     <TableCell>
                       <button
                         type="button"
-                        onClick={() => setExpandedOfficerId(expanded ? null : row.officer.id)}
+                        onClick={() =>
+                          setExpandedOfficerId(expanded ? null : row.officer.id)
+                        }
                         aria-expanded={expanded}
-                        aria-label={expanded ? "Collapse scorecard" : "Expand scorecard"}
+                        aria-label={
+                          expanded
+                            ? t("adminOfficers.collapseScorecard")
+                            : t("adminOfficers.expandScorecard")
+                        }
                         className="text-ink-muted hover:text-ink flex size-6 items-center justify-center rounded"
                       >
                         {expanded ? (
@@ -246,7 +263,9 @@ export function AdminOfficersPage() {
                         {row.officer.email}
                       </span>
                     </TableCell>
-                    <TableCell className="text-ink-muted text-sm">{row.zoneName}</TableCell>
+                    <TableCell className="text-ink-muted text-sm">
+                      {row.zoneName}
+                    </TableCell>
                     <TableCell>
                       {perfLoading ? (
                         <Skeleton className="h-4 w-8" />
@@ -276,7 +295,9 @@ export function AdminOfficersPage() {
                       {perfLoading ? (
                         <Skeleton className="h-4 w-10" />
                       ) : row.perf?.avgResolutionHours != null ? (
-                        `${Math.round(row.perf.avgResolutionHours)}h`
+                        t("common.hoursShort", {
+                          hours: Math.round(row.perf.avgResolutionHours),
+                        })
                       ) : (
                         "—"
                       )}
@@ -300,35 +321,45 @@ export function AdminOfficersPage() {
 }
 
 function OfficerScorecard({ perf }: { perf: OfficerPerformance }) {
+  const { t } = useTranslation();
+
   return (
     <div className="grid gap-6 sm:grid-cols-2">
       <div>
-        <p className="text-ink-muted mb-3 text-sm font-medium">On-time delivery</p>
+        <p className="text-ink-muted mb-3 text-sm font-medium">
+          {t("adminOfficers.onTimeDelivery")}
+        </p>
         <StatusTriadChart
           segments={[
-            { label: "On time", value: perf.onTime ?? 0, tone: "good" },
-            { label: "Delayed", value: perf.delayed ?? 0, tone: "neutral" },
-            { label: "Overdue", value: perf.overdue ?? 0, tone: "bad" },
+            { label: t("sla.ON_TIME"), value: perf.onTime ?? 0, tone: "good" },
+            { label: t("sla.DELAYED"), value: perf.delayed ?? 0, tone: "neutral" },
+            { label: t("sla.OVERDUE"), value: perf.overdue ?? 0, tone: "bad" },
           ]}
         />
         <p className="text-ink-faint mt-3 text-xs">
-          {perf.unresolvableExcluded ?? 0} complaint
-          {(perf.unresolvableExcluded ?? 0) === 1 ? "" : "s"} marked Unresolvable are
-          excluded from the figures above.
+          {t("adminOfficers.unresolvableExcluded", {
+            count: perf.unresolvableExcluded ?? 0,
+          })}
         </p>
       </div>
       <div>
-        <p className="text-ink-muted mb-3 text-sm font-medium">Evidence review</p>
+        <p className="text-ink-muted mb-3 text-sm font-medium">
+          {t("adminOfficers.evidenceReview")}
+        </p>
         <StatusTriadChart
           segments={[
-            { label: "Valid", value: perf.evidenceBreakdown?.valid ?? 0, tone: "good" },
             {
-              label: "Needed more",
+              label: t("officerComplaint.valid"),
+              value: perf.evidenceBreakdown?.valid ?? 0,
+              tone: "good",
+            },
+            {
+              label: t("adminOfficers.neededMore"),
               value: perf.evidenceBreakdown?.needsMoreEvidence ?? 0,
               tone: "neutral",
             },
             {
-              label: "Rejected",
+              label: t("status.REJECTED"),
               value: perf.evidenceBreakdown?.rejected ?? 0,
               tone: "bad",
             },

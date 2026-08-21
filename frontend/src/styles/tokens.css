@@ -18,6 +18,14 @@
 
 @theme {
   --font-display: "Barlow Condensed", ui-sans-serif, system-ui, sans-serif;
+  /*
+   * The wordmark, deliberately separate from `--font-display`. The display
+   * and body faces are swapped per language in index.css so each script gets
+   * a font that can actually render it; "Kartavya" is Latin in every locale
+   * and is a brand asset, so it must not ride along with that swap and come
+   * out set in Noto Sans Malayalam.
+   */
+  --font-brand: "Barlow Condensed", ui-sans-serif, system-ui, sans-serif;
   --font-body: "Public Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
 

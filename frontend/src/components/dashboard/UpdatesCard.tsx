@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { motion } from "framer-motion";
 import { ArrowRight, Check, Sparkles } from "lucide-react";
 import { StatusPill } from "@/components/ui/pills";
@@ -20,6 +21,8 @@ export function UpdatesCard({
   updates: ComplaintUpdate[];
   onDismiss: () => void;
 }) {
+  const { t } = useTranslation();
+
   if (updates.length === 0) return null;
   const shown = updates.slice(0, MAX_SHOWN);
   const overflow = updates.length - shown.length;
@@ -30,15 +33,13 @@ export function UpdatesCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
       className="border-brand/30 from-brand/8 overflow-hidden rounded-lg border bg-gradient-to-br via-surface to-surface"
-      aria-label="Updates since your last visit"
+      aria-label={t("updatesCard.citizenLabel")}
     >
       <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5 pb-3">
         <div className="flex items-center gap-2">
           <Sparkles className="text-brand size-5" aria-hidden="true" />
           <h2 className="font-display text-base font-semibold text-ink">
-            {updates.length === 1
-              ? "1 update since you were last here"
-              : `${updates.length} updates since you were last here`}
+            {t("updatesCard.citizenTitle", { count: updates.length })}
           </h2>
         </div>
         <button
@@ -47,7 +48,7 @@ export function UpdatesCard({
           className="text-ink-muted hover:bg-surface-hover hover:text-ink inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
         >
           <Check className="size-3.5" aria-hidden="true" />
-          Mark all as seen
+          {t("updatesCard.markSeen")}
         </button>
       </div>
 
@@ -76,7 +77,7 @@ export function UpdatesCard({
 
       {overflow > 0 && (
         <p className="text-ink-faint border-t border-line px-5 py-2 text-xs">
-          and {overflow} more — see My Complaints for the full picture.
+          {t("updatesCard.overflowCitizen", { count: overflow })}
         </p>
       )}
     </motion.section>

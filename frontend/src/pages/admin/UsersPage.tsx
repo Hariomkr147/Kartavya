@@ -1,8 +1,16 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { MoreHorizontal, Plus, Search, ShieldAlert, Users as UsersIcon } from "lucide-react";
+import {
+  MoreHorizontal,
+  Plus,
+  Search,
+  ShieldAlert,
+  Users as UsersIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
@@ -10,7 +18,12 @@ import { Combobox } from "@/components/ui/Combobox";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Modal } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { Dropdown, DropdownTrigger, DropdownMenu, DropdownItem } from "@/components/ui/Dropdown";
+import {
+  Dropdown,
+  DropdownTrigger,
+  DropdownMenu,
+  DropdownItem,
+} from "@/components/ui/Dropdown";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
 import { useToast } from "@/components/ui/Toast";
@@ -31,13 +44,15 @@ import { useDeleteUser } from "@/hooks/useDeleteUser";
 import { useZones } from "@/hooks/useZones";
 import { useSortableRows } from "@/hooks/useSortableRows";
 import { ApiRequestError } from "@/services/http";
+import type { TranslationKey } from "@/i18n";
 import type { Role, User } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 type UserSortKey = "name" | "email" | "createdAt";
 
-function memberSince(createdAt?: string): string {
+function memberSince(createdAt: string | undefined, locale: string): string {
   if (!createdAt) return "—";
-  return new Date(createdAt).toLocaleDateString(undefined, {
+  return new Date(createdAt).toLocaleDateString(locale, {
     year: "numeric",
     month: "short",
   });
@@ -45,21 +60,26 @@ function memberSince(createdAt?: string): string {
 
 const PAGE_SIZE = 15;
 
-const createUserSchema = z
-  .object({
-    role: z.enum(["CITIZEN", "OFFICER"]),
-    name: z.string().min(1, "Full name is required"),
-    email: z.string().min(1, "Email is required").email("Enter a valid email address"),
-    password: z.string().min(8, "At least 8 characters"),
-    zoneId: z.string().optional(),
-  })
-  .refine((v) => v.role !== "OFFICER" || !!v.zoneId, {
-    message: "A zone is required for officers",
-    path: ["zoneId"],
-  });
-type CreateUserValues = z.infer<typeof createUserSchema>;
+const buildCreateUserSchema = (t: TFunction) =>
+  z
+    .object({
+      role: z.enum(["CITIZEN", "OFFICER"]),
+      name: z.string().min(1, t("validation.nameRequired")),
+      email: z
+        .string()
+        .min(1, t("validation.emailRequired"))
+        .email(t("validation.emailInvalid")),
+      password: z.string().min(8, t("validation.passwordMinShort")),
+      zoneId: z.string().optional(),
+    })
+    .refine((v) => v.role !== "OFFICER" || !!v.zoneId, {
+      message: t("validation.officerZoneRequired"),
+      path: ["zoneId"],
+    });
+type CreateUserValues = z.infer<ReturnType<typeof buildCreateUserSchema>>;
 
 export function AdminUsersPage() {
+  const { t, i18n } = useTranslation();
   const { toast } = useToast();
   const [roleFilter, setRoleFilter] = useState<Role | "">("");
   const [zoneFilter, setZoneFilter] = useState("");
@@ -73,7 +93,7 @@ export function AdminUsersPage() {
   const [search, setSearch] = useState("");
 
   const { data: zones } = useZones();
-  const { data, isLoading } = useAdminUsers({
+  const { data, isLoading, isFetching, refetch } = useAdminUsers({
     role: roleFilter || undefined,
     zoneId: zoneFilter || undefined,
     active: activeFilter === "" ? undefined : activeFilter === "true",
@@ -111,7 +131,7 @@ export function AdminUsersPage() {
     setError,
     formState: { errors, isSubmitting },
   } = useForm<CreateUserValues>({
-    resolver: zodResolver(createUserSchema),
+    resolver: zodResolver(useMemo(() => buildCreateUserSchema(t), [t])),
     defaultValues: { role: "CITIZEN" },
   });
   const watchedRole = useWatch({ control, name: "role" });
@@ -129,7 +149,7 @@ export function AdminUsersPage() {
         password: values.password,
         zoneId: values.zoneId || undefined,
       });
-      toast({ title: "Account created", variant: "success" });
+      toast({ title: t("adminUsers.created"), variant: "success" });
       setCreateOpen(false);
       reset({ role: "CITIZEN", name: "", email: "", password: "", zoneId: "" });
     } catch (error) {
@@ -138,7 +158,7 @@ export function AdminUsersPage() {
         return;
       }
       toast({
-        title: "Couldn't create account",
+        title: t("adminUsers.createFailed"),
         description: error instanceof ApiRequestError ? error.message : undefined,
         variant: "error",
       });
@@ -150,13 +170,13 @@ export function AdminUsersPage() {
     setDeleteError(null);
     try {
       await deleteUser.mutateAsync(deletingUser.id);
-      toast({ title: "Account deleted", variant: "success" });
+      toast({ title: t("adminUsers.deleted"), variant: "success" });
       setDeletingUser(null);
     } catch (error) {
       setDeleteError(
         error instanceof ApiRequestError
           ? error.message
-          : "Something went wrong. Please try again.",
+          : t("errors.generic"),
       );
     }
   }
@@ -165,10 +185,13 @@ export function AdminUsersPage() {
     <div className="w-full space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="font-display text-display-sm font-semibold text-ink">Users</h1>
-          <p className="text-ink-muted mt-1 text-sm">
-            Every citizen, officer, and admin account.
-          </p>
+          <div className="flex items-center gap-2">
+            <h1 className="font-display text-display-sm font-semibold text-ink">
+              {t("nav.users")}
+            </h1>
+            <RefreshButton onRefresh={refetch} refreshing={isFetching} what="users" />
+          </div>
+          <p className="text-ink-muted mt-1 text-sm">{t("adminUsers.subtitle")}</p>
         </div>
         <Button
           size="sm"
@@ -178,13 +201,13 @@ export function AdminUsersPage() {
           }}
         >
           <Plus className="size-4" aria-hidden="true" />
-          Create account
+          {t("adminUsers.createAccount")}
         </Button>
       </div>
 
       <div className="flex flex-wrap gap-4 rounded-lg border border-line bg-surface p-4">
         <div className="min-w-[9rem] flex-1">
-          <Label htmlFor="role-filter">Role</Label>
+          <Label htmlFor="role-filter">{t("adminUsers.role")}</Label>
           <Combobox
             id="role-filter"
             value={roleFilter}
@@ -193,15 +216,15 @@ export function AdminUsersPage() {
               setPage(1);
             }}
             options={[
-              { value: "", label: "All roles" },
-              { value: "CITIZEN", label: "Citizen" },
-              { value: "OFFICER", label: "Officer" },
-              { value: "ADMIN", label: "Admin" },
+              { value: "", label: t("adminUsers.allRoles") },
+              { value: "CITIZEN", label: t("roles.citizen") },
+              { value: "OFFICER", label: t("roles.officer") },
+              { value: "ADMIN", label: t("roles.admin") },
             ]}
           />
         </div>
         <div className="min-w-[9rem] flex-1">
-          <Label htmlFor="zone-filter">Zone</Label>
+          <Label htmlFor="zone-filter">{t("filters.zone")}</Label>
           <Combobox
             id="zone-filter"
             value={zoneFilter}
@@ -210,13 +233,13 @@ export function AdminUsersPage() {
               setPage(1);
             }}
             options={[
-              { value: "", label: "All zones" },
+              { value: "", label: t("filters.allZones") },
               ...(zones?.map((z) => ({ value: z.id, label: z.name })) ?? []),
             ]}
           />
         </div>
         <div className="min-w-[9rem] flex-1">
-          <Label htmlFor="active-filter">Status</Label>
+          <Label htmlFor="active-filter">{t("filters.status")}</Label>
           <Combobox
             id="active-filter"
             value={activeFilter}
@@ -225,17 +248,17 @@ export function AdminUsersPage() {
               setPage(1);
             }}
             options={[
-              { value: "", label: "All" },
-              { value: "true", label: "Active" },
-              { value: "false", label: "Deactivated" },
+              { value: "", label: t("adminUsers.all") },
+              { value: "true", label: t("account.active") },
+              { value: "false", label: t("account.deactivated") },
             ]}
           />
         </div>
         <div className="min-w-[12rem] flex-1">
-          <Label htmlFor="user-search">Search this page</Label>
+          <Label htmlFor="user-search">{t("adminUsers.searchPage")}</Label>
           <Input
             id="user-search"
-            placeholder="Name or email…"
+            placeholder={t("adminUsers.searchPlaceholder")}
             value={search}
             leftIcon={<Search className="size-4" aria-hidden="true" />}
             onChange={(e) => setSearch(e.target.value)}
@@ -252,8 +275,8 @@ export function AdminUsersPage() {
       ) : rows.length === 0 ? (
         <EmptyState
           icon={UsersIcon}
-          title="No accounts match"
-          description="Try a different filter or clearing the search box."
+          title={t("adminUsers.noMatch")}
+          description={t("adminUsers.noMatchBody")}
           className="rounded-lg border border-line bg-surface"
         />
       ) : (
@@ -266,27 +289,29 @@ export function AdminUsersPage() {
                   direction={sort.direction}
                   onSort={() => toggleSort("name")}
                 >
-                  Name
+                  {t("adminUsers.name")}
                 </SortableHeaderCell>
-                <TableHeaderCell>Display name</TableHeaderCell>
+                <TableHeaderCell>{t("fields.displayName")}</TableHeaderCell>
                 <SortableHeaderCell
                   active={sort.key === "email"}
                   direction={sort.direction}
                   onSort={() => toggleSort("email")}
                 >
-                  Email
+                  {t("fields.email")}
                 </SortableHeaderCell>
-                <TableHeaderCell>Role</TableHeaderCell>
-                <TableHeaderCell>Zone</TableHeaderCell>
+                <TableHeaderCell>{t("adminUsers.role")}</TableHeaderCell>
+                <TableHeaderCell>{t("filters.zone")}</TableHeaderCell>
                 <SortableHeaderCell
                   active={sort.key === "createdAt"}
                   direction={sort.direction}
                   onSort={() => toggleSort("createdAt")}
                 >
-                  Member since
+                  {t("adminUsers.memberSince")}
                 </SortableHeaderCell>
-                <TableHeaderCell>Status</TableHeaderCell>
-                <TableHeaderCell className="text-right">Actions</TableHeaderCell>
+                <TableHeaderCell>{t("filters.status")}</TableHeaderCell>
+                <TableHeaderCell className="text-right">
+                  {t("columns.actions")}
+                </TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -300,12 +325,14 @@ export function AdminUsersPage() {
                       {u.displayName || "—"}
                     </TableCell>
                     <TableCell className="text-ink-muted text-sm">{u.email}</TableCell>
-                    <TableCell className="text-ink-muted text-sm">{u.role}</TableCell>
+                    <TableCell className="text-ink-muted text-sm">
+                      {t(`roles.${u.role.toLowerCase()}` as TranslationKey)}
+                    </TableCell>
                     <TableCell className="text-ink-muted text-sm">
                       {zoneName(u.zoneId)}
                     </TableCell>
                     <TableCell className="text-ink-muted text-sm">
-                      {memberSince(u.createdAt)}
+                      {memberSince(u.createdAt, i18n.resolvedLanguage ?? "en")}
                     </TableCell>
                     <TableCell>
                       <span
@@ -315,7 +342,7 @@ export function AdminUsersPage() {
                             : "bg-status-closed-subtle text-status-closed rounded-full px-2.5 py-1 text-xs font-medium"
                         }
                       >
-                        {u.active ? "Active" : "Deactivated"}
+                        {u.active ? t("account.active") : t("account.deactivated")}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
@@ -325,12 +352,16 @@ export function AdminUsersPage() {
                           variant="outline"
                           onClick={() => setEditingUser(u)}
                         >
-                          Edit
+                          {t("common.edit")}
                         </Button>
                         {u.role !== "ADMIN" && (
                           <Dropdown align="end">
                             <DropdownTrigger>
-                              <Button size="sm" variant="ghost" aria-label="More actions">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                aria-label={t("common.moreActions")}
+                              >
                                 <MoreHorizontal className="size-4" aria-hidden="true" />
                               </Button>
                             </DropdownTrigger>
@@ -342,7 +373,7 @@ export function AdminUsersPage() {
                                   setDeleteError(null);
                                 }}
                               >
-                                Delete
+                                {t("common.delete")}
                               </DropdownItem>
                             </DropdownMenu>
                           </Dropdown>
@@ -368,18 +399,18 @@ export function AdminUsersPage() {
       <Modal
         open={createOpen}
         onClose={() => setCreateOpen(false)}
-        title="Create account"
-        description="Admins cannot be created here — only citizens and officers."
+        title={t("adminUsers.createAccount")}
+        description={t("adminUsers.createBody")}
         footer={
           <>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               loading={isSubmitting || createUser.isPending}
               onClick={handleSubmit(onCreateSubmit)}
             >
-              Create
+              {t("common.create")}
             </Button>
           </>
         }
@@ -387,7 +418,7 @@ export function AdminUsersPage() {
         <form className="space-y-4" noValidate>
           <div>
             <Label htmlFor="create-role" required>
-              Role
+              {t("adminUsers.role")}
             </Label>
             <Controller
               control={control}
@@ -399,8 +430,8 @@ export function AdminUsersPage() {
                   onChange={field.onChange}
                   onBlur={field.onBlur}
                   options={[
-                    { value: "CITIZEN", label: "Citizen" },
-                    { value: "OFFICER", label: "Officer" },
+                    { value: "CITIZEN", label: t("roles.citizen") },
+                    { value: "OFFICER", label: t("roles.officer") },
                   ]}
                 />
               )}
@@ -408,13 +439,13 @@ export function AdminUsersPage() {
           </div>
           <div>
             <Label htmlFor="create-name" required>
-              Full name
+              {t("fields.fullName")}
             </Label>
             <Input id="create-name" error={errors.name?.message} {...register("name")} />
           </div>
           <div>
             <Label htmlFor="create-email" required>
-              Email
+              {t("fields.email")}
             </Label>
             <Input
               id="create-email"
@@ -425,19 +456,19 @@ export function AdminUsersPage() {
           </div>
           <div>
             <Label htmlFor="create-password" required>
-              Password
+              {t("fields.password")}
             </Label>
             <Input
               id="create-password"
               type="password"
-              hint={!errors.password ? "At least 8 characters." : undefined}
+              hint={!errors.password ? t("register.passwordHint") : undefined}
               error={errors.password?.message}
               {...register("password")}
             />
           </div>
           <div>
             <Label htmlFor="create-zone" required={watchedRole === "OFFICER"}>
-              Zone
+              {t("filters.zone")}
             </Label>
             <Controller
               control={control}
@@ -453,7 +484,9 @@ export function AdminUsersPage() {
                     {
                       value: "",
                       label:
-                        watchedRole === "OFFICER" ? "Select a zone…" : "No home zone",
+                        watchedRole === "OFFICER"
+                          ? t("adminUsers.selectZone")
+                          : t("adminUsers.noHomeZone"),
                     },
                     ...(zones?.map((z) => ({ value: z.id, label: z.name })) ?? []),
                   ]}
@@ -475,19 +508,19 @@ export function AdminUsersPage() {
       <Modal
         open={deletingUser !== null}
         onClose={() => setDeletingUser(null)}
-        title="Delete account"
-        description={`Permanently delete ${deletingUser?.name}? This can't be undone.`}
+        title={t("adminUsers.deleteTitle")}
+        description={t("adminUsers.deleteBody", { name: deletingUser?.name })}
         footer={
           <>
             <Button variant="outline" onClick={() => setDeletingUser(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant="danger"
               loading={deleteUser.isPending}
               onClick={handleDelete}
             >
-              Delete
+              {t("common.delete")}
             </Button>
           </>
         }
@@ -515,6 +548,7 @@ function EditUserModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const { data: zones } = useZones();
   const updateUser = useUpdateUser(user.id);
@@ -534,11 +568,11 @@ function EditUserModal({
         zoneId: user.role !== "ADMIN" ? zoneId || undefined : undefined,
         active,
       });
-      toast({ title: "Account updated", variant: "success" });
+      toast({ title: t("adminUsers.updated"), variant: "success" });
       onSaved();
     } catch (err) {
       if (err instanceof ApiRequestError) setError(err.message);
-      else setError("Something went wrong. Please try again.");
+      else setError(t("errors.generic"));
     }
   }
 
@@ -546,14 +580,14 @@ function EditUserModal({
     <Modal
       open
       onClose={onClose}
-      title={`Edit ${user.name}`}
+      title={t("adminUsers.editTitle", { name: user.name })}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button loading={updateUser.isPending} onClick={handleSave}>
-            Save changes
+            {t("common.saveChanges")}
           </Button>
         </>
       }
@@ -569,13 +603,13 @@ function EditUserModal({
         )}
         <div>
           <Label htmlFor="edit-name" required>
-            Full name
+            {t("fields.fullName")}
           </Label>
           <Input id="edit-name" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <div>
           <Label htmlFor="edit-email" required>
-            Email
+            {t("fields.email")}
           </Label>
           <Input
             id="edit-email"
@@ -587,29 +621,29 @@ function EditUserModal({
         {user.role !== "ADMIN" && (
           <div>
             <Label htmlFor="edit-zone">
-              {user.role === "OFFICER" ? "Assigned zone" : "Home zone"}
+              {user.role === "OFFICER"
+                ? t("account.assignedZone")
+                : t("account.homeZone")}
             </Label>
             <Combobox
               id="edit-zone"
               value={zoneId}
               onChange={setZoneId}
               options={[
-                { value: "", label: "No zone" },
+                { value: "", label: t("adminUsers.noZone") },
                 ...(zones?.map((z) => ({ value: z.id, label: z.name })) ?? []),
               ]}
             />
             {user.role === "OFFICER" && zoneId !== (user.zoneId ?? "") && (
               <p className="text-ink-faint mt-1.5 text-xs">
-                Reassigning takes effect immediately — this officer loses access to their
-                old zone's complaints, and any still assigned to them there become
-                unassigned.
+                {t("adminUsers.reassignNote")}
               </p>
             )}
           </div>
         )}
         <Checkbox
           id="edit-active"
-          label="Account is active"
+          label={t("adminUsers.accountActive")}
           checked={active}
           onChange={(e) => setActive(e.target.checked)}
         />

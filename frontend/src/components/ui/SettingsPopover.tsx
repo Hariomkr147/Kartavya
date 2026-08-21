@@ -1,5 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import type { TranslationKey } from "@/i18n";
 import {
   ChevronRight,
   Moon,
@@ -19,17 +21,22 @@ import {
 } from "@/components/ui/Dropdown";
 import { useTheme, type Theme } from "@/contexts/ThemeContext";
 import { useDensity, type Density } from "@/contexts/DensityContext";
+import { LanguageOptions } from "@/components/ui/LanguageSwitcher";
 import { cn } from "@/lib/utils";
 
-const THEME_OPTIONS: { value: Theme; label: string; icon: LucideIcon }[] = [
-  { value: "light", label: "Light", icon: Sun },
-  { value: "dark", label: "Dark", icon: Moon },
-  { value: "amoled", label: "AMOLED", icon: MoonStar },
+const THEME_OPTIONS: { value: Theme; labelKey: TranslationKey; icon: LucideIcon }[] = [
+  { value: "light", labelKey: "settingsPopover.themeLight", icon: Sun },
+  { value: "dark", labelKey: "settingsPopover.themeDark", icon: Moon },
+  { value: "amoled", labelKey: "settingsPopover.themeAmoled", icon: MoonStar },
 ];
 
-const DENSITY_OPTIONS: { value: Density; label: string; icon: LucideIcon }[] = [
-  { value: "comfortable", label: "Comfortable", icon: Rows2 },
-  { value: "compact", label: "Compact", icon: Rows3 },
+const DENSITY_OPTIONS: { value: Density; labelKey: TranslationKey; icon: LucideIcon }[] = [
+  {
+    value: "comfortable",
+    labelKey: "settingsPopover.densityComfortable",
+    icon: Rows2,
+  },
+  { value: "compact", labelKey: "settingsPopover.densityCompact", icon: Rows3 },
 ];
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -57,10 +64,11 @@ function Segmented<T extends string>({
   onChange,
 }: {
   label: string;
-  options: { value: T; label: string; icon: LucideIcon }[];
+  options: { value: T; labelKey: TranslationKey; icon: LucideIcon }[];
   value: T;
   onChange: (value: T) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       role="group"
@@ -84,7 +92,7 @@ function Segmented<T extends string>({
             )}
           >
             <option.icon className="size-4" aria-hidden="true" />
-            {option.label}
+            {t(option.labelKey)}
           </button>
         );
       })}
@@ -93,6 +101,7 @@ function Segmented<T extends string>({
 }
 
 function SettingsPanel({ accountPath }: { accountPath: string }) {
+  const { t } = useTranslation();
   const { theme, setTheme } = useTheme();
   const { density, setDensity } = useDensity();
   const closePopover = useDropdownClose();
@@ -109,25 +118,29 @@ function SettingsPanel({ accountPath }: { accountPath: string }) {
   return (
     <div ref={panelRef} tabIndex={-1} className="focus:outline-none">
       <p className="border-b border-line px-3 py-2 text-sm font-semibold text-ink">
-        Settings
+        {t("settingsPopover.title")}
       </p>
 
-      <Section title="Theme">
+      <Section title={t("settingsPopover.theme")}>
         <Segmented
-          label="Theme"
+          label={t("settingsPopover.theme")}
           options={THEME_OPTIONS}
           value={theme}
           onChange={setTheme}
         />
       </Section>
 
-      <Section title="Table density">
+      <Section title={t("settingsPopover.density")}>
         <Segmented
-          label="Table density"
+          label={t("settingsPopover.density")}
           options={DENSITY_OPTIONS}
           value={density}
           onChange={setDensity}
         />
+      </Section>
+
+      <Section title={t("settingsPopover.language")}>
+        <LanguageOptions onPick={closePopover} />
       </Section>
 
       <div className="border-t border-line p-1">
@@ -137,7 +150,7 @@ function SettingsPanel({ accountPath }: { accountPath: string }) {
           className="text-ink hover:bg-surface-hover flex items-center gap-2 rounded px-2 py-2 text-sm transition-colors"
         >
           <UserRound className="text-ink-muted size-4 shrink-0" aria-hidden="true" />
-          <span className="flex-1">Account settings</span>
+          <span className="flex-1">{t("settingsPopover.accountSettings")}</span>
           <ChevronRight className="text-ink-faint size-4 shrink-0" aria-hidden="true" />
         </Link>
       </div>
@@ -151,19 +164,20 @@ function SettingsPanel({ accountPath }: { accountPath: string }) {
  * discoverable path for people who don't know the palette exists.
  */
 export function SettingsPopover({ accountPath }: { accountPath: string }) {
+  const { t } = useTranslation();
   return (
     <Dropdown align="end">
       <DropdownTrigger>
         <button
           type="button"
-          aria-label="Settings"
-          title="Settings"
+          aria-label={t("settingsPopover.title")}
+          title={t("settingsPopover.title")}
           className="text-ink-muted hover:bg-surface-hover hover:text-ink inline-flex size-10 items-center justify-center rounded-md transition-colors"
         >
           <Settings className="size-5" aria-hidden="true" />
         </button>
       </DropdownTrigger>
-      <DropdownMenu role="dialog" label="Settings" className="w-64 p-0">
+      <DropdownMenu role="dialog" label={t("settingsPopover.title")} className="w-64 p-0">
         <SettingsPanel accountPath={accountPath} />
       </DropdownMenu>
     </Dropdown>

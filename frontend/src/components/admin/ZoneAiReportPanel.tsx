@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { BotOff, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -24,6 +25,7 @@ function ReportSection({ title, text }: { title: string; text?: string | null })
  * reports describe a zone, not an officer.
  */
 export function ZoneAiReportPanel({ zoneId }: { zoneId: string }) {
+  const { t } = useTranslation();
   const { data: report, isError, isLoading } = useAiZoneReport(zoneId);
   const generate = useGenerateAiZoneReport(zoneId);
 
@@ -34,7 +36,9 @@ export function ZoneAiReportPanel({ zoneId }: { zoneId: string }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Sparkles className="text-brand size-5" aria-hidden="true" />
-          <h3 className="font-display text-sm font-semibold text-ink">AI health report</h3>
+          <h3 className="font-display text-sm font-semibold text-ink">
+            {t("aiReport.title")}
+          </h3>
         </div>
         <div className="flex items-center gap-3">
           {report?.generatedAt && (
@@ -42,35 +46,35 @@ export function ZoneAiReportPanel({ zoneId }: { zoneId: string }) {
               className="text-ink-faint text-xs"
               title={absoluteDateTime(report.generatedAt)}
             >
-              Generated {relativeTime(report.generatedAt)}
+              {t("aiReport.generated", { when: relativeTime(report.generatedAt) })}
             </span>
           )}
           <Button size="sm" loading={generate.isPending} onClick={() => generate.mutate()}>
-            {report ? "Regenerate" : "Generate report"}
+            {report ? t("aiReport.regenerate") : t("aiReport.generate")}
           </Button>
         </div>
       </div>
 
       {isError && !report ? (
         <p className="text-ink-muted text-sm">
-          No report has been generated for this zone yet.
+          {t("aiReport.none")}
         </p>
       ) : report?.status === "PENDING" ? (
         <p className="text-ink-muted flex items-center gap-2 text-sm">
           <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-          Generating. This generally takes a few seconds.
+          {t("aiReport.generating")}
         </p>
       ) : report?.status === "FAILED" || report?.aiAvailable === false ? (
         <p className="text-ink-muted flex items-center gap-2 text-sm">
           <BotOff className="size-4 shrink-0" aria-hidden="true" />
-          The LLM provider seems to be down. Try again shortly.
+          {t("aiReport.unavailable")}
         </p>
       ) : report?.status === "READY" ? (
         <div className="space-y-3 text-sm">
-          <ReportSection title="Summary" text={report.summary} />
-          <ReportSection title="Trends" text={report.trends} />
-          <ReportSection title="Hotspots" text={report.hotspots} />
-          <ReportSection title="Suggestions" text={report.suggestions} />
+          <ReportSection title={t("aiReport.summary")} text={report.summary} />
+          <ReportSection title={t("aiReport.trends")} text={report.trends} />
+          <ReportSection title={t("aiReport.hotspots")} text={report.hotspots} />
+          <ReportSection title={t("aiReport.suggestions")} text={report.suggestions} />
         </div>
       ) : null}
     </div>

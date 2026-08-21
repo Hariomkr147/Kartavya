@@ -132,9 +132,8 @@ def validate_evidence_review(
             "This complaint already passed its first evidence round — it can only be "
             "accepted or sent back for more evidence now, not rejected.",
         )
-    if (
-        verdict in (EvidenceVerdict.NEEDS_MORE_EVIDENCE, EvidenceVerdict.REJECTED)
-        and _blank(reason)
+    if verdict in (EvidenceVerdict.NEEDS_MORE_EVIDENCE, EvidenceVerdict.REJECTED) and _blank(
+        reason
     ):
         return Err(
             "VALIDATION_ERROR",

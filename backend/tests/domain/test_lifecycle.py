@@ -14,9 +14,13 @@ import pytest
 from app.domain import lifecycle
 from app.domain.enums import (
     ComplaintStatus as S,
+)
+from app.domain.enums import (
     EvidenceVerdict,
-    OfficerTargetStatus as T,
     TransitionFailureCode,
+)
+from app.domain.enums import (
+    OfficerTargetStatus as T,
 )
 from app.domain.errors import Err, Ok
 
@@ -112,9 +116,7 @@ class TestEvidenceReview:
         "verdict", [EvidenceVerdict.NEEDS_MORE_EVIDENCE, EvidenceVerdict.REJECTED]
     )
     def test_negative_verdicts_require_a_reason(self, verdict):
-        result = lifecycle.validate_evidence_review(
-            S.EVIDENCE_UNDER_REVIEW, None, verdict, None
-        )
+        result = lifecycle.validate_evidence_review(S.EVIDENCE_UNDER_REVIEW, None, verdict, None)
         assert isinstance(result, Err)
         assert result.http_status == 400
 
@@ -147,9 +149,7 @@ class TestCitizenAndAdminDoors:
 
 
 class TestCascadeEligibility:
-    @pytest.mark.parametrize(
-        "status", [S.UNDER_REVIEW, S.IN_PROGRESS, S.UNDER_RESOLUTION]
-    )
+    @pytest.mark.parametrize("status", [S.UNDER_REVIEW, S.IN_PROGRESS, S.UNDER_RESOLUTION])
     def test_working_stages_cascade(self, status):
         assert lifecycle.is_cascade_eligible(status)
 
@@ -171,4 +171,4 @@ class TestCascadeEligibility:
 
 
 def test_terminal_set_is_exactly_three():
-    assert lifecycle.TERMINAL == {S.REJECTED, S.CLOSED, S.UNRESOLVABLE}
+    assert {S.REJECTED, S.CLOSED, S.UNRESOLVABLE} == lifecycle.TERMINAL

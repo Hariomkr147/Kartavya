@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -40,15 +41,23 @@ import { otherReporterCount } from "@/lib/clusterInsight";
 import { describeLifecycle } from "@/lib/lifecycle";
 import { relativeTime } from "@/lib/datetime";
 import { ApiRequestError } from "@/services/http";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 /** Documented in the contract on `POST /complaints/{id}/upvote`. */
 const CSP_PER_UPVOTE = 5;
 
 export function ComplaintDetailPage() {
+  const { t } = useTranslation();
   const { complaintId } = useParams<{ complaintId: string }>();
   const { toast } = useToast();
   const { user } = useAuth();
-  const { data: complaint, isLoading, isError } = useComplaint(complaintId);
+  const {
+    data: complaint,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useComplaint(complaintId);
   const { data: officerStats } = useOfficerStats(complaint?.assignedOfficerId);
   const { data: landmark } = useLandmark(complaint?.latitude, complaint?.longitude);
   const { record: recordRecentlyViewed } = useRecentlyViewed(
@@ -113,14 +122,14 @@ export function ComplaintDetailPage() {
     return (
       <EmptyState
         icon={FileQuestion}
-        title="Complaint not found"
-        description="It may have been removed, or you don't have access to it."
+        title={t("complaintDetail.notFound")}
+        description={t("complaintDetail.notFoundBody")}
         action={
           <Link
             to="/citizen/complaints"
             className="text-brand text-sm font-medium hover:underline"
           >
-            Back to My Complaints
+            {t("complaintDetail.backToMyComplaints")}
           </Link>
         }
         className="mx-auto max-w-md py-24"
@@ -133,14 +142,14 @@ export function ComplaintDetailPage() {
     try {
       await submitEvidence.mutateAsync(resubmitPhoto);
       toast({
-        title: "Evidence resubmitted",
-        description: "An officer will take another look.",
+        title: t("complaintDetail.evidenceResubmitted"),
+        description: t("complaintDetail.evidenceResubmittedBody"),
         variant: "success",
       });
       setResubmitPhoto(null);
     } catch (error) {
       toast({
-        title: "Couldn't resubmit evidence",
+        title: t("complaintDetail.resubmitFailed"),
         description: error instanceof ApiRequestError ? error.message : undefined,
         variant: "error",
       });
@@ -151,13 +160,13 @@ export function ComplaintDetailPage() {
     try {
       await confirmResolution.mutateAsync();
       toast({
-        title: "Thanks for confirming!",
-        description: "This complaint is now closed.",
+        title: t("confirmFix.successTitle"),
+        description: t("complaintDetail.confirmedBody"),
         variant: "success",
       });
     } catch (error) {
       toast({
-        title: "Couldn't confirm",
+        title: t("confirmFix.errorTitle"),
         description: error instanceof ApiRequestError ? error.message : undefined,
         variant: "error",
       });
@@ -167,7 +176,7 @@ export function ComplaintDetailPage() {
   async function handleDispute() {
     setDisputeError(null);
     if (!disputeReason.trim() || !disputePhoto) {
-      setDisputeError("A reason and a fresh photo are both required.");
+      setDisputeError(t("complaintDetail.disputeRequired"));
       return;
     }
     try {
@@ -176,8 +185,8 @@ export function ComplaintDetailPage() {
         photo: disputePhoto,
       });
       toast({
-        title: "Dispute filed",
-        description: "An admin will review it.",
+        title: t("complaintDetail.disputeFiled"),
+        description: t("complaintDetail.disputeFiledBody"),
         variant: "success",
       });
       setDisputeOpen(false);
@@ -186,9 +195,7 @@ export function ComplaintDetailPage() {
       setDisputePhoto(null);
     } catch (error) {
       setDisputeError(
-        error instanceof ApiRequestError
-          ? error.message
-          : "Something went wrong. Please try again.",
+        error instanceof ApiRequestError ? error.message : t("errors.generic"),
       );
     }
   }
@@ -197,9 +204,9 @@ export function ComplaintDetailPage() {
     if (!complaint) return;
     try {
       await navigator.clipboard.writeText(complaint.id);
-      toast({ title: "Complaint ID copied", variant: "success" });
+      toast({ title: t("complaintDetail.idCopied"), variant: "success" });
     } catch {
-      toast({ title: "Couldn't copy complaint ID", variant: "error" });
+      toast({ title: t("complaintDetail.idCopyFailed"), variant: "error" });
     }
   }
 
@@ -219,7 +226,7 @@ export function ComplaintDetailPage() {
         className="text-ink-muted inline-flex items-center gap-1.5 text-sm hover:text-ink"
       >
         <ArrowLeft className="size-4" aria-hidden="true" />
-        My Complaints
+        {t("nav.myComplaints")}
       </Link>
 
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -232,15 +239,21 @@ export function ComplaintDetailPage() {
             />
           </span>
           <div>
-            <h1 className="font-display text-xl font-semibold text-ink">
-              {complaint.category.name}
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="font-display text-xl font-semibold text-ink">
+                {complaint.category.name}
+              </h1>
+              <RefreshButton onRefresh={refetch} refreshing={isFetching} what="this complaint" />
+            </div>
             <p className="text-ink-faint flex items-center gap-1.5 font-mono text-xs">
-              {complaint.id} · filed {relativeTime(complaint.createdAt)}
+              {t("complaintDetail.filedLine", {
+                complaintId: complaint.id,
+                when: relativeTime(complaint.createdAt),
+              })}
               <button
                 type="button"
                 onClick={handleCopyId}
-                aria-label="Copy complaint ID"
+                aria-label={t("complaintDetail.copyId")}
                 className="text-ink-faint hover:text-ink"
               >
                 <Copy className="size-3.5" aria-hidden="true" />
@@ -259,14 +272,20 @@ export function ComplaintDetailPage() {
                   content={
                     <span className="block max-w-xs text-left">
                       {complaint.clusterId
-                        ? `Score ${complaint.severityScore} = (nearby reports − 1) × 3 + ${upvoteCount} upvote(s). This complaint is linked to nearby duplicate reports via its cluster.`
-                        : `Score ${complaint.severityScore} = ${upvoteCount} upvote(s) — no nearby duplicates linked to this complaint.`}
+                        ? t("complaintDetail.severityWithCluster", {
+                            score: complaint.severityScore,
+                            upvotes: upvoteCount,
+                          })
+                        : t("complaintDetail.severityNoCluster", {
+                            score: complaint.severityScore,
+                            upvotes: upvoteCount,
+                          })}
                     </span>
                   }
                 >
                   <button
                     type="button"
-                    aria-label="How is the severity score calculated?"
+                    aria-label={t("complaintDetail.severityHelp")}
                     className="text-ink-faint hover:text-ink"
                   >
                     <Info className="size-3.5" aria-hidden="true" />
@@ -307,16 +326,14 @@ export function ComplaintDetailPage() {
                     <span className="bg-brand-subtle text-brand inline-flex size-7 shrink-0 items-center justify-center rounded-full">
                       <ArrowUp className="size-4" aria-hidden="true" />
                     </span>
-                    <span>
-                      <span className="font-semibold">{upvoteCount}</span>{" "}
-                      {upvoteCount === 1 ? "neighbour has" : "neighbours have"} backed this
-                      report
-                    </span>
+                    <span>{t("complaintDetail.backedBy", { count: upvoteCount })}</span>
                   </p>
                 )}
                 {upvoteCount > 0 && (
                   <span className="bg-csp/15 text-csp rounded-full px-2.5 py-0.5 text-xs font-semibold">
-                    +{upvoteCount * CSP_PER_UPVOTE} CSP earned from upvotes
+                    {t("complaintDetail.cspFromUpvotes", {
+                      points: upvoteCount * CSP_PER_UPVOTE,
+                    })}
                   </span>
                 )}
               </div>
@@ -325,17 +342,10 @@ export function ComplaintDetailPage() {
                   <Users className="text-brand mt-0.5 size-4 shrink-0" aria-hidden="true" />
                   {otherReporters && otherReporters > 0 ? (
                     <span>
-                      <span className="font-medium text-ink">
-                        {otherReporters} other {otherReporters === 1 ? "person" : "people"}
-                      </span>{" "}
-                      reported this same issue nearby — the city treats them as one job,
-                      so fixing it resolves all of them together.
+                      {t("complaintDetail.otherReporters", { count: otherReporters })}
                     </span>
                   ) : (
-                    <span>
-                      Reported by others nearby — this issue is linked to similar reports
-                      in its cluster.
-                    </span>
+                    <span>{t("complaintDetail.clusteredGeneric")}</span>
                   )}
                 </p>
               )}
@@ -345,10 +355,16 @@ export function ComplaintDetailPage() {
           {complaint.assignedOfficerId && (
             <div className="text-ink-muted flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface p-3 text-sm">
               <UserCog className="size-4 shrink-0" aria-hidden="true" />
-              <span>Assigned to Officer #{complaint.assignedOfficerId}</span>
+              <span>
+                {t("complaintDetail.assignedOfficer", {
+                  officerId: complaint.assignedOfficerId,
+                })}
+              </span>
               {officerStats && (
                 <span className="bg-brand-subtle text-brand inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium">
-                  {officerStats.totalResolved} cases resolved so far
+                  {t("complaintDetail.officerResolved", {
+                    count: officerStats.totalResolved,
+                  })}
                 </span>
               )}
             </div>
@@ -357,7 +373,7 @@ export function ComplaintDetailPage() {
           {complaint.description && (
             <section>
               <h2 className="font-display mb-3 text-base font-semibold text-ink">
-                Description
+                {t("fileComplaint.description")}
               </h2>
               <p className="text-ink-muted text-sm leading-relaxed">
                 {complaint.description}
@@ -368,7 +384,9 @@ export function ComplaintDetailPage() {
           {complaint.latitude != null && complaint.longitude != null && (
             <section>
               <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-                <h2 className="font-display text-base font-semibold text-ink">Location</h2>
+                <h2 className="font-display text-base font-semibold text-ink">
+                  {t("fileComplaint.location")}
+                </h2>
                 {landmark && (
                   <p className="text-ink-faint flex items-center gap-1.5 text-xs">
                     <MapPinned className="size-3.5 shrink-0" aria-hidden="true" />
@@ -387,7 +405,7 @@ export function ComplaintDetailPage() {
           {complaint.evidence && complaint.evidence.length > 0 && (
             <section>
               <h2 className="font-display mb-3 text-base font-semibold text-ink">
-                Evidence
+                {t("complaintDetail.evidence")}
               </h2>
               <EvidenceGallery evidence={complaint.evidence} />
             </section>
@@ -406,19 +424,19 @@ export function ComplaintDetailPage() {
       <Modal
         open={disputeOpen}
         onClose={() => setDisputeOpen(false)}
-        title="Dispute this resolution"
-        description="Explain why the issue isn't actually fixed, and attach a fresh photo as proof."
+        title={t("complaintDetail.disputeTitle")}
+        description={t("complaintDetail.disputeSubtitle")}
         footer={
           <>
             <Button variant="outline" onClick={() => setDisputeOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant="danger"
               loading={disputeResolution.isPending}
               onClick={handleDispute}
             >
-              Submit dispute
+              {t("complaintDetail.submitDispute")}
             </Button>
           </>
         }
@@ -433,28 +451,26 @@ export function ComplaintDetailPage() {
             </p>
           )}
           <p className="text-ink-muted text-sm">
-            This sends the report to an administrator for a verdict. If they uphold it, an
-            officer picks the work back up; if not, it closes here.
+            {t("complaintDetail.disputeNote")}
           </p>
           {hasDisputeDraft && !disputePhoto && (
             <p className="text-ink-muted bg-surface-hover rounded-md px-3 py-2 text-xs">
-              We restored the reason you'd started typing earlier — a photo can't be saved
-              the same way, so please attach a fresh one to finish.
+              {t("complaintDetail.disputeDraftRestored")}
             </p>
           )}
           <div>
             <Label htmlFor="dispute-reason" required>
-              Reason
+              {t("common.reason")}
             </Label>
             <Textarea
               id="dispute-reason"
               value={disputeReason}
               onChange={(e) => setDisputeReason(e.target.value)}
-              placeholder="What's still wrong?"
+              placeholder={t("complaintDetail.disputePlaceholder")}
             />
           </div>
           <div>
-            <Label required>Fresh photo</Label>
+            <Label required>{t("complaintDetail.freshPhoto")}</Label>
             <FileDropzone
               files={disputePhoto ? [disputePhoto] : []}
               onFilesChange={(files) => setDisputePhoto(files[0] ?? null)}

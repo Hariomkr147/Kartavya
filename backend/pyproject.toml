@@ -17,6 +17,12 @@ dependencies = [
     "PyJWT>=2.8",
     "APScheduler>=3.10",
     "python-dotenv>=1.0",
+    "gunicorn>=22.0",
+    # Postgres driver. SQLite stays the default for local work and CI; this is
+    # what lets DATABASE_URL point at a hosted Postgres (Neon, Supabase, ...)
+    # so deployed data survives a restart. `[binary]` ships a wheel, so no
+    # libpq build on Render.
+    "psycopg[binary]>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -25,9 +31,17 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.5",
     "import-linter>=2.0",
+    # tests/contract/ validates live responses against backend/api/openapi.yaml.
+    # Both are small, pure-Python packages, and they belong in the DEFAULT dev
+    # install rather than behind an extra: a contract-test layer nobody installs
+    # catches nothing. Three shipped contract violations (a ledger field named
+    # after its column, a ZoneSummary missing two fields, and an invented
+    # pagination key) got through precisely because this layer was optional.
+    "PyYAML>=6.0",
+    "jsonschema>=4.21",
 ]
-# Contract tests (tests/contract/) validate live responses against
-# backend/api/openapi.yaml. Kept separate because it is a heavy install.
+# Property-based fuzzing of the whole surface from the spec. Genuinely heavy, so
+# it stays opt-in: `pip install -e ".[contract]"`.
 contract = [
     "schemathesis>=3.25",
 ]
@@ -45,6 +59,7 @@ pythonpath = ["."]
 addopts = "-q"
 markers = [
     "domain: pure-rule tests, no database, must stay in the millisecond range",
+    "integration: end-to-end journeys driven entirely over HTTP (tests/integration/)",
 ]
 
 [tool.ruff]

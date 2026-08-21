@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   Camera,
   ClipboardCheck,
@@ -11,6 +12,8 @@ import {
 } from "lucide-react";
 import { LinkButton } from "@/components/ui/LinkButton";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
+import type { TranslationKey } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 const GRID_SIZE = 60;
@@ -48,68 +51,79 @@ function HeroGrid() {
   );
 }
 
-const ACTORS = [
-  {
-    icon: Camera,
-    label: "Citizen",
-    text: "Reports what's broken, with a photo and a pin on the map.",
-  },
+const ACTORS: {
+  icon: typeof Camera;
+  labelKey: TranslationKey;
+  textKey: TranslationKey;
+}[] = [
+  { icon: Camera, labelKey: "roles.citizen", textKey: "landing.actors.citizen" },
   {
     icon: ClipboardCheck,
-    label: "Officer",
-    text: "Verifies the evidence, does the work, posts the update.",
+    labelKey: "roles.officer",
+    textKey: "landing.actors.officer",
   },
-  {
-    icon: BarChart3,
-    label: "Admin",
-    text: "Oversees every zone, sets SLAs, rules on disputes.",
-  },
+  { icon: BarChart3, labelKey: "roles.admin", textKey: "landing.actors.admin" },
 ];
 
-const LIFECYCLE = [
-  { key: "SUBMITTED", label: "Submitted", color: "bg-status-submitted" },
-  { key: "UNDER_REVIEW", label: "Under review", color: "bg-status-under_review" },
-  { key: "IN_PROGRESS", label: "In progress", color: "bg-status-in_progress" },
-  { key: "RESOLVED", label: "Resolved", color: "bg-status-resolved" },
-  { key: "CLOSED", label: "Closed", color: "bg-status-closed" },
+// The five happy-path statuses, reusing the same `status.*` labels the pills
+// use everywhere else rather than a second copy of the wording.
+const LIFECYCLE: { key: TranslationKey; color: string }[] = [
+  { key: "status.SUBMITTED", color: "bg-status-submitted" },
+  { key: "status.UNDER_REVIEW", color: "bg-status-under_review" },
+  { key: "status.IN_PROGRESS", color: "bg-status-in_progress" },
+  { key: "status.RESOLVED", color: "bg-status-resolved" },
+  { key: "status.CLOSED", color: "bg-status-closed" },
 ];
 
-const TRUST_POINTS = [
+const TRUST_POINTS: {
+  icon: typeof EyeOff;
+  labelKey: TranslationKey;
+  textKey: TranslationKey;
+}[] = [
   {
     icon: EyeOff,
-    label: "Identity stays private",
-    text: "Officers never see who filed a complaint — only the evidence.",
+    labelKey: "landing.trust.privacyLabel",
+    textKey: "landing.trust.privacyText",
   },
   {
     icon: Sparkles,
-    label: "AI helps, never blocks",
-    text: "Photo screening assists triage and steps aside gracefully when it's unavailable.",
+    labelKey: "landing.trust.aiLabel",
+    textKey: "landing.trust.aiText",
   },
   {
     icon: ScrollText,
-    label: "Nothing is ever erased",
-    text: "Every status change is a permanent, append-only record.",
+    labelKey: "landing.trust.auditLabel",
+    textKey: "landing.trust.auditText",
   },
 ];
 
 export function LandingPage() {
+  const { t } = useTranslation();
+
   return (
     <div className="min-h-screen bg-canvas text-ink">
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
+      <header className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-6 sm:px-6">
         <div className="flex items-center gap-2">
           <ShieldCheck className="text-brand size-6" aria-hidden="true" />
-          <span className="font-display text-lg font-semibold">Kartavya</span>
+          <span className="font-brand text-lg font-semibold">Kartavya</span>
         </div>
         <div className="flex items-center gap-2">
+          {/* Before sign-in is exactly where the language switch has to be
+              reachable — someone who can't read English can't be asked to
+              register first. */}
+          <LanguageSwitcher />
           <ThemeToggle />
+          {/* Four controls do not fit a 390px header once the labels are
+              translated. Sign-in is the one that can go: the hero below
+              carries the same link as a full-size button. */}
           <Link
             to="/login"
-            className="text-ink-muted px-3 py-2 text-sm font-medium hover:text-ink"
+            className="text-ink-muted hidden px-3 py-2 text-sm font-medium whitespace-nowrap hover:text-ink sm:block"
           >
-            Sign in
+            {t("landing.signIn")}
           </Link>
-          <LinkButton to="/register" size="sm">
-            Get started
+          <LinkButton to="/register" size="sm" className="whitespace-nowrap">
+            {t("landing.getStarted")}
           </LinkButton>
         </div>
       </header>
@@ -119,18 +133,17 @@ export function LandingPage() {
         <section className="mx-auto grid max-w-6xl items-center gap-12 px-6 py-16 md:grid-cols-2 md:py-24">
           <div>
             <h1 className="font-display text-display-lg md:text-display-xl font-semibold text-balance">
-              What gets seen, gets fixed.
+              {t("landing.heroTitle")}
             </h1>
             <p className="text-ink-muted mt-5 max-w-md text-lg">
-              Kartavya turns a photo of a civic problem into a transparent, accountable
-              record — from the first report to the final fix.
+              {t("landing.heroText")}
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <LinkButton to="/register" size="lg">
-                Report an issue
+                {t("landing.reportIssue")}
               </LinkButton>
               <LinkButton to="/login" variant="outline" size="lg">
-                Sign in
+                {t("landing.signIn")}
               </LinkButton>
             </div>
           </div>
@@ -145,15 +158,17 @@ export function LandingPage() {
             <div className="grid gap-8 md:grid-cols-3 md:gap-4">
               {ACTORS.map((actor, i) => (
                 <div
-                  key={actor.label}
+                  key={actor.labelKey}
                   className="relative flex flex-col items-center text-center"
                 >
                   <div className="bg-brand/10 mb-4 flex size-14 items-center justify-center rounded-full">
                     <actor.icon className="text-brand size-6" aria-hidden="true" />
                   </div>
-                  <p className="font-display text-lg font-semibold">{actor.label}</p>
+                  <p className="font-display text-lg font-semibold">
+                    {t(actor.labelKey)}
+                  </p>
                   <p className="text-ink-muted mt-1.5 max-w-[22ch] text-sm">
-                    {actor.text}
+                    {t(actor.textKey)}
                   </p>
                   {i < ACTORS.length - 1 && (
                     <ArrowRight
@@ -170,7 +185,7 @@ export function LandingPage() {
         {/* FSM lifecycle strip */}
         <section className="mx-auto max-w-6xl px-6 py-16">
           <p className="text-ink-faint text-center text-sm font-medium tracking-wide uppercase">
-            Every complaint's journey
+            {t("landing.journeyTitle")}
           </p>
           <div className="mt-8 flex items-center justify-between gap-1 overflow-x-auto pb-2 sm:gap-2">
             {LIFECYCLE.map((step, i) => (
@@ -181,7 +196,7 @@ export function LandingPage() {
                     aria-hidden="true"
                   />
                   <span className="text-ink-muted text-center text-xs font-medium whitespace-nowrap sm:text-sm">
-                    {step.label}
+                    {t(step.key)}
                   </span>
                 </div>
                 {i < LIFECYCLE.length - 1 && (
@@ -191,8 +206,7 @@ export function LandingPage() {
             ))}
           </div>
           <p className="text-ink-faint mx-auto mt-6 max-w-lg text-center text-sm">
-            Not fixed properly? Citizens can reopen it. Evidence doesn't hold up? Officers
-            can reject it. Every branch is recorded.
+            {t("landing.journeyNote")}
           </p>
         </section>
 
@@ -201,12 +215,12 @@ export function LandingPage() {
           <div className="mx-auto max-w-6xl px-6 py-16">
             <div className="grid gap-8 sm:grid-cols-3">
               {TRUST_POINTS.map((point) => (
-                <div key={point.label}>
+                <div key={point.labelKey}>
                   <point.icon className="text-brand size-5" aria-hidden="true" />
                   <p className="mt-3 font-display text-base font-semibold">
-                    {point.label}
+                    {t(point.labelKey)}
                   </p>
-                  <p className="text-ink-muted mt-1 text-sm">{point.text}</p>
+                  <p className="text-ink-muted mt-1 text-sm">{t(point.textKey)}</p>
                 </div>
               ))}
             </div>
@@ -216,11 +230,11 @@ export function LandingPage() {
         {/* Closing CTA */}
         <section className="mx-auto max-w-6xl px-6 py-20 text-center">
           <p className="font-display text-display-sm font-semibold">
-            Something in your ward needs fixing?
+            {t("landing.closingTitle")}
           </p>
           <div className="mt-6">
             <LinkButton to="/register" size="lg">
-              Report an issue
+              {t("landing.reportIssue")}
             </LinkButton>
           </div>
         </section>
@@ -228,13 +242,13 @@ export function LandingPage() {
 
       <footer className="border-t border-line px-6 py-8">
         <div className="text-ink-faint mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 text-sm sm:flex-row">
-          <span>Kartavya — a civic accountability platform.</span>
+          <span>{t("landing.footerTagline")}</span>
           <div className="flex gap-4">
             <Link to="/login" className="hover:text-ink">
-              Sign in
+              {t("landing.signIn")}
             </Link>
             <Link to="/register" className="hover:text-ink">
-              Register
+              {t("landing.register")}
             </Link>
           </div>
         </div>

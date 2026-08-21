@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import type { Complaint, ComplaintStatus } from "@/types/api";
 
 /**
@@ -36,22 +37,12 @@ export interface OfficerQueueUpdate {
   href: string;
 }
 
-const STATUS_LABELS: Record<ComplaintStatus, string> = {
-  SUBMITTED: "Submitted",
-  EVIDENCE_UNDER_REVIEW: "Evidence under review",
-  NEEDS_MORE_EVIDENCE: "Needs more evidence",
-  REJECTED: "Rejected",
-  UNDER_REVIEW: "Under review",
-  IN_PROGRESS: "In progress",
-  UNDER_RESOLUTION: "Under resolution",
-  RESOLVED: "Resolved",
-  CLOSED: "Closed",
-  REOPENED: "Reopened",
-  UNRESOLVABLE: "Unresolvable",
-};
-
 export function officerUpdateMessage(update: OfficerQueueUpdate): string {
-  return `${update.categoryName} complaint ${update.complaintId} moved to ${STATUS_LABELS[update.to]}.`;
+  return i18n.t("officerQueueUpdates.moved", {
+    category: update.categoryName,
+    complaintId: update.complaintId,
+    status: i18n.t(`status.${update.to}`),
+  });
 }
 
 export function snapshotOf(complaints: Complaint[]): OfficerQueueSnapshot {

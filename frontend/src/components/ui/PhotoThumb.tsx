@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ImageOff } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { resolveApiAssetUrl } from "@/services/http";
 
 /**
  * Renders a photo, falling back to an ImageOff icon when there's no URL or
@@ -23,8 +24,12 @@ export function PhotoThumb({
   /** Background for the fallback box — override on dark surfaces (e.g. the Lightbox). */
   fallbackClassName?: string;
 }) {
+  // Signed photo links come back root-relative, which only resolves correctly
+  // when the SPA and the API share a host. Deployed they do not — see
+  // resolveApiAssetUrl. `blob:` and absolute URLs pass through unchanged.
+  const resolvedSrc = resolveApiAssetUrl(src);
   const [erroredSrc, setErroredSrc] = useState<string | null>(null);
-  const broken = !src || erroredSrc === src;
+  const broken = !resolvedSrc || erroredSrc === resolvedSrc;
 
   if (broken) {
     return (
@@ -34,5 +39,12 @@ export function PhotoThumb({
     );
   }
 
-  return <img src={src} alt={alt} className={className} onError={() => setErroredSrc(src)} />;
+  return (
+    <img
+      src={resolvedSrc}
+      alt={alt}
+      className={className}
+      onError={() => setErroredSrc(resolvedSrc)}
+    />
+  );
 }

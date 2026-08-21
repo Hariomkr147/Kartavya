@@ -2,6 +2,7 @@ import { db, nextId } from "../db/store";
 import { haversineMeters } from "./geo";
 import { severityScore } from "./severity";
 import { toApiId } from "./ids";
+import { TERMINAL_STATUSES } from "./fsm";
 import type { ComplaintRow } from "../db/types";
 
 /** Nearby same-category duplicates are linked within this radius (schema.dbml: ~50-100m). */
@@ -218,4 +219,51 @@ export function cascadeClusterResolution(
     }
   }
   return results;
+}
+
+/**
+ * Take a finished complaint out of its cluster. Mirrors the backend's
+ * `services/complaints/clusters.exit_cluster`.
+ *
+ * A CLOSED / REJECTED / UNRESOLVABLE complaint can never move again, so it is
+ * no longer part of the work the cluster represents: leaving it in inflates
+ * the cluster's counts and severity, and keeps clusters whose members have all
+ * finished on the cluster pages forever.
+ *
+ * `formerClusterId` preserves the link the reward guard needs — that guard
+ * asks whether this citizen was already paid *inside this cluster*, which is a
+ * question about history, not about who is still a member.
+ */
+export function exitClusterIfTerminal(complaint: ComplaintRow): void {
+  if (!TERMINAL_STATUSES.has(complaint.status)) return;
+  const clusterId = complaint.clusterId;
+  if (clusterId == null) return;
+
+  complaint.clusterId = null;
+  complaint.formerClusterId ??= clusterId;
+
+  // The cluster ROW is never deleted, even when its last member leaves:
+  // `rewardGranted` is the one-time +50 latch and resetting it would let a
+  // second member collect the same reward. `liveClusterIds` hides it instead.
+  const members = db.complaints.filter((c) => c.clusterId === clusterId);
+  const cluster = db.clusters.find((c) => c.id === clusterId);
+  if (cluster && members.length > 0) {
+    cluster.reportCount = members.length;
+    cluster.uniqueReporterCount = new Set(members.map((m) => m.citizenId)).size;
+    cluster.centroidLat = members.reduce((sum, m) => sum + m.latitude, 0) / members.length;
+    cluster.centroidLng = members.reduce((sum, m) => sum + m.longitude, 0) / members.length;
+    cluster.updatedAt = new Date().toISOString();
+  }
+  for (const member of members) recomputeSeverity(member);
+}
+
+/** Clusters that still have a member able to move. The rest are dissolved. */
+export function liveClusterIds(): Set<number> {
+  const live = new Set<number>();
+  for (const complaint of db.complaints) {
+    if (complaint.clusterId != null && !TERMINAL_STATUSES.has(complaint.status)) {
+      live.add(complaint.clusterId);
+    }
+  }
+  return live;
 }

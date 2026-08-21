@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PhotoThumb } from "@/components/ui/PhotoThumb";
@@ -28,6 +29,7 @@ const FOCUSABLE =
 
 /** Full-screen image viewer — click-to-enlarge target for evidence photo thumbnails. Esc to close, arrow keys to step between images. */
 export function Lightbox({ images, openIndex, onClose }: LightboxProps) {
+  const { t } = useTranslation();
   const [index, setIndex] = useState(openIndex ?? 0);
   // Re-sync `index` to a fresh `openIndex` without an effect: comparing
   // against the previously-seen prop during render (React's documented
@@ -103,7 +105,7 @@ export function Lightbox({ images, openIndex, onClose }: LightboxProps) {
       <button
         type="button"
         onClick={onClose}
-        aria-label="Close image viewer"
+        aria-label={t("lightbox.close")}
         className="absolute top-4 right-4 inline-flex size-10 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
       >
         <X className="size-5" aria-hidden="true" />
@@ -113,7 +115,7 @@ export function Lightbox({ images, openIndex, onClose }: LightboxProps) {
         <button
           type="button"
           onClick={() => setIndex((i) => (i - 1 + images.length) % images.length)}
-          aria-label="Previous image"
+          aria-label={t("lightbox.previous")}
           className="absolute left-2 top-1/2 inline-flex size-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 sm:left-4"
         >
           <ChevronLeft className="size-5" aria-hidden="true" />
@@ -144,7 +146,7 @@ export function Lightbox({ images, openIndex, onClose }: LightboxProps) {
         <button
           type="button"
           onClick={() => setIndex((i) => (i + 1) % images.length)}
-          aria-label="Next image"
+          aria-label={t("lightbox.next")}
           className="absolute right-2 top-1/2 inline-flex size-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 sm:right-4"
         >
           <ChevronRight className="size-5" aria-hidden="true" />

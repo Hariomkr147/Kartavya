@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import {
   Camera,
@@ -24,7 +25,9 @@ import { useCategories } from "@/hooks/useCategories";
 import { useZones } from "@/hooks/useZones";
 import { useSearchParamState } from "@/hooks/useSearchParamState";
 import { cn } from "@/lib/utils";
+import type { TranslationKey } from "@/i18n";
 import type { Complaint, ComplaintStatus } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 const STATUSES: ComplaintStatus[] = [
   "SUBMITTED",
@@ -40,27 +43,13 @@ const STATUSES: ComplaintStatus[] = [
   "UNRESOLVABLE",
 ];
 
-const STATUS_LABELS: Record<ComplaintStatus, string> = {
-  SUBMITTED: "Submitted",
-  EVIDENCE_UNDER_REVIEW: "Evidence under review",
-  NEEDS_MORE_EVIDENCE: "Needs more evidence",
-  REJECTED: "Rejected",
-  UNDER_REVIEW: "Under review",
-  IN_PROGRESS: "In progress",
-  UNDER_RESOLUTION: "Under resolution",
-  RESOLVED: "Resolved",
-  CLOSED: "Closed",
-  REOPENED: "Reopened",
-  UNRESOLVABLE: "Unresolvable",
-};
-
-const SORT_OPTIONS: { value: string; label: string }[] = [
-  { value: "-createdAt", label: "Newest first" },
-  { value: "createdAt", label: "Oldest first" },
-  { value: "-updatedAt", label: "Recently updated" },
-  { value: "-severity", label: "Severity (highest first)" },
-  { value: "-sla", label: "SLA (most overdue first)" },
-  { value: "-upvotes", label: "Most upvoted" },
+const SORT_OPTIONS: { value: string; labelKey: TranslationKey }[] = [
+  { value: "-createdAt", labelKey: "sort.newestFirst" },
+  { value: "createdAt", labelKey: "sort.oldestFirst" },
+  { value: "-updatedAt", labelKey: "sort.recentlyUpdated" },
+  { value: "-severity", labelKey: "sort.severityHighest" },
+  { value: "-sla", labelKey: "sort.slaOverdue" },
+  { value: "-upvotes", labelKey: "sort.mostUpvoted" },
 ];
 
 // Mirrors the citizen dashboard's own buckets — used only so the dashboard's
@@ -96,6 +85,7 @@ const PAGE_SIZE = 10;
 const FETCH_SIZE = 100;
 
 export function MyComplaintsPage() {
+  const { t } = useTranslation();
   const [status, setStatus] = useSearchParamState<ComplaintStatus | "">("status", "");
   const [categoryId, setCategoryId] = useSearchParamState("category", "");
   const [zoneId, setZoneId] = useSearchParamState("zone", "");
@@ -127,7 +117,7 @@ export function MyComplaintsPage() {
     bucket !== "" ||
     search.trim() !== "";
 
-  const { data, isLoading } = useMyComplaints({
+  const { data, isLoading, isFetching, refetch } = useMyComplaints({
     page: hasClientOnlyFilter ? 1 : page,
     pageSize: hasClientOnlyFilter ? FETCH_SIZE : PAGE_SIZE,
     sort,
@@ -228,12 +218,19 @@ export function MyComplaintsPage() {
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="font-display text-display-sm font-semibold text-ink">
-          My Complaints
-        </h1>
+        <div className="flex items-center gap-2">
+          <h1 className="font-display text-display-sm font-semibold text-ink">
+            {t("nav.myComplaints")}
+          </h1>
+          <RefreshButton
+            onRefresh={refetch}
+            refreshing={isFetching}
+            what="my complaints"
+          />
+        </div>
         <LinkButton to="/citizen/file">
           <FilePlus2 className="size-4" aria-hidden="true" />
-          File a complaint
+          {t("citizenDashboard.fileComplaint")}
         </LinkButton>
       </div>
 
@@ -245,11 +242,7 @@ export function MyComplaintsPage() {
               icon={CheckCircle2}
               active={actionFilter === "CONFIRM_FIX"}
               onClick={() => toggleAction("CONFIRM_FIX")}
-              label={
-                confirmCount === 1
-                  ? "1 fix waiting for your confirmation"
-                  : `${confirmCount} fixes waiting for your confirmation`
-              }
+              label={t("myComplaints.confirmBanner", { count: confirmCount })}
             />
           )}
           {evidenceCount > 0 && (
@@ -258,11 +251,9 @@ export function MyComplaintsPage() {
               icon={Camera}
               active={actionFilter === "PROVIDE_MORE_EVIDENCE"}
               onClick={() => toggleAction("PROVIDE_MORE_EVIDENCE")}
-              label={
-                evidenceCount === 1
-                  ? "1 report needs a clearer photo"
-                  : `${evidenceCount} reports need a clearer photo`
-              }
+              label={t("citizenDashboard.evidenceSection.title", {
+                count: evidenceCount,
+              })}
             />
           )}
         </div>
@@ -271,11 +262,11 @@ export function MyComplaintsPage() {
       <div className="space-y-4 rounded-lg border border-line bg-surface p-4">
         <div className="flex flex-wrap gap-4">
           <div className="min-w-[12rem] flex-1">
-            <Label htmlFor="complaints-search">Search</Label>
+            <Label htmlFor="complaints-search">{t("filters.search")}</Label>
             <Input
               id="complaints-search"
               leftIcon={<Search className="size-4" aria-hidden="true" />}
-              placeholder="Complaint ID, category or zone…"
+              placeholder={t("myComplaints.searchPlaceholder")}
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -284,7 +275,7 @@ export function MyComplaintsPage() {
             />
           </div>
           <div className="min-w-[10rem] flex-1">
-            <Label htmlFor="status-filter">Status</Label>
+            <Label htmlFor="status-filter">{t("filters.status")}</Label>
             <Combobox
               id="status-filter"
               value={status}
@@ -293,13 +284,13 @@ export function MyComplaintsPage() {
                 resetPage();
               }}
               options={[
-                { value: "", label: "All statuses" },
-                ...STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] })),
+                { value: "", label: t("filters.allStatuses") },
+                ...STATUSES.map((s) => ({ value: s, label: t(`status.${s}`) })),
               ]}
             />
           </div>
           <div className="min-w-[10rem] flex-1">
-            <Label htmlFor="category-filter">Category</Label>
+            <Label htmlFor="category-filter">{t("filters.category")}</Label>
             <Combobox
               id="category-filter"
               value={categoryId}
@@ -308,13 +299,13 @@ export function MyComplaintsPage() {
                 resetPage();
               }}
               options={[
-                { value: "", label: "All categories" },
+                { value: "", label: t("filters.allCategories") },
                 ...(categories?.map((c) => ({ value: c.id, label: c.name })) ?? []),
               ]}
             />
           </div>
           <div className="min-w-[10rem] flex-1">
-            <Label htmlFor="zone-filter">Zone</Label>
+            <Label htmlFor="zone-filter">{t("filters.zone")}</Label>
             <Combobox
               id="zone-filter"
               value={zoneId}
@@ -323,13 +314,13 @@ export function MyComplaintsPage() {
                 resetPage();
               }}
               options={[
-                { value: "", label: "All zones" },
+                { value: "", label: t("filters.allZones") },
                 ...(zones?.map((z) => ({ value: z.id, label: z.name })) ?? []),
               ]}
             />
           </div>
           <div className="min-w-[10rem] flex-1">
-            <Label htmlFor="sort-order">Sort by</Label>
+            <Label htmlFor="sort-order">{t("filters.sortBy")}</Label>
             <Combobox
               id="sort-order"
               value={sort}
@@ -337,7 +328,10 @@ export function MyComplaintsPage() {
                 setSort(v);
                 resetPage();
               }}
-              options={SORT_OPTIONS}
+              options={SORT_OPTIONS.map((option) => ({
+                value: option.value,
+                label: t(option.labelKey),
+              }))}
             />
           </div>
         </div>
@@ -350,7 +344,7 @@ export function MyComplaintsPage() {
               resetPage();
             }}
           >
-            Needs my action
+            {t("myComplaints.needsMyAction")}
           </FilterChip>
           <FilterChip
             active={bucket === "active"}
@@ -359,7 +353,7 @@ export function MyComplaintsPage() {
               resetPage();
             }}
           >
-            Active only
+            {t("myComplaints.activeOnly")}
           </FilterChip>
           <FilterChip
             active={bucket === "resolved"}
@@ -368,7 +362,7 @@ export function MyComplaintsPage() {
               resetPage();
             }}
           >
-            Resolved only
+            {t("myComplaints.resolvedOnly")}
           </FilterChip>
           <FilterChip
             active={lateOnly}
@@ -378,12 +372,12 @@ export function MyComplaintsPage() {
             }}
           >
             <TimerOff className="size-3" aria-hidden="true" />
-            Running late
+            {t("myComplaints.runningLate")}
           </FilterChip>
           {hasFilters && (
             <Button variant="ghost" size="sm" onClick={clearFilters}>
               <X className="size-3.5" aria-hidden="true" />
-              Clear filters
+              {t("filters.clear")}
             </Button>
           )}
         </div>
@@ -398,22 +392,27 @@ export function MyComplaintsPage() {
       ) : complaints.length === 0 ? (
         <EmptyState
           icon={hasFilters ? ClipboardList : FilePlus2}
-          title={hasFilters ? "No complaints match these filters" : "No complaints yet"}
+          title={
+            hasFilters ? t("feed.emptyFiltered") : t("citizenDashboard.empty.title")
+          }
           description={
             hasFilters
-              ? "Try a different status, category, or zone."
-              : "Report your first civic issue — a photo, a pin on the map, and a category is all it takes."
+              ? t("myComplaints.emptyFilteredBody")
+              : t("citizenDashboard.empty.description")
           }
           action={
-            !hasFilters && <LinkButton to="/citizen/file">File a complaint</LinkButton>
+            !hasFilters && (
+              <LinkButton to="/citizen/file">
+                {t("citizenDashboard.fileComplaint")}
+              </LinkButton>
+            )
           }
           className="rounded-lg border border-line bg-surface"
         />
       ) : (
         <>
           <p className="text-ink-faint text-xs">
-            Showing {complaints.length} of {total}{" "}
-            {total === 1 ? "complaint" : "complaints"}
+            {t("myComplaints.showing", { shown: complaints.length, count: total })}
           </p>
           <div className="space-y-2">
             {complaints.map((c) => (
@@ -488,6 +487,8 @@ function AttentionBanner({
   active: boolean;
   onClick: () => void;
 }) {
+  const { t } = useTranslation();
+
   return (
     <button
       type="button"
@@ -502,7 +503,7 @@ function AttentionBanner({
       <Icon className="size-4 shrink-0" aria-hidden="true" />
       {label}
       <span className="ml-auto shrink-0 text-xs underline">
-        {active ? "Clear" : "Show"}
+        {active ? t("myComplaints.clear") : t("myComplaints.show")}
       </span>
     </button>
   );

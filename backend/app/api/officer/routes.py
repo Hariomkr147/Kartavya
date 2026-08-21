@@ -11,122 +11,204 @@ A cheap, high-value test for every route in this file:
 
 from __future__ import annotations
 
-from flask import Blueprint
+from datetime import UTC, datetime
+from typing import Any
 
-from app.api.shared.responses import todo
-from app.core.auth import require_auth, require_role
+from flask import Blueprint, jsonify
+
+from app.api.officer.schemas import (
+    BatchStatusUpdateRequest,
+    EvidenceReviewRequest,
+    OfficerAnalyticsQuery,
+    OfficerQueueQuery,
+    ProgressNoteRequest,
+    StatusUpdateRequest,
+)
+from app.api.officer.serializers import (
+    serialize_officer_complaint_detail,
+    serialize_queue_item,
+    serialize_status_update_result,
+)
+from app.api.shared.context import detail_context
+from app.core.auth import current_user, require_auth, require_officer_zone, require_role
+from app.core.serialization import iso_utc
+from app.core.validation import validate_body, validate_query
 from app.domain.enums import UserRole
+from app.services.analytics import officer as analytics_officer
+from app.services.analytics.zone import zone_analytics
+from app.services.complaints import lifecycle
+from app.services.complaints.reads import get_officer_queue
+from app.services.complaints.views import ComplaintDetailData
 
 bp = Blueprint("officer", __name__)
 
 OFFICER = UserRole.OFFICER
 
 
+def _utcnow() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _serialize_progress_note(note: lifecycle.ProgressNoteResult) -> dict[str, Any]:
+    return {
+        "id": str(note.id),
+        "officerId": str(note.officer_id),
+        "text": note.note_text,
+        # iso_utc, not a bare isoformat(): without the `Z` a browser reads this
+        # as local time, and the same note served inside ComplaintDetail would
+        # carry a different format from the one served here.
+        "createdAt": iso_utc(note.created_at),
+    }
+
+
+def _detail_response(detail: ComplaintDetailData, *, now: datetime) -> dict[str, Any]:
+    """ComplaintDetail for an officer — evidence, history and notes included."""
+    return serialize_officer_complaint_detail(detail.complaint, detail_context(detail, now=now))
+
+
 @bp.get("/officer/complaints")
 @require_role(OFFICER)
-def get_officer_queue():
-    """200 ComplaintListResponse — this officer's zone queue.
+@validate_query(OfficerQueueQuery)
+def get_officer_complaint_queue(query: OfficerQueueQuery):
+    """200 ComplaintListResponse — this officer's zone, most urgent first.
 
-    TODO(phase 4). Start from `core.scoping.visible_complaints(user)`, never
-    from `select(Complaint)` plus a filter added later.
-
-    Prefetch for the serializer — categories, zones, upvote counts in ONE
-    GROUP BY, first evidence row per complaint. Without that a 20-item page
-    becomes 60+ queries, and this endpoint is polled constantly.
+    Filtering, sorting and paging all happen in `services/complaints/reads.py`
+    on top of the shared builders in `services/queries.py`, so the derived
+    `slaLabel` / `severityLabel` filters narrow the whole result set rather than
+    just the page that was already fetched.
     """
-    todo("Officer queue")
+    now = _utcnow()
+    complaints, pagination, ctx = get_officer_queue(
+        officer=current_user(), query_params=query, now=now
+    )
+    return jsonify(
+        {
+            "data": [serialize_queue_item(row, ctx) for row in complaints],
+            "pagination": pagination.to_dict(),
+        }
+    )
 
 
 @bp.post("/officer/complaints/<complaint_id>/claim")
 @require_role(OFFICER)
 def claim_complaint(complaint_id: str):
-    """200 ComplaintDetail — SUBMITTED -> EVIDENCE_UNDER_REVIEW.
-
-    TODO(phase 4). The only door out of SUBMITTED, and it sets
-    `assignedOfficerId` in the same statement.
-
-    Two officers WILL race this. The guarded `UPDATE ... WHERE status =
-    'SUBMITTED'` is what decides: the loser gets rowcount 0 and a clean 409.
-    """
-    todo("Claim complaint")
+    """200 ComplaintDetail — SUBMITTED -> EVIDENCE_UNDER_REVIEW."""
+    now = _utcnow()
+    detail = lifecycle.claim(complaint_id=int(complaint_id), officer=current_user(), now=now)
+    return jsonify(_detail_response(detail, now=now))
 
 
 @bp.post("/officer/complaints/<complaint_id>/evidence-review")
 @require_role(OFFICER)
-def review_evidence(complaint_id: str):
-    """200 ComplaintDetail — the photo verdict.
-
-    TODO(phase 4). VALID starts the SLA clock. REJECTED is legal only on a
-    complaint's FIRST evidence round (`sla_started_at IS NULL`) and costs the
-    citizen -20; on a later round it is a 409. NEEDS_MORE_EVIDENCE and REJECTED
-    both require a reason.
-    """
-    todo("Evidence review")
+@validate_body(EvidenceReviewRequest)
+def review_evidence(complaint_id: str, body: EvidenceReviewRequest):
+    """200 ComplaintDetail — the photo verdict."""
+    now = _utcnow()
+    detail = lifecycle.review_evidence(
+        complaint_id=int(complaint_id),
+        officer=current_user(),
+        verdict=body.verdict,
+        reason=body.reason,
+        now=now,
+    )
+    return jsonify(_detail_response(detail, now=now))
 
 
 @bp.patch("/officer/complaints/<complaint_id>/status")
 @require_role(OFFICER)
-def update_complaint_status(complaint_id: str):
-    """200 StatusUpdateResult {complaint, cascade?}.
-
-    TODO(phase 4). Five legal targets; anything else is a schema-level 400.
-    RESOLVED on a clustered complaint triggers the cascade, and its per-member
-    outcomes come back in `cascade`.
-    """
-    todo("Status update")
+@validate_body(StatusUpdateRequest)
+def update_complaint_status(complaint_id: str, body: StatusUpdateRequest):
+    """200 StatusUpdateResult — the complaint, plus `cascade` when a cluster moved."""
+    now = _utcnow()
+    result = lifecycle.transition_by_officer(
+        complaint_id=int(complaint_id),
+        officer=current_user(),
+        target=body.status,
+        reason=body.reason,
+        note=body.note,
+        now=now,
+    )
+    return jsonify(
+        serialize_status_update_result(
+            result.complaint,
+            result.cascade,
+            detail_context(result.detail, now=now),
+        )
+    )
 
 
 @bp.post("/officer/complaints/batch-status")
 @require_role(OFFICER)
-def batch_update_status():
+@validate_body(BatchStatusUpdateRequest)
+def batch_update_status(body: BatchStatusUpdateRequest):
     """200 BatchStatusUpdateResult — the only endpoint where partial failure is
     a SUCCESS response.
 
-    TODO(phase 5). Validate all -> apply the valid ones -> ONE commit.
+    Validates all items, applies valid ones, then commits once in the service.
     Per-item failures are `TransitionFailureCode` values in the 200 body.
     An unknown complaint id is a per-item UNKNOWN_COMPLAINT; an unknown
     `clusterId` IS a 404. Exactly one of `complaintIds` / `clusterId`.
     """
-    todo("Batch status update")
+    user = current_user()
+    now = _utcnow()
+    result = lifecycle.transition_batch(
+        officer=user,
+        complaint_ids=[int(item) for item in body.complaintIds] if body.complaintIds else None,
+        cluster_id=int(body.clusterId) if body.clusterId else None,
+        target=body.status,
+        reason=body.reason,
+        note=body.note,
+        now=now,
+    )
+    return jsonify(result)
 
 
 @bp.post("/officer/complaints/<complaint_id>/notes")
 @require_role(OFFICER)
-def add_progress_note(complaint_id: str):
-    """201 ProgressNote — up to 500 chars, permanent, citizen-visible.
+@validate_body(ProgressNoteRequest)
+def add_progress_note(complaint_id: str, body: ProgressNoteRequest):
+    user = current_user()
+    now = _utcnow()
 
-    TODO(phase 4). Shown to the citizen with the officer's ID, never their name.
-    """
-    todo("Progress note")
+    note = lifecycle.add_progress_note(
+        complaint_id=int(complaint_id), officer=user, note_text=body.text, now=now
+    )
+
+    return jsonify(_serialize_progress_note(note)), 201
 
 
 @bp.post("/officer/clusters/<cluster_id>/notes")
 @require_role(OFFICER)
-def add_cluster_progress_note(cluster_id: str):
-    """201 — one note fanned out to every complaint in the cluster.
-
-    TODO(phase 5). An unknown cluster id is a 404 here.
-    """
-    todo("Cluster progress note")
+@validate_body(ProgressNoteRequest)
+def add_cluster_progress_note(cluster_id: str, body: ProgressNoteRequest):
+    """201 — one note fanned out to every eligible complaint in the cluster."""
+    user = current_user()
+    now = _utcnow()
+    notes = lifecycle.add_cluster_progress_notes(
+        cluster_id=int(cluster_id), officer=user, note_text=body.text, now=now
+    )
+    return jsonify([_serialize_progress_note(note) for note in notes]), 201
 
 
 @bp.get("/officer/analytics")
 @require_role(OFFICER)
-def get_officer_analytics():
-    """200 ZoneAnalytics — for THIS officer's zone only.
-
-    TODO(phase 5). `avgResolutionHours` is
-    `resolved_at - sla_started_at - sla_paused_seconds`. Do not copy the mock,
-    which computes it three other ways.
-    """
-    todo("Officer analytics")
+@validate_query(OfficerAnalyticsQuery)
+def get_officer_analytics(query: OfficerAnalyticsQuery):
+    """200 ZoneAnalytics — for THIS officer's zone only."""
+    user = current_user()
+    now = _utcnow()
+    return jsonify(
+        zone_analytics(
+            zone_id=require_officer_zone(user),
+            now=now,
+            date_from=query.dateFrom,
+            date_to=query.dateTo,
+        )
+    )
 
 
 @bp.get("/officers/<officer_id>/stats")
 @require_auth
 def get_public_officer_stats(officer_id: str):
-    """200 PublicOfficerStats — any authenticated role, including citizens.
-
-    TODO(phase 4). Deliberately tiny: a resolved count. No name, ever.
-    """
-    todo("Public officer stats")
+    stats = analytics_officer.public_officer_stats(officer_id=int(officer_id))
+    return jsonify(stats)

@@ -98,7 +98,7 @@ export const router = createBrowserRouter([
       {
         element: (
           <AppShell
-            roleLabel="Admin"
+            roleLabelKey="roles.admin"
             accountPath="/admin/account"
             navItems={adminNavItems}
           />

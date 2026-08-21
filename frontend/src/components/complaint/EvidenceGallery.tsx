@@ -1,4 +1,6 @@
 import { useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import {
   Bot,
   BotOff,
@@ -14,27 +16,58 @@ import { PhotoThumb } from "@/components/ui/PhotoThumb";
 import { relativeTime, absoluteDateTime } from "@/lib/datetime";
 import { screeningPhase } from "@/lib/aiScreening";
 import { cn } from "@/lib/utils";
+import type { TranslationKey } from "@/i18n";
 import type { Evidence, EvidenceVerdict } from "@/types/api";
 
 const VERDICT_CONFIG: Record<
   EvidenceVerdict,
-  { label: string; icon: typeof CheckCircle2; className: string }
+  { labelKey: TranslationKey; icon: typeof CheckCircle2; className: string }
 > = {
-  VALID: { label: "Accepted", icon: CheckCircle2, className: "text-status-resolved" },
+  VALID: {
+    labelKey: "evidence.verdict.VALID",
+    icon: CheckCircle2,
+    className: "text-status-resolved",
+  },
   NEEDS_MORE_EVIDENCE: {
-    label: "Needed more evidence",
+    labelKey: "evidence.verdict.NEEDS_MORE_EVIDENCE",
     icon: AlertTriangle,
     className: "text-status-needs_more_evidence",
   },
-  REJECTED: { label: "Rejected", icon: XCircle, className: "text-status-rejected" },
+  REJECTED: {
+    labelKey: "evidence.verdict.REJECTED",
+    icon: XCircle,
+    className: "text-status-rejected",
+  },
 };
 
-function confidenceBadgeClass(confidence: number | null | undefined): string {
-  if (confidence == null) return "bg-surface-hover text-ink-muted";
-  if (confidence >= 0.7) return "bg-status-resolved-subtle text-status-resolved";
-  if (confidence >= 0.4)
-    return "bg-status-needs_more_evidence-subtle text-status-needs_more_evidence";
-  return "bg-status-rejected-subtle text-status-rejected";
+/**
+ * The screening badge is deliberately qualitative.
+ *
+ * A percentage reads as a measurement of whether the complaint is genuine,
+ * which is not what the model produces and not what anyone should act on: the
+ * officer's evidence-review verdict is the decision, and the AI note is
+ * advisory only. Alpha testers consistently read "58% match" as "this report
+ * is 58% likely to be real" and argued with it. `matchesCategory` is the one
+ * bit that is actually actionable — does the photo look like the category the
+ * citizen picked — so that is all this shows.
+ */
+function screeningBadge(note: {
+  matchesCategory?: boolean | null;
+}): { label: string; className: string } {
+  if (note.matchesCategory === true) {
+    return {
+      label: "Matches category",
+      className: "bg-status-resolved-subtle text-status-resolved",
+    };
+  }
+  if (note.matchesCategory === false) {
+    return {
+      label: "Possible mismatch",
+      className:
+        "bg-status-needs_more_evidence-subtle text-status-needs_more_evidence",
+    };
+  }
+  return { label: "AI reviewed", className: "bg-surface-hover text-ink-muted" };
 }
 
 /**
@@ -43,13 +76,13 @@ function confidenceBadgeClass(confidence: number | null | undefined): string {
  * text-ink-faint since this renders over the lightbox's dark overlay, not
  * the page surface.
  */
-function aiScreeningDescription(item: Evidence): ReactNode {
+function aiScreeningDescription(item: Evidence, t: TFunction): ReactNode {
   const phase = item.aiConfidenceNote ? screeningPhase(item.aiConfidenceNote) : null;
   if (phase === "pending") {
     return (
       <span className="flex items-center gap-1.5 text-xs text-white/70">
         <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
-        Analyzing photo {item.sequence}…
+        {t("evidence.analyzingPhoto", { sequence: item.sequence })}
       </span>
     );
   }
@@ -58,8 +91,6 @@ function aiScreeningDescription(item: Evidence): ReactNode {
       <span className="flex items-center gap-1.5 text-xs text-white/70">
         <Bot className="size-3.5 shrink-0" aria-hidden="true" />
         {item.aiConfidenceNote.note}
-        {item.aiConfidenceNote.confidence != null &&
-          ` (${Math.round(item.aiConfidenceNote.confidence * 100)}% confidence)`}
       </span>
     );
   }
@@ -67,22 +98,34 @@ function aiScreeningDescription(item: Evidence): ReactNode {
     return (
       <span className="flex items-center gap-1.5 text-xs text-white/70">
         <BotOff className="size-3.5 shrink-0" aria-hidden="true" />
-        AI screening was unavailable — an officer will review it directly.
+        {t("evidence.aiUnavailableShort")}
       </span>
     );
   }
   return undefined;
 }
 
-export function EvidenceGallery({ evidence }: { evidence: Evidence[] }) {
+export function EvidenceGallery({
+  evidence,
+  officerLabel,
+}: {
+  evidence: Evidence[];
+  /** See StatusTimeline — admin-only name resolution, "Officer #7" otherwise. */
+  officerLabel?: (officerId: string) => string;
+}) {
+  const { t } = useTranslation();
+  const labelForOfficer = officerLabel ?? ((id: string) => `Officer #${id}`);
   const sorted = [...evidence].sort((a, b) => a.sequence - b.sequence);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   const lightboxImages = sorted.map((item) => ({
     src: item.photoUrl,
-    alt: `Evidence photo ${item.sequence}`,
-    caption: `Photo #${item.sequence} · submitted ${absoluteDateTime(item.submittedAt)}`,
-    description: aiScreeningDescription(item),
+    alt: t("evidence.photoAlt", { sequence: item.sequence }),
+    caption: t("evidence.photoCaption", {
+      sequence: item.sequence,
+      when: absoluteDateTime(item.submittedAt),
+    }),
+    description: aiScreeningDescription(item, t),
   }));
 
   return (
@@ -97,27 +140,27 @@ export function EvidenceGallery({ evidence }: { evidence: Evidence[] }) {
             <button
               type="button"
               onClick={() => setLightboxIndex(index)}
-              aria-label={`View photo ${item.sequence} full-size`}
+              aria-label={t("evidence.viewFullSize", { sequence: item.sequence })}
               className="group relative block w-full"
             >
               <PhotoThumb
                 src={item.photoUrl}
-                alt={`Evidence photo ${item.sequence}`}
+                alt={t("evidence.photoAlt", { sequence: item.sequence })}
                 className="h-48 w-full object-cover"
                 iconClassName="text-ink-faint size-8"
               />
               <span className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/30 group-hover:opacity-100 focus-visible:opacity-100">
                 <ZoomIn className="size-6 text-white" aria-hidden="true" />
               </span>
-              {phase === "done" && item.aiConfidenceNote?.confidence != null && (
+              {phase === "done" && item.aiConfidenceNote && (
                 <span
                   className={cn(
                     "absolute top-2 right-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold shadow-sm",
-                    confidenceBadgeClass(item.aiConfidenceNote.confidence),
+                    screeningBadge(item.aiConfidenceNote).className,
                   )}
                 >
                   <Bot className="size-3.5 shrink-0" aria-hidden="true" />
-                  {Math.round(item.aiConfidenceNote.confidence * 100)}% match
+                  {screeningBadge(item.aiConfidenceNote).label}
                 </span>
               )}
               {phase === "pending" && (
@@ -126,20 +169,23 @@ export function EvidenceGallery({ evidence }: { evidence: Evidence[] }) {
                     className="size-3.5 shrink-0 animate-spin"
                     aria-hidden="true"
                   />
-                  Analyzing…
+                  {t("evidence.analyzing")}
                 </span>
               )}
               {phase === "unavailable" && (
                 <span className="bg-surface/90 text-ink-muted absolute top-2 right-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium shadow-sm">
                   <BotOff className="size-3.5 shrink-0" aria-hidden="true" />
-                  AI unavailable
+                  {t("evidence.aiUnavailable")}
                 </span>
               )}
             </button>
             <div className="space-y-2 p-3">
               <div className="flex items-center justify-between">
                 <span className="text-ink-faint text-xs font-medium">
-                  Photo #{item.sequence} · {relativeTime(item.submittedAt)}
+                  {t("evidence.photoMeta", {
+                    sequence: item.sequence,
+                    when: relativeTime(item.submittedAt),
+                  })}
                 </span>
                 {verdict && (
                   <span
@@ -149,7 +195,7 @@ export function EvidenceGallery({ evidence }: { evidence: Evidence[] }) {
                     )}
                   >
                     <verdict.icon className="size-3.5" aria-hidden="true" />
-                    {verdict.label}
+                    {t(verdict.labelKey)}
                   </span>
                 )}
               </div>
@@ -161,8 +207,7 @@ export function EvidenceGallery({ evidence }: { evidence: Evidence[] }) {
               )}
               {phase === "unavailable" && (
                 <p className="text-ink-faint text-xs">
-                  AI screening was unavailable for this photo — an officer will review it
-                  directly.
+                  {t("evidence.aiUnavailableLong")}
                 </p>
               )}
               {item.reviewedByOfficerId && (
@@ -171,7 +216,7 @@ export function EvidenceGallery({ evidence }: { evidence: Evidence[] }) {
                   title={item.reviewedAt ? absoluteDateTime(item.reviewedAt) : undefined}
                 >
                   <UserCog className="size-3.5 shrink-0" aria-hidden="true" />
-                  Reviewed by Officer #{item.reviewedByOfficerId}
+                  Reviewed by {labelForOfficer(item.reviewedByOfficerId)}
                   {item.reviewedAt && ` · ${relativeTime(item.reviewedAt)}`}
                 </p>
               )}

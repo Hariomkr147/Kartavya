@@ -6,7 +6,9 @@ import {
   useSyncExternalStore,
   type DragEvent,
 } from "react";
-import { Camera, ImagePlus, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { Camera, ImagePlus, Loader2, X } from "lucide-react";
+import { compressPhoto } from "@/lib/imageCompression";
 import { cn } from "@/lib/utils";
 
 const COARSE_POINTER = "(pointer: coarse)";
@@ -49,7 +51,8 @@ export interface FileDropzoneProps {
 }
 
 const DEFAULT_ACCEPT = "image/jpeg,image/png";
-const DEFAULT_MAX_SIZE = 5 * 1024 * 1024;
+/** Mirrors the backend's MAX_UPLOAD_BYTES (2MB per photo, per openapi.yaml). */
+const DEFAULT_MAX_SIZE = 2 * 1024 * 1024;
 
 /** Bespoke dropzone for complaint evidence photos: drag-drop or click, client-side type/size validation, up to `maxFiles` image previews. */
 export function FileDropzone({
@@ -61,35 +64,59 @@ export function FileDropzone({
   error,
   className,
 }: FileDropzoneProps) {
+  const { t } = useTranslation();
   const [dragActive, setDragActive] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [compressing, setCompressing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const hasCamera = useHasCamera();
   const acceptedTypes = accept.split(",");
   const slotsLeft = maxFiles - files.length;
 
-  function addCandidates(candidates: FileList | File[] | null) {
+  async function addCandidates(candidates: FileList | File[] | null) {
     if (!candidates || slotsLeft <= 0) return;
     const list = Array.from(candidates).slice(0, slotsLeft);
     for (const candidate of list) {
       if (!acceptedTypes.includes(candidate.type)) {
-        setLocalError("Only JPEG or PNG photos are accepted.");
-        return;
-      }
-      if (candidate.size > maxSizeBytes) {
-        setLocalError(`Photo must be under ${Math.round(maxSizeBytes / (1024 * 1024))} MB.`);
+        setLocalError(t("dropzone.wrongType"));
         return;
       }
     }
     setLocalError(null);
-    onFilesChange([...files, ...list]);
+
+    // Compressed before the size check below runs, so a large-but-ordinary
+    // phone photo (8-15MB is routine) gets shrunk instead of rejected
+    // outright — the check becomes a backstop for the rare photo still too
+    // big afterward, not the common case.
+    //
+    // `maxSizeBytes` is deliberately NOT passed as the compression target:
+    // it's the backend's hard ceiling, and aiming at it told compressPhoto to
+    // stop as soon as a photo squeaked under it. Its own default target sits
+    // below that, leaving room for a best-effort result to overshoot and
+    // still pass the check below.
+    setCompressing(true);
+    let processed: File[];
+    try {
+      processed = await Promise.all(list.map((candidate) => compressPhoto(candidate)));
+    } finally {
+      setCompressing(false);
+    }
+
+    const tooLarge = processed.some((file) => file.size > maxSizeBytes);
+    if (tooLarge) {
+      setLocalError(
+        "That photo is still too large after compression. Try another one.",
+      );
+      return;
+    }
+    onFilesChange([...files, ...processed]);
   }
 
   function removeAt(index: number) {
     // A rejected add's error was about *that* attempt — removing any file,
     // including one unrelated to the rejection, is a different action and
-    // shouldn't leave a stale "must be under 5 MB" message sitting under
+    // shouldn't leave a stale "still too large" message sitting under
     // photos that satisfy it.
     setLocalError(null);
     onFilesChange(files.filter((_, i) => i !== index));
@@ -136,40 +163,62 @@ export function FileDropzone({
       {slotsLeft > 0 && (
         <div
           role="button"
-          tabIndex={0}
-          onClick={() => inputRef.current?.click()}
+          tabIndex={compressing ? -1 : 0}
+          aria-busy={compressing}
+          onClick={() => !compressing && inputRef.current?.click()}
           onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
+            if (!compressing && (e.key === "Enter" || e.key === " ")) {
               e.preventDefault();
               inputRef.current?.click();
             }
           }}
           onDragOver={(e) => {
             e.preventDefault();
-            setDragActive(true);
+            if (!compressing) setDragActive(true);
           }}
           onDragLeave={() => setDragActive(false)}
-          onDrop={handleDrop}
+          onDrop={compressing ? (e) => e.preventDefault() : handleDrop}
           className={cn(
-            "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed px-6 py-10 text-center transition-colors",
-            dragActive ? "border-brand bg-teal-50" : "border-line-strong hover:border-brand",
+            "flex flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed px-6 py-10 text-center transition-colors",
+            compressing ? "cursor-wait" : "cursor-pointer",
+            dragActive
+              ? "border-brand bg-teal-50"
+              : "border-line-strong hover:border-brand",
             displayError && "border-status-rejected",
             className,
           )}
         >
-          <ImagePlus className="text-ink-faint size-8" aria-hidden="true" />
-          <p className="text-sm font-medium text-ink">
-            {files.length > 0
-              ? `Add another photo (${files.length}/${maxFiles})`
-              : hasCamera
-                ? "Tap to choose a photo"
-                : "Drop a photo here, or click to browse"}
-          </p>
-          <p className="text-ink-faint text-xs">
-            JPEG or PNG, up to {Math.round(maxSizeBytes / (1024 * 1024))} MB
-            {maxFiles > 1 && ` · up to ${maxFiles} photos`}
-          </p>
-          {hasCamera && (
+          {compressing ? (
+            <>
+              <Loader2
+                className="text-ink-faint size-8 animate-spin"
+                aria-hidden="true"
+              />
+              <p className="text-sm font-medium text-ink">Compressing your photo…</p>
+            </>
+          ) : (
+            <>
+              <ImagePlus className="text-ink-faint size-8" aria-hidden="true" />
+              <p className="text-sm font-medium text-ink">
+                {files.length > 0
+                  ? t("dropzone.addAnother", { current: files.length, max: maxFiles })
+                  : hasCamera
+                    ? t("dropzone.tapToChoose")
+                    : t("dropzone.dropHere")}
+              </p>
+              {/*
+                Deliberately no size limit in the copy. Compression runs
+                before the check, so the 2MB ceiling is a backstop a citizen
+                will essentially never hit — printing it only invited them to
+                go resize a photo by hand for no reason.
+              */}
+              <p className="text-ink-faint text-xs">
+                JPEG or PNG — large photos are shrunk automatically
+                {maxFiles > 1 && ` · up to ${maxFiles} photos`}
+              </p>
+            </>
+          )}
+          {!compressing && hasCamera && (
             <button
               type="button"
               onClick={(e) => {
@@ -181,7 +230,7 @@ export function FileDropzone({
               className="border-brand/40 text-brand hover:bg-brand/10 mt-1 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors"
             >
               <Camera className="size-3.5" aria-hidden="true" />
-              Take a photo
+              {t("dropzone.takePhoto")}
             </button>
           )}
         </div>
@@ -212,7 +261,7 @@ export function FileDropzone({
         type="file"
         accept={accept}
         capture="environment"
-        aria-label="Take a photo with the camera"
+        aria-label={t("dropzone.cameraInput")}
         className="sr-only"
         onChange={(e) => {
           addCandidates(e.target.files);
@@ -223,7 +272,9 @@ export function FileDropzone({
           e.target.value = "";
         }}
       />
-      {displayError && <p className="text-status-rejected mt-1.5 text-xs">{displayError}</p>}
+      {displayError && (
+        <p className="text-status-rejected mt-1.5 text-xs">{displayError}</p>
+      )}
     </div>
   );
 }
@@ -238,6 +289,7 @@ function FilePreview({
   /** Single-photo mode only — the explicit, visible counterpart to the ✕ above, for when removing is the only way back to the picker (see `replaceSinglePhoto`). */
   onReplace?: () => void;
 }) {
+  const { t } = useTranslation();
   const previewUrl = useMemo(() => URL.createObjectURL(file), [file]);
   useEffect(() => {
     // Deferred rather than immediate — revoking synchronously on unmount can
@@ -251,12 +303,16 @@ function FilePreview({
     <div>
       <div className="relative overflow-hidden rounded-md border border-line">
         {previewUrl && (
-          <img src={previewUrl} alt="Selected evidence preview" className="h-32 w-full object-cover" />
+          <img
+            src={previewUrl}
+            alt={t("dropzone.previewAlt")}
+            className="h-32 w-full object-cover"
+          />
         )}
         <button
           type="button"
           onClick={onRemove}
-          aria-label="Remove photo"
+          aria-label={t("dropzone.removePhoto")}
           className="bg-ink/60 hover:bg-ink/80 absolute top-1.5 right-1.5 inline-flex size-7 items-center justify-center rounded-full text-white transition-colors"
         >
           <X className="size-3.5" aria-hidden="true" />
@@ -268,7 +324,7 @@ function FilePreview({
           onClick={onReplace}
           className="text-brand mt-1.5 text-xs font-medium hover:underline"
         >
-          Change photo
+          {t("dropzone.changePhoto")}
         </button>
       )}
     </div>

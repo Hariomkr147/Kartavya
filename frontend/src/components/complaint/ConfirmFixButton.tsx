@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { ThumbsUp } from "lucide-react";
 import { Button, type ButtonSize, type ButtonVariant } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
@@ -14,13 +15,14 @@ export function ConfirmFixButton({
   complaintId,
   size = "sm",
   variant = "primary",
-  label = "Confirm fix",
+  label,
 }: {
   complaintId: string;
   size?: ButtonSize;
   variant?: ButtonVariant;
   label?: string;
 }) {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const confirmResolution = useConfirmResolution(complaintId);
 
@@ -28,17 +30,15 @@ export function ConfirmFixButton({
     try {
       await confirmResolution.mutateAsync();
       toast({
-        title: "Thanks for confirming!",
-        description: `${complaintId} is now closed.`,
+        title: t("confirmFix.successTitle"),
+        description: t("confirmFix.successBody", { complaintId }),
         variant: "success",
       });
     } catch (error) {
       toast({
-        title: "Couldn't confirm",
+        title: t("confirmFix.errorTitle"),
         description:
-          error instanceof ApiRequestError
-            ? error.message
-            : "Something went wrong. Please try again.",
+          error instanceof ApiRequestError ? error.message : t("errors.generic"),
         variant: "error",
       });
     }
@@ -50,10 +50,10 @@ export function ConfirmFixButton({
       variant={variant}
       loading={confirmResolution.isPending}
       onClick={handleConfirm}
-      aria-label={`Confirm the fix for complaint ${complaintId}`}
+      aria-label={t("confirmFix.ariaLabel", { complaintId })}
     >
       <ThumbsUp className="size-3.5" aria-hidden="true" />
-      {label}
+      {label ?? t("confirmFix.label")}
     </Button>
   );
 }

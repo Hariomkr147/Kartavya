@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Check, CircleDashed, Loader2, TriangleAlert, X } from "lucide-react";
 import { motion } from "framer-motion";
 import { describeLifecycle, type StageState } from "@/lib/lifecycle";
@@ -68,13 +69,14 @@ export function LifecycleTracker({
   status: ComplaintStatus;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const { stages, currentIndex, detour } = describeLifecycle(status);
   const current = stages[currentIndex];
 
   return (
     <section
       className={cn("rounded-lg border border-line bg-surface p-5", className)}
-      aria-label="Complaint progress"
+      aria-label={t("lifecycleTracker.label")}
     >
       <ol className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-0">
         {stages.map((stage, index) => {
@@ -140,7 +142,12 @@ export function LifecycleTracker({
 
       <p className="sr-only">
         {current
-          ? `Currently at stage ${currentIndex + 1} of ${stages.length}: ${current.label}. ${current.hint}`
+          ? t("lifecycleTracker.srStatus", {
+              step: currentIndex + 1,
+              total: stages.length,
+              label: current.label,
+              hint: current.hint,
+            })
           : ""}
       </p>
     </section>

@@ -1,16 +1,25 @@
+import i18n from "@/i18n";
 import type { StatusHistoryEntry } from "@/types/api";
 
 /** "3d 4h", "5h 12m", "42m" — always the two most significant units, never seconds. */
 export function formatDuration(ms: number): string {
-  if (ms <= 0) return "0m";
+  if (ms <= 0) return i18n.t("duration.zero");
   const totalMinutes = Math.floor(ms / 60_000);
   const days = Math.floor(totalMinutes / (60 * 24));
   const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
   const minutes = totalMinutes % 60;
 
-  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
-  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-  return `${minutes}m`;
+  if (days > 0) {
+    return hours > 0
+      ? i18n.t("duration.daysHours", { days, hours })
+      : i18n.t("duration.days", { days });
+  }
+  if (hours > 0) {
+    return minutes > 0
+      ? i18n.t("duration.hoursMinutes", { hours, minutes })
+      : i18n.t("duration.hours", { hours });
+  }
+  return i18n.t("duration.minutes", { minutes });
 }
 
 export interface StageDuration {

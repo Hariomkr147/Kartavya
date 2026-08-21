@@ -4,6 +4,7 @@ import App from "./App.tsx";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { DensityProvider } from "./contexts/DensityContext";
 import { ToastProvider } from "./components/ui/Toast";
+import { initI18n } from "./i18n";
 import "./index.css";
 
 async function enableMocksIfNeeded() {
@@ -16,7 +17,10 @@ async function enableMocksIfNeeded() {
   logDemoCredentials();
 }
 
-enableMocksIfNeeded().then(() => {
+// i18n resolves (and fetches, for a non-English locale) before the first
+// render, so the app never paints a frame of English at someone who has
+// already chosen another language.
+Promise.all([enableMocksIfNeeded(), initI18n()]).then(() => {
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <ThemeProvider>

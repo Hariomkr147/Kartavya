@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import {
   BadgeCheck,
   CircleCheck,
@@ -127,21 +128,26 @@ export function ActionRequiredPanel({
   confirming,
   onOpenDispute,
 }: ActionRequiredPanelProps) {
+  const { t } = useTranslation();
   const statusReason = latestStatusReason(complaint.status, complaint.statusHistory);
 
   if (complaint.status === "NEEDS_MORE_EVIDENCE") {
     const reason = evidenceRequestReason(complaint.evidence) ?? statusReason;
     return (
-      <PanelShell tone="action" icon={TriangleAlert} title="A clearer photo is needed">
+      <PanelShell
+        tone="action"
+        icon={TriangleAlert}
+        title={t("actionPanel.needsEvidence.title")}
+      >
         <p className="text-ink-muted mt-1 text-sm">
-          The officer reviewing your report couldn't act on the evidence so far. Add
-          another photo and it goes straight back to them.
+          {t("actionPanel.needsEvidence.body")}
         </p>
-        {reason && <AttributedQuote attribution="the reviewing officer">{reason}</AttributedQuote>}
-        <p className="text-ink-faint mt-3 text-xs">
-          The resolution clock is paused while this waits on you — the time you take
-          isn't counted against the city's target.
-        </p>
+        {reason && (
+          <AttributedQuote attribution={t("actionPanel.attribution.officer")}>
+            {reason}
+          </AttributedQuote>
+        )}
+        <p className="text-ink-faint mt-3 text-xs">{t("actionPanel.needsEvidence.note")}</p>
         <div className="mt-3 max-w-sm">
           <FileDropzone
             files={resubmitPhoto ? [resubmitPhoto] : []}
@@ -155,7 +161,7 @@ export function ActionRequiredPanel({
           loading={resubmitting}
           onClick={onResubmit}
         >
-          Resubmit evidence
+          {t("actionPanel.needsEvidence.submit")}
         </Button>
       </PanelShell>
     );
@@ -163,29 +169,25 @@ export function ActionRequiredPanel({
 
   if (complaint.status === "RESOLVED") {
     return (
-      <PanelShell tone="good" icon={BadgeCheck} title="Is this actually fixed?">
-        <p className="text-ink-muted mt-1 text-sm">
-          An officer marked this resolved. You're the one who can verify it on the
-          ground — confirm the fix to close it, or dispute it if the problem is still
-          there.
-        </p>
+      <PanelShell tone="good" icon={BadgeCheck} title={t("actionPanel.resolved.title")}>
+        <p className="text-ink-muted mt-1 text-sm">{t("actionPanel.resolved.body")}</p>
         {statusReason && (
-          <AttributedQuote attribution="the reviewing officer">{statusReason}</AttributedQuote>
+          <AttributedQuote attribution={t("actionPanel.attribution.officer")}>
+            {statusReason}
+          </AttributedQuote>
         )}
         <div className="mt-4 flex flex-wrap gap-3">
           <Button size="sm" loading={confirming} onClick={onConfirm}>
             <ThumbsUp className="size-4" aria-hidden="true" />
-            Confirm the fix
+            {t("actionPanel.resolved.confirm")}
           </Button>
           <Button size="sm" variant="outline" onClick={onOpenDispute}>
             <ThumbsDown className="size-4" aria-hidden="true" />
-            It's not actually fixed
+            {t("actionPanel.resolved.dispute")}
           </Button>
         </div>
         <p className="text-ink-faint mt-3 text-xs">
-          Confirming credits your Civic Service Points. If nobody confirms, the city
-          closes it automatically after its timeout — and that path credits no points at
-          all.
+          {t("actionPanel.resolved.note")}
         </p>
       </PanelShell>
     );
@@ -193,14 +195,12 @@ export function ActionRequiredPanel({
 
   if (complaint.status === "REOPENED") {
     return (
-      <PanelShell tone="waiting" icon={Gavel} title="Your dispute is being reviewed">
-        <p className="text-ink-muted mt-1 text-sm">
-          An administrator is weighing up your evidence. If they uphold the dispute it
-          goes back to an officer to fix; if not, it closes here. Nothing is needed from
-          you in the meantime.
-        </p>
+      <PanelShell tone="waiting" icon={Gavel} title={t("actionPanel.reopened.title")}>
+        <p className="text-ink-muted mt-1 text-sm">{t("actionPanel.reopened.body")}</p>
         {statusReason && (
-          <AttributedQuote attribution="your dispute">{statusReason}</AttributedQuote>
+          <AttributedQuote attribution={t("actionPanel.attribution.dispute")}>
+            {statusReason}
+          </AttributedQuote>
         )}
       </PanelShell>
     );
@@ -208,14 +208,12 @@ export function ActionRequiredPanel({
 
   if (complaint.status === "REJECTED") {
     return (
-      <PanelShell tone="bad" icon={XCircle} title="This report was rejected">
-        <p className="text-ink-muted mt-1 text-sm">
-          An officer decided this wasn't a civic issue they could act on. Rejection is
-          final for this report — if the problem is real and ongoing, file a fresh one
-          with clearer photos.
-        </p>
+      <PanelShell tone="bad" icon={XCircle} title={t("actionPanel.rejected.title")}>
+        <p className="text-ink-muted mt-1 text-sm">{t("actionPanel.rejected.body")}</p>
         {statusReason && (
-          <AttributedQuote attribution="the reviewing officer">{statusReason}</AttributedQuote>
+          <AttributedQuote attribution={t("actionPanel.attribution.officer")}>
+            {statusReason}
+          </AttributedQuote>
         )}
       </PanelShell>
     );
@@ -223,13 +221,14 @@ export function ActionRequiredPanel({
 
   if (complaint.status === "UNRESOLVABLE") {
     return (
-      <PanelShell tone="bad" icon={XCircle} title="Marked unresolvable">
+      <PanelShell tone="bad" icon={XCircle} title={t("actionPanel.unresolvable.title")}>
         <p className="text-ink-muted mt-1 text-sm">
-          The zone office concluded this can't be fixed through the complaints process.
-          It stops here.
+          {t("actionPanel.unresolvable.body")}
         </p>
         {statusReason && (
-          <AttributedQuote attribution="the reviewing officer">{statusReason}</AttributedQuote>
+          <AttributedQuote attribution={t("actionPanel.attribution.officer")}>
+            {statusReason}
+          </AttributedQuote>
         )}
       </PanelShell>
     );
@@ -237,13 +236,16 @@ export function ActionRequiredPanel({
 
   if (complaint.status === "CLOSED") {
     return (
-      <PanelShell tone="good" icon={CircleCheck} title="Closed — thanks for seeing it through">
-        <p className="text-ink-muted mt-1 text-sm">
-          This report is finished. Any points it earned are in your ledger under My
-          Kartavya.
-        </p>
+      <PanelShell
+        tone="good"
+        icon={CircleCheck}
+        title={t("actionPanel.closed.title")}
+      >
+        <p className="text-ink-muted mt-1 text-sm">{t("actionPanel.closed.body")}</p>
         {statusReason && (
-          <AttributedQuote attribution="an administrator">{statusReason}</AttributedQuote>
+          <AttributedQuote attribution={t("actionPanel.attribution.admin")}>
+            {statusReason}
+          </AttributedQuote>
         )}
       </PanelShell>
     );
@@ -253,11 +255,11 @@ export function ActionRequiredPanel({
   // UNDER_RESOLUTION — the city owns the next move. Saying so explicitly
   // beats leaving the page silent.
   return (
-    <PanelShell tone="waiting" icon={Hourglass} title="Nothing needed from you right now">
+    <PanelShell tone="waiting" icon={Hourglass} title={t("actionPanel.waiting.title")}>
       <p className="text-ink-muted mt-1 text-sm">
         {complaint.assignedOfficerId
-          ? `Officer #${complaint.assignedOfficerId} has this one. We'll ask you to confirm as soon as they mark it fixed.`
-          : "Your report is in the zone queue. We'll ask you to confirm as soon as an officer marks it fixed."}
+          ? t("actionPanel.waiting.assigned", { officerId: complaint.assignedOfficerId })
+          : t("actionPanel.waiting.queued")}
       </p>
     </PanelShell>
   );

@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { motion } from "framer-motion";
 import { ArrowRight, Check, Radio } from "lucide-react";
 import { StatusPill } from "@/components/ui/pills";
@@ -22,6 +23,8 @@ export function OfficerUpdatesCard({
   updates: OfficerQueueUpdate[];
   onDismiss: () => void;
 }) {
+  const { t } = useTranslation();
+
   if (updates.length === 0) return null;
   const shown = updates.slice(0, MAX_SHOWN);
   const overflow = updates.length - shown.length;
@@ -32,15 +35,13 @@ export function OfficerUpdatesCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
       className="border-brand/30 from-brand/8 overflow-hidden rounded-lg border bg-gradient-to-br via-surface to-surface"
-      aria-label="Updates to your assigned complaints since your last visit"
+      aria-label={t("updatesCard.officerLabel")}
     >
       <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5 pb-3">
         <div className="flex items-center gap-2">
           <Radio className="text-brand size-5" aria-hidden="true" />
           <h2 className="font-display text-base font-semibold text-ink">
-            {updates.length === 1
-              ? "1 of your complaints moved while you were away"
-              : `${updates.length} of your complaints moved while you were away`}
+            {t("updatesCard.officerTitle", { count: updates.length })}
           </h2>
         </div>
         <button
@@ -49,7 +50,7 @@ export function OfficerUpdatesCard({
           className="text-ink-muted hover:bg-surface-hover hover:text-ink inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
         >
           <Check className="size-3.5" aria-hidden="true" />
-          Mark all as seen
+          {t("updatesCard.markSeen")}
         </button>
       </div>
 
@@ -78,7 +79,7 @@ export function OfficerUpdatesCard({
 
       {overflow > 0 && (
         <p className="text-ink-faint border-t border-line px-5 py-2 text-xs">
-          and {overflow} more — see My Queue for the full picture.
+          {t("updatesCard.overflowOfficer", { count: overflow })}
         </p>
       )}
     </motion.section>

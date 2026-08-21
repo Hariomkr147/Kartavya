@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Boxes, FileQuestion } from "lucide-react";
 import { StatusPill, SeverityPill, SlaPill } from "@/components/ui/pills";
@@ -30,6 +31,7 @@ import { iconForCategory } from "@/lib/categoryIcons";
 import { relativeTime } from "@/lib/datetime";
 import { ApiRequestError } from "@/services/http";
 import type { ComplaintStatus } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 const STATUS_ORDER: ComplaintStatus[] = [
   "SUBMITTED",
@@ -45,19 +47,18 @@ const STATUS_ORDER: ComplaintStatus[] = [
   "UNRESOLVABLE",
 ];
 
-function humanStatusLabel(status: ComplaintStatus): string {
-  return status
-    .toLowerCase()
-    .split("_")
-    .map((word) => word[0].toUpperCase() + word.slice(1))
-    .join(" ");
-}
-
 export function OfficerClusterDetailPage() {
+  const { t } = useTranslation();
   const { clusterId } = useParams<{ clusterId: string }>();
   const { user } = useAuth();
   const { toast } = useToast();
-  const { data: cluster, isLoading, isError } = useCluster(clusterId);
+  const {
+    data: cluster,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useCluster(clusterId);
   const addClusterNote = useAddClusterProgressNote(clusterId ?? "");
   const { record: recordRecentlyViewed } = useRecentlyViewed(
     `officer:${user?.id ?? "anon"}`,
@@ -93,14 +94,14 @@ export function OfficerClusterDetailPage() {
     return (
       <EmptyState
         icon={FileQuestion}
-        title="Cluster not found"
-        description="It may not exist, or it isn't in your assigned zone."
+        title={t("clusterDetail.notFound")}
+        description={t("clusterDetail.notFoundBody")}
         action={
           <Link
             to="/officer/clusters"
             className="text-brand text-sm font-medium hover:underline"
           >
-            Back to Clusters
+            {t("clusterDetail.backToClusters")}
           </Link>
         }
         className="mx-auto max-w-md py-24"
@@ -110,21 +111,24 @@ export function OfficerClusterDetailPage() {
 
   const statuses = STATUS_ORDER.filter((s) => cluster.statusSummary[s]);
   const statusChartData = statuses.map((status) => ({
-    label: humanStatusLabel(status),
+    label: t(`status.${status}`),
     value: cluster.statusSummary[status],
   }));
 
   async function handleAddNote() {
     setNoteError(null);
     if (!noteText.trim()) {
-      setNoteError("A note is required.");
+      setNoteError(t("clusterDetail.noteRequired"));
       return;
     }
     try {
       const created = await addClusterNote.mutateAsync(noteText.trim());
       toast({
-        title: "Note posted",
-        description: `Added to ${created.length} of ${cluster!.complaints.length} member complaints (only those In Progress or Under Resolution).`,
+        title: t("clusterDetail.notePosted"),
+        description: t("clusterDetail.notePostedBody", {
+          created: created.length,
+          total: cluster!.complaints.length,
+        }),
         variant: "success",
       });
       setNoteOpen(false);
@@ -133,7 +137,7 @@ export function OfficerClusterDetailPage() {
       setNoteError(
         error instanceof ApiRequestError
           ? error.message
-          : "Something went wrong. Please try again.",
+          : t("errors.generic"),
       );
     }
   }
@@ -145,7 +149,7 @@ export function OfficerClusterDetailPage() {
         className="text-ink-muted inline-flex items-center gap-1.5 text-sm hover:text-ink"
       >
         <ArrowLeft className="size-4" aria-hidden="true" />
-        Clusters
+        {t("nav.clusters")}
       </Link>
 
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -158,11 +162,17 @@ export function OfficerClusterDetailPage() {
             />
           </span>
           <div>
-            <h1 className="font-display text-xl font-semibold text-ink">
-              {cluster.category.name}
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="font-display text-xl font-semibold text-ink">
+                {cluster.category.name}
+              </h1>
+              <RefreshButton onRefresh={refetch} refreshing={isFetching} what="this cluster" />
+            </div>
             <p className="text-ink-faint font-mono text-xs">
-              {cluster.id} · formed {relativeTime(cluster.createdAt)}
+              {t("clusterDetail.formedLine", {
+                clusterId: cluster.id,
+                when: relativeTime(cluster.createdAt),
+              })}
             </p>
           </div>
         </div>
@@ -170,20 +180,25 @@ export function OfficerClusterDetailPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-4 rounded-lg border border-line bg-surface p-4 sm:grid-cols-3">
-        <Stat label="Reports" value={cluster.reportCount} />
-        <Stat label="Unique reporters" value={cluster.uniqueReporterCount} />
-        <Stat label="Severity score" value={cluster.severityScore} />
+        <Stat label={t("clusterDetail.reports")} value={cluster.reportCount} />
+        <Stat
+          label={t("clusterDetail.uniqueReporters")}
+          value={cluster.uniqueReporterCount}
+        />
+        <Stat label={t("clusterDetail.severityScore")} value={cluster.severityScore} />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 sm:items-start">
         <div className="rounded-lg border border-line bg-surface p-4">
           <h2 className="font-display mb-3 text-base font-semibold text-ink">
-            Member status breakdown
+            {t("clusterDetail.statusBreakdown")}
           </h2>
           <HorizontalBarChart data={statusChartData} />
         </div>
         <div className="rounded-lg border border-line bg-surface p-4">
-          <h2 className="font-display mb-3 text-base font-semibold text-ink">Centroid</h2>
+          <h2 className="font-display mb-3 text-base font-semibold text-ink">
+            {t("clusterDetail.centroid")}
+          </h2>
           <MiniMap
             pins={[
               {
@@ -201,26 +216,26 @@ export function OfficerClusterDetailPage() {
       <div className="flex flex-wrap gap-2">
         <Button size="sm" onClick={() => setBatchOpen(true)}>
           <Boxes className="size-4" aria-hidden="true" />
-          Batch update status…
+          {t("officerQueue.batchUpdate")}
         </Button>
         <Button size="sm" variant="outline" onClick={() => setNoteOpen(true)}>
-          Add note to all
+          {t("clusterDetail.addNoteToAll")}
         </Button>
       </div>
 
       <section>
         <h2 className="font-display mb-3 text-base font-semibold text-ink">
-          Member complaints
+          {t("clusterDetail.memberComplaints")}
         </h2>
         <Table>
           <TableHead>
             <TableRow>
-              <TableHeaderCell className="w-16">Photo</TableHeaderCell>
-              <TableHeaderCell>Complaint</TableHeaderCell>
-              <TableHeaderCell>Status</TableHeaderCell>
-              <TableHeaderCell>Severity</TableHeaderCell>
-              <TableHeaderCell>SLA</TableHeaderCell>
-              <TableHeaderCell>Filed</TableHeaderCell>
+              <TableHeaderCell className="w-16">{t("columns.photo")}</TableHeaderCell>
+              <TableHeaderCell>{t("columns.complaint")}</TableHeaderCell>
+              <TableHeaderCell>{t("filters.status")}</TableHeaderCell>
+              <TableHeaderCell>{t("filters.severity")}</TableHeaderCell>
+              <TableHeaderCell>{t("columns.sla")}</TableHeaderCell>
+              <TableHeaderCell>{t("columns.filed")}</TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -272,15 +287,15 @@ export function OfficerClusterDetailPage() {
       <Modal
         open={noteOpen}
         onClose={() => setNoteOpen(false)}
-        title="Add note to all members"
-        description="Posted to every complaint in this cluster that's currently In Progress or Under Resolution — others are skipped."
+        title={t("clusterDetail.addNoteTitle")}
+        description={t("clusterDetail.addNoteBody")}
         footer={
           <>
             <Button variant="outline" onClick={() => setNoteOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button loading={addClusterNote.isPending} onClick={handleAddNote}>
-              Post note
+              {t("clusterDetail.postNote")}
             </Button>
           </>
         }
@@ -296,13 +311,13 @@ export function OfficerClusterDetailPage() {
           )}
           <div>
             <Label htmlFor="cluster-note" required>
-              Note
+              {t("clusterDetail.note")}
             </Label>
             <Textarea
               id="cluster-note"
               value={noteText}
               onChange={(e) => setNoteText(e.target.value)}
-              placeholder="What's the latest update?"
+              placeholder={t("clusterDetail.notePlaceholder")}
               maxLength={500}
             />
           </div>

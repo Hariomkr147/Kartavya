@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -38,58 +39,65 @@ import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
 import { iconForCategory } from "@/lib/categoryIcons";
 import { relativeTime, absoluteDateTime } from "@/lib/datetime";
 import { ApiRequestError } from "@/services/http";
+import type { TranslationKey } from "@/i18n";
 import type {
   EvidenceVerdict,
   OfficerTargetStatus,
   StatusUpdateResult,
 } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 type ActionModalType = "resolve" | "recall" | "unresolvable";
 
 const ACTION_MODAL_CONFIG: Record<
   ActionModalType,
   {
-    title: string;
-    description: string;
+    titleKey: TranslationKey;
+    descriptionKey: TranslationKey;
     targetStatus: OfficerTargetStatus;
     reasonRequired: boolean;
     noteField: boolean;
-    confirmLabel: string;
+    confirmLabelKey: TranslationKey;
   }
 > = {
   resolve: {
-    title: "Mark resolved",
-    description:
-      "The citizen will be asked to confirm the fix. An optional closing note is visible to them.",
+    titleKey: "officerComplaint.actions.resolve.title",
+    descriptionKey: "officerComplaint.actions.resolve.description",
     targetStatus: "RESOLVED",
     reasonRequired: false,
     noteField: true,
-    confirmLabel: "Mark resolved",
+    confirmLabelKey: "officerComplaint.actions.resolve.confirm",
   },
   recall: {
-    title: "Recall for more evidence",
-    description:
-      "Pauses the SLA clock until the citizen re-uploads a photo for you to re-verdict.",
+    titleKey: "officerComplaint.actions.recall.title",
+    descriptionKey: "officerComplaint.actions.recall.description",
     targetStatus: "NEEDS_MORE_EVIDENCE",
     reasonRequired: true,
     noteField: false,
-    confirmLabel: "Recall complaint",
+    confirmLabelKey: "officerComplaint.actions.recall.confirm",
   },
   unresolvable: {
-    title: "Mark unresolvable",
-    description: "This closes the complaint permanently. This cannot be undone.",
+    titleKey: "officerComplaint.actions.unresolvable.title",
+    descriptionKey: "officerComplaint.actions.unresolvable.description",
     targetStatus: "UNRESOLVABLE",
     reasonRequired: true,
     noteField: false,
-    confirmLabel: "Mark unresolvable",
+    confirmLabelKey: "officerComplaint.actions.unresolvable.confirm",
   },
 };
 
 export function OfficerComplaintDetailPage() {
+  const { t } = useTranslation();
   const { complaintId } = useParams<{ complaintId: string }>();
   const { user } = useAuth();
   const { toast } = useToast();
-  const { data: complaint, isLoading, isError } = useComplaint(complaintId);
+  const {
+    data: complaint,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useComplaint(complaintId);
   const { data: cluster } = useCluster(complaint?.clusterId);
 
   const claim = useClaimComplaint();
@@ -139,8 +147,8 @@ export function OfficerComplaintDetailPage() {
     return (
       <EmptyState
         icon={FileQuestion}
-        title="Complaint not found"
-        description="It may not exist, or it isn't in your assigned zone."
+        title={t("complaintDetail.notFound")}
+        description={t("officerComplaint.notFoundBody")}
         action={
           <Link
             to="/officer/queue"
@@ -172,7 +180,7 @@ export function OfficerComplaintDetailPage() {
       id: complaint.id,
       lat: complaint.latitude,
       lng: complaint.longitude,
-      label: "This complaint",
+      label: t("officerComplaint.thisComplaint"),
     });
   }
   if (cluster) {
@@ -180,7 +188,7 @@ export function OfficerComplaintDetailPage() {
       id: `cluster-${cluster.id}`,
       lat: cluster.centroidLat,
       lng: cluster.centroidLng,
-      label: "Cluster centroid",
+      label: t("officerComplaint.clusterCentroid"),
     });
   }
 
@@ -190,7 +198,7 @@ export function OfficerComplaintDetailPage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      toast({ title: "Couldn't copy the complaint ID", variant: "error" });
+      toast({ title: t("complaintDetail.idCopyFailed"), variant: "error" });
     }
   }
 
@@ -206,9 +214,7 @@ export function OfficerComplaintDetailPage() {
       return {
         ok: false,
         message:
-          error instanceof ApiRequestError
-            ? error.message
-            : "Something went wrong. Please try again.",
+          error instanceof ApiRequestError ? error.message : t("errors.generic"),
       };
     }
   }
@@ -218,13 +224,13 @@ export function OfficerComplaintDetailPage() {
     try {
       await claim.mutateAsync(complaintId);
       toast({
-        title: "Complaint claimed",
-        description: "Review the submitted photo below.",
+        title: t("officerQueue.claimed"),
+        description: t("officerComplaint.claimedBody"),
         variant: "success",
       });
     } catch (error) {
       toast({
-        title: "Couldn't claim this complaint",
+        title: t("officerQueue.claimFailed"),
         description: error instanceof ApiRequestError ? error.message : undefined,
         variant: "error",
       });
@@ -234,14 +240,14 @@ export function OfficerComplaintDetailPage() {
   async function handleReviewSubmit() {
     setReviewError(null);
     if (!reviewVerdict) {
-      setReviewError("Choose a verdict.");
+      setReviewError(t("officerComplaint.chooseVerdict"));
       return;
     }
     if (
       (reviewVerdict === "NEEDS_MORE_EVIDENCE" || reviewVerdict === "REJECTED") &&
       !reviewReason.trim()
     ) {
-      setReviewError("A reason is required for this verdict.");
+      setReviewError(t("officerComplaint.verdictReasonRequired"));
       return;
     }
     try {
@@ -249,14 +255,12 @@ export function OfficerComplaintDetailPage() {
         verdict: reviewVerdict,
         reason: reviewReason.trim() || undefined,
       });
-      toast({ title: "Verdict recorded", variant: "success" });
+      toast({ title: t("officerComplaint.verdictRecorded"), variant: "success" });
       setReviewVerdict("");
       setReviewReason("");
     } catch (error) {
       setReviewError(
-        error instanceof ApiRequestError
-          ? error.message
-          : "Something went wrong. Please try again.",
+        error instanceof ApiRequestError ? error.message : t("errors.generic"),
       );
     }
   }
@@ -269,7 +273,7 @@ export function OfficerComplaintDetailPage() {
     if (result.ok) toast({ title: successTitle, variant: "success" });
     else
       toast({
-        title: "Couldn't update status",
+        title: t("officerComplaint.statusUpdateFailed"),
         description: result.message,
         variant: "error",
       });
@@ -287,7 +291,7 @@ export function OfficerComplaintDetailPage() {
     setModalError(null);
     const config = ACTION_MODAL_CONFIG[actionModal];
     if (config.reasonRequired && !modalReason.trim()) {
-      setModalError("A reason is required.");
+      setModalError(t("officerComplaint.reasonRequired"));
       return;
     }
     const result = await runStatusUpdate(config.targetStatus, {
@@ -295,7 +299,7 @@ export function OfficerComplaintDetailPage() {
       note: modalNote.trim() || undefined,
     });
     if (result.ok) {
-      toast({ title: config.title, variant: "success" });
+      toast({ title: t(config.titleKey), variant: "success" });
       setActionModal(null);
     } else {
       setModalError(result.message);
@@ -306,11 +310,11 @@ export function OfficerComplaintDetailPage() {
     if (!noteText.trim()) return;
     try {
       await addNote.mutateAsync(noteText.trim());
-      toast({ title: "Note posted", variant: "success" });
+      toast({ title: t("clusterDetail.notePosted"), variant: "success" });
       setNoteText("");
     } catch (error) {
       toast({
-        title: "Couldn't post note",
+        title: t("officerComplaint.notePostFailed"),
         description: error instanceof ApiRequestError ? error.message : undefined,
         variant: "error",
       });
@@ -319,10 +323,10 @@ export function OfficerComplaintDetailPage() {
 
   const assignedLabel =
     complaint.assignedOfficerId == null
-      ? "Unassigned"
+      ? t("officerQueue.tabs.unassigned")
       : complaint.assignedOfficerId === user?.id
-        ? "You"
-        : `Officer #${complaint.assignedOfficerId}`;
+        ? t("statusTimeline.you")
+        : t("statusTimeline.officer", { officerId: complaint.assignedOfficerId });
 
   const canAddNote =
     complaint.status === "IN_PROGRESS" || complaint.status === "UNDER_RESOLUTION";
@@ -335,7 +339,7 @@ export function OfficerComplaintDetailPage() {
         className="text-ink-muted inline-flex items-center gap-1.5 text-sm hover:text-ink"
       >
         <ArrowLeft className="size-4" aria-hidden="true" />
-        Queue
+        {t("nav.queue")}
       </Link>
 
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -348,15 +352,21 @@ export function OfficerComplaintDetailPage() {
             />
           </span>
           <div>
-            <h1 className="font-display text-xl font-semibold text-ink">
-              {complaint.category.name}
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="font-display text-xl font-semibold text-ink">
+                {complaint.category.name}
+              </h1>
+              <RefreshButton onRefresh={refetch} refreshing={isFetching} what="this complaint" />
+            </div>
             <div className="text-ink-faint flex items-center gap-1.5 font-mono text-xs">
-              {complaint.id} · filed {relativeTime(complaint.createdAt)}
+              {t("complaintDetail.filedLine", {
+                complaintId: complaint.id,
+                when: relativeTime(complaint.createdAt),
+              })}
               <button
                 type="button"
                 onClick={handleCopyId}
-                aria-label="Copy complaint ID"
+                aria-label={t("complaintDetail.copyId")}
                 className="text-ink-faint hover:text-ink inline-flex items-center"
               >
                 {copied ? (
@@ -378,25 +388,32 @@ export function OfficerComplaintDetailPage() {
       <div className="text-ink-muted flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm">
         <span className="inline-flex items-center gap-1.5">
           <ArrowUp className="text-ink-faint size-4" aria-hidden="true" />
-          {complaint.upvoteCount ?? 0} upvote{complaint.upvoteCount === 1 ? "" : "s"}
+          {t("officerComplaint.upvotes", { count: complaint.upvoteCount ?? 0 })}
         </span>
         {complaint.severityScore != null && (
           <span className="inline-flex items-center gap-1.5">
             <Gauge className="text-ink-faint size-4" aria-hidden="true" />
-            Severity score {complaint.severityScore}
+            {t("officerComplaint.severityScore", { score: complaint.severityScore })}
             <Tooltip
               side="bottom"
               content={
                 <span className="block max-w-xs text-left">
                   {cluster
-                    ? `Score ${complaint.severityScore} = (${cluster.uniqueReporterCount} unique reporter${cluster.uniqueReporterCount === 1 ? "" : "s"} − 1) × 3 + ${complaint.upvoteCount ?? 0} upvote(s) across the cluster. Repeat reports from the same citizen don't inflate it.`
-                    : `Score ${complaint.severityScore} = ${complaint.upvoteCount ?? 0} upvote(s) — no nearby duplicates are linked to this complaint.`}
+                    ? t("officerComplaint.severityWithCluster", {
+                        score: complaint.severityScore,
+                        reporters: cluster.uniqueReporterCount,
+                        upvotes: complaint.upvoteCount ?? 0,
+                      })
+                    : t("complaintDetail.severityNoCluster", {
+                        score: complaint.severityScore,
+                        upvotes: complaint.upvoteCount ?? 0,
+                      })}
                 </span>
               }
             >
               <button
                 type="button"
-                aria-label="How is the severity score calculated?"
+                aria-label={t("complaintDetail.severityHelp")}
                 className="text-ink-faint hover:text-ink"
               >
                 <Info className="size-3.5" aria-hidden="true" />
@@ -406,7 +423,9 @@ export function OfficerComplaintDetailPage() {
         )}
         {complaint.updatedAt && (
           <span title={absoluteDateTime(complaint.updatedAt)}>
-            Last updated {relativeTime(complaint.updatedAt)}
+            {t("officerComplaint.lastUpdated", {
+              when: relativeTime(complaint.updatedAt),
+            })}
           </span>
         )}
       </div>
@@ -415,13 +434,13 @@ export function OfficerComplaintDetailPage() {
         <div className="min-w-0 space-y-6">
           <div className="text-ink-muted flex items-center gap-2 rounded-md border border-line bg-surface p-3 text-sm">
             <UserCog className="size-4 shrink-0" aria-hidden="true" />
-            Assigned: {assignedLabel}
+            {t("officerComplaint.assigned", { assignee: assignedLabel })}
           </div>
 
           {mapPins.length > 0 && (
             <section>
               <h2 className="font-display mb-3 text-base font-semibold text-ink">
-                Location
+                {t("fileComplaint.location")}
               </h2>
               <MiniMap pins={mapPins} height={220} />
             </section>
@@ -433,10 +452,10 @@ export function OfficerComplaintDetailPage() {
               className="border-brand/30 bg-brand/5 hover:bg-brand/10 flex items-center gap-2 rounded-md border p-3 text-sm text-ink transition-colors"
             >
               <Boxes className="text-brand size-4 shrink-0" aria-hidden="true" />
-              Part of a cluster of {cluster.reportCount} report
-              {cluster.reportCount === 1 ? "" : "s"} ({cluster.uniqueReporterCount} unique
-              reporter{cluster.uniqueReporterCount === 1 ? "" : "s"}) — resolving this may
-              resolve others automatically. Click here to view details.
+              {t("officerComplaint.clusterBanner", {
+                reports: cluster.reportCount,
+                reporters: cluster.uniqueReporterCount,
+              })}
             </Link>
           )}
 
@@ -454,14 +473,14 @@ export function OfficerComplaintDetailPage() {
                     className="text-status-resolved size-5"
                     aria-hidden="true"
                   />
-                  Cluster cascade
+                  {t("officerComplaint.cascade")}
                 </p>
                 <button
                   type="button"
                   onClick={() => setCascade(null)}
                   className="text-ink-faint hover:text-ink text-xs"
                 >
-                  Dismiss
+                  {t("common.dismiss")}
                 </button>
               </div>
               <ul className="space-y-1 text-sm">
@@ -481,8 +500,10 @@ export function OfficerComplaintDetailPage() {
                     <span className="text-ink-muted">
                       {item.complaintId} —{" "}
                       {item.outcome === "CASCADED"
-                        ? "moved to Resolved"
-                        : `left at ${item.previousStatus}`}
+                        ? t("officerComplaint.cascadeMoved")
+                        : t("officerComplaint.cascadeLeft", {
+                            status: t(`status.${item.previousStatus}`),
+                          })}
                     </span>
                   </li>
                 ))}
@@ -493,10 +514,10 @@ export function OfficerComplaintDetailPage() {
           {complaint.status === "SUBMITTED" && (
             <section className="rounded-lg border border-line bg-surface p-4">
               <h2 className="font-display text-base font-semibold text-ink">
-                Pick up this complaint
+                {t("officerComplaint.pickUp")}
               </h2>
               <p className="text-ink-muted mt-1 text-sm">
-                Claim it to start reviewing the submitted evidence.
+                {t("officerComplaint.pickUpBody")}
               </p>
               <Button
                 size="sm"
@@ -504,7 +525,7 @@ export function OfficerComplaintDetailPage() {
                 loading={claim.isPending}
                 onClick={handleClaim}
               >
-                Claim
+                {t("officerQueue.claim")}
               </Button>
             </section>
           )}
@@ -512,7 +533,7 @@ export function OfficerComplaintDetailPage() {
           {complaint.evidence && complaint.evidence.length > 0 && (
             <section>
               <h2 className="font-display mb-3 text-base font-semibold text-ink">
-                Evidence
+                {t("complaintDetail.evidence")}
               </h2>
               <EvidenceGallery evidence={complaint.evidence} />
             </section>
@@ -521,11 +542,10 @@ export function OfficerComplaintDetailPage() {
           {needsEvidenceReview && (
             <section className="border-brand/30 bg-brand/5 rounded-lg border p-4">
               <h2 className="font-display text-base font-semibold text-ink">
-                Review the latest photo
+                {t("officerComplaint.reviewPhoto")}
               </h2>
               <p className="text-ink-muted mt-1 text-sm">
-                The AI note above is advisory only — your verdict decides what happens
-                next.
+                {t("officerComplaint.reviewPhotoBody")}
               </p>
               {reviewError && (
                 <p
@@ -541,7 +561,7 @@ export function OfficerComplaintDetailPage() {
                   variant={reviewVerdict === "VALID" ? "primary" : "outline"}
                   onClick={() => setReviewVerdict("VALID")}
                 >
-                  Valid
+                  {t("officerComplaint.valid")}
                 </Button>
                 <Button
                   size="sm"
@@ -550,7 +570,7 @@ export function OfficerComplaintDetailPage() {
                   }
                   onClick={() => setReviewVerdict("NEEDS_MORE_EVIDENCE")}
                 >
-                  Needs more evidence
+                  {t("status.NEEDS_MORE_EVIDENCE")}
                 </Button>
                 {canReject && (
                   <Button
@@ -558,7 +578,7 @@ export function OfficerComplaintDetailPage() {
                     variant={reviewVerdict === "REJECTED" ? "danger" : "outline"}
                     onClick={() => setReviewVerdict("REJECTED")}
                   >
-                    Reject
+                    {t("officerComplaint.reject")}
                   </Button>
                 )}
               </div>
@@ -566,13 +586,13 @@ export function OfficerComplaintDetailPage() {
                 reviewVerdict === "REJECTED") && (
                 <div className="mt-3">
                   <Label htmlFor="review-reason" required>
-                    Reason
+                    {t("common.reason")}
                   </Label>
                   <Textarea
                     id="review-reason"
                     value={reviewReason}
                     onChange={(e) => setReviewReason(e.target.value)}
-                    placeholder="Why?"
+                    placeholder={t("officerComplaint.whyPlaceholder")}
                   />
                 </div>
               )}
@@ -583,7 +603,7 @@ export function OfficerComplaintDetailPage() {
                 loading={reviewEvidence.isPending}
                 onClick={handleReviewSubmit}
               >
-                Submit verdict
+                {t("officerComplaint.submitVerdict")}
               </Button>
             </section>
           )}
@@ -594,8 +614,7 @@ export function OfficerComplaintDetailPage() {
                 className="text-status-reopened size-4 shrink-0"
                 aria-hidden="true"
               />
-              This complaint was disputed by the citizen and is awaiting an admin's
-              ruling. No officer action is available until then.
+              {t("officerComplaint.reopenedNotice")}
             </div>
           )}
 
@@ -604,7 +623,7 @@ export function OfficerComplaintDetailPage() {
             complaint.status === "UNDER_RESOLUTION") && (
             <section className="rounded-lg border border-line bg-surface p-4">
               <h2 className="font-display text-base font-semibold text-ink">
-                Move this complaint
+                {t("officerComplaint.moveComplaint")}
               </h2>
               <div className="mt-3 flex flex-wrap gap-2">
                 {complaint.status === "UNDER_REVIEW" && (
@@ -612,17 +631,20 @@ export function OfficerComplaintDetailPage() {
                     <Button
                       size="sm"
                       onClick={() =>
-                        handleSimpleTransition("IN_PROGRESS", "Moved to In Progress")
+                        handleSimpleTransition(
+                          "IN_PROGRESS",
+                          t("officerComplaint.movedToInProgress"),
+                        )
                       }
                     >
-                      Start work
+                      {t("officerComplaint.startWork")}
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={() => openActionModal("recall")}
                     >
-                      Recall for more evidence
+                      {t("officerComplaint.actions.recall.title")}
                     </Button>
                   </>
                 )}
@@ -632,16 +654,16 @@ export function OfficerComplaintDetailPage() {
                     onClick={() =>
                       handleSimpleTransition(
                         "UNDER_RESOLUTION",
-                        "Moved to Under Resolution",
+                        t("officerComplaint.movedToUnderResolution"),
                       )
                     }
                   >
-                    Move to Under Resolution
+                    {t("officerComplaint.moveToUnderResolution")}
                   </Button>
                 )}
                 {complaint.status === "UNDER_RESOLUTION" && (
                   <Button size="sm" onClick={() => openActionModal("resolve")}>
-                    Mark resolved
+                    {t("officerComplaint.actions.resolve.title")}
                   </Button>
                 )}
                 <Button
@@ -649,7 +671,7 @@ export function OfficerComplaintDetailPage() {
                   variant="danger"
                   onClick={() => openActionModal("unresolvable")}
                 >
-                  Mark unresolvable
+                  {t("officerComplaint.actions.unresolvable.title")}
                 </Button>
               </div>
             </section>
@@ -658,16 +680,16 @@ export function OfficerComplaintDetailPage() {
           {canAddNote && (
             <section className="rounded-lg border border-line bg-surface p-4">
               <h2 className="font-display text-base font-semibold text-ink">
-                Post a progress note
+                {t("officerComplaint.postNote")}
               </h2>
               <p className="text-ink-muted mt-1 text-sm">
-                Visible to the citizen, with your officer ID.
+                {t("officerComplaint.postNoteBody")}
               </p>
               <div className="mt-3">
                 <Textarea
                   value={noteText}
                   onChange={(e) => setNoteText(e.target.value)}
-                  placeholder="What's the latest update?"
+                  placeholder={t("clusterDetail.notePlaceholder")}
                   maxLength={500}
                 />
               </div>
@@ -678,7 +700,7 @@ export function OfficerComplaintDetailPage() {
                 loading={addNote.isPending}
                 onClick={handleAddNote}
               >
-                Post note
+                {t("clusterDetail.postNote")}
               </Button>
             </section>
           )}
@@ -698,19 +720,19 @@ export function OfficerComplaintDetailPage() {
       <Modal
         open={actionModal !== null}
         onClose={() => setActionModal(null)}
-        title={modalConfig?.title}
-        description={modalConfig?.description}
+        title={modalConfig ? t(modalConfig.titleKey) : undefined}
+        description={modalConfig ? t(modalConfig.descriptionKey) : undefined}
         footer={
           <>
             <Button variant="outline" onClick={() => setActionModal(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant={actionModal === "unresolvable" ? "danger" : "primary"}
               loading={updateStatus.isPending}
               onClick={handleModalConfirm}
             >
-              {modalConfig?.confirmLabel}
+              {modalConfig ? t(modalConfig.confirmLabelKey) : null}
             </Button>
           </>
         }
@@ -727,24 +749,24 @@ export function OfficerComplaintDetailPage() {
           {modalConfig?.reasonRequired && (
             <div>
               <Label htmlFor="action-reason" required>
-                Reason
+                {t("common.reason")}
               </Label>
               <Textarea
                 id="action-reason"
                 value={modalReason}
                 onChange={(e) => setModalReason(e.target.value)}
-                placeholder="Explain why."
+                placeholder={t("officerComplaint.explainWhy")}
               />
             </div>
           )}
           {modalConfig?.noteField && (
             <div>
-              <Label htmlFor="action-note">Closing note (optional)</Label>
+              <Label htmlFor="action-note">{t("batch.closingNote")}</Label>
               <Textarea
                 id="action-note"
                 value={modalNote}
                 onChange={(e) => setModalNote(e.target.value)}
-                placeholder="Visible to the citizen."
+                placeholder={t("officerComplaint.visibleToCitizen")}
               />
             </div>
           )}

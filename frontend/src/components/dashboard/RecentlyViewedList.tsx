@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { History, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { RecentItem } from "@/hooks/useRecentlyViewed";
@@ -21,6 +22,8 @@ export function RecentlyViewedList({
   onClear,
   className,
 }: RecentlyViewedListProps) {
+  const { t } = useTranslation();
+
   if (items.length === 0) return null;
 
   return (
@@ -28,7 +31,7 @@ export function RecentlyViewedList({
       <div className="mb-3 flex items-center justify-between">
         <h2 className="font-display flex items-center gap-2 text-base font-semibold text-ink">
           <History className="text-ink-faint size-4" aria-hidden="true" />
-          Recently viewed
+          {t("recentlyViewed.title")}
         </h2>
         {onClear && (
           <button
@@ -37,7 +40,7 @@ export function RecentlyViewedList({
             className="text-ink-faint hover:text-ink flex items-center gap-1 text-xs"
           >
             <Trash2 className="size-3.5" aria-hidden="true" />
-            Clear
+            {t("notifications.clear")}
           </button>
         )}
       </div>

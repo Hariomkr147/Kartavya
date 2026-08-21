@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
@@ -18,6 +19,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.enums import AiScreenStatus, ComplaintStatus, EvidenceVerdict
 from app.models.base import TimestampMixin, db, enum_column, utcnow
+
+if TYPE_CHECKING:  # Relationship targets only — importing these at runtime
+    from app.models.history import ComplaintNote, StatusHistory  # would be circular.
 
 
 class ComplaintCluster(TimestampMixin, db.Model):
@@ -53,11 +57,13 @@ class ComplaintCluster(TimestampMixin, db.Model):
     #: the CLOSED write — a read-then-write pays +50 twice under a race.
     reward_granted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
-    updated_at: Mapped[datetime] = mapped_column(
-        nullable=False, default=utcnow, onupdate=utcnow
-    )
+    updated_at: Mapped[datetime] = mapped_column(nullable=False, default=utcnow, onupdate=utcnow)
 
-    members: Mapped[list[Complaint]] = relationship(back_populates="cluster")
+    #: Current members only. `former_cluster_id` is a second FK to this
+    #: table, so the join has to say which one it means.
+    members: Mapped[list[Complaint]] = relationship(
+        back_populates="cluster", foreign_keys="Complaint.cluster_id"
+    )
 
     __table_args__ = (Index("ix_complaint_clusters_category_zone", "category_id", "zone_id"),)
 
@@ -85,9 +91,19 @@ class Complaint(TimestampMixin, db.Model):
         ForeignKey("complaint_categories.id", ondelete="RESTRICT"), nullable=False
     )
 
-    #: Never cleared by a dispute — cluster membership is permanent, which is
-    #: what stops a disputed-and-refixed member masquerading as a standalone +50.
+    #: Never cleared by a dispute — membership survives the dispute-and-refix
+    #: loop, which is what stops a disputed-and-refixed member masquerading as
+    #: a standalone +50. It IS cleared when the complaint goes terminal; see
+    #: `former_cluster_id` and `services/complaints/clusters.exit_cluster`.
     cluster_id: Mapped[int | None] = mapped_column(
+        ForeignKey("complaint_clusters.id", ondelete="SET NULL")
+    )
+
+    #: Where `cluster_id` went when this complaint finished. The reward guards
+    #: ask a question about history — "was this citizen already paid inside
+    #: this cluster?" — so they must keep seeing complaints that have since
+    #: left it. Never cleared once set.
+    former_cluster_id: Mapped[int | None] = mapped_column(
         ForeignKey("complaint_clusters.id", ondelete="SET NULL")
     )
 
@@ -134,19 +150,29 @@ class Complaint(TimestampMixin, db.Model):
     #: Non-null means currently paused; folded into sla_paused_seconds on resume.
     sla_paused_at: Mapped[datetime | None] = mapped_column()
 
-    updated_at: Mapped[datetime] = mapped_column(
-        nullable=False, default=utcnow, onupdate=utcnow
-    )
+    updated_at: Mapped[datetime] = mapped_column(nullable=False, default=utcnow, onupdate=utcnow)
     #: Always names the LATEST resolution — overwritten, not appended, when a
     #: disputed complaint is re-resolved. status_history keeps the earlier ones.
     resolved_at: Mapped[datetime | None] = mapped_column()
     closed_at: Mapped[datetime | None] = mapped_column()
 
-    cluster: Mapped[ComplaintCluster | None] = relationship(back_populates="members")
+    cluster: Mapped[ComplaintCluster | None] = relationship(
+        back_populates="members", foreign_keys=[cluster_id]
+    )
     evidence: Mapped[list[ComplaintEvidence]] = relationship(
         back_populates="complaint",
         cascade="all, delete-orphan",
         order_by="ComplaintEvidence.sequence",
+    )
+    status_history: Mapped[list[StatusHistory]] = relationship(
+        back_populates="complaint",
+        cascade="all, delete-orphan",
+        order_by="StatusHistory.created_at",
+    )
+    notes: Mapped[list[ComplaintNote]] = relationship(
+        back_populates="complaint",
+        cascade="all, delete-orphan",
+        order_by="ComplaintNote.created_at",
     )
 
     __table_args__ = (
@@ -197,9 +223,7 @@ class ComplaintEvidence(TimestampMixin, db.Model):
     #: lives on status_history, not here.
     verdict: Mapped[EvidenceVerdict | None] = mapped_column(enum_column(EvidenceVerdict))
     verdict_reason: Mapped[str | None] = mapped_column(Text)
-    reviewed_by: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
-    )
+    reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     reviewed_at: Mapped[datetime | None] = mapped_column()
 
     complaint: Mapped[Complaint] = relationship(back_populates="evidence")

@@ -1,4 +1,9 @@
 import "@testing-library/jest-dom/vitest";
+import { initI18n } from "@/i18n";
+
+// Tests assert against the English copy, so i18n is initialised (English
+// only — no locale chunk is fetched) before any component renders.
+await initI18n();
 
 // MSW resolves relative-path handler patterns (e.g. "/api/v1/...") against a
 // `location` global at handler-creation time. Plain Node (used by

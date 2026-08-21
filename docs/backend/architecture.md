@@ -837,15 +837,24 @@ The backend's only involvement is recording `complaints.category_suggested_by_ma
 Validate then persist:
 
 - JPEG or PNG only — ⚠️ check **magic bytes**, not just the `Content-Type` header, which a client controls.
-- Maximum 5 MB per photo; 1–3 photos per complaint.
-- Write to `UPLOAD_DIR/<complaint_id>/<uuid>.<ext>`; store that relative path in `complaint_evidence.file_path`.
+- Maximum 2 MB per photo; 1–3 photos per complaint.
+- Write under a generated key, `<complaint_id>/<uuid>.<ext>`; store that key in `complaint_evidence.file_path`.
 - ⚠️ Never store the client's filename (path traversal), and never store the image bytes in SQLite.
 
 Evidence rows are append-only and use `sequence`: 1..N are the original photos, N+1 onward are re-submissions and dispute photos. Old rows are always retained.
 
+### Two backends, selected by `STORAGE_PROVIDER`
+
+`app/infra/storage.py` is a facade — `store_photo` / `remove_photo` / `read_photo_bytes` — that everything outside `app/infra/` imports. Nothing else knows which backend is active:
+
+- **`local`** (default, right for dev/CI): disk under `UPLOAD_DIR`, outside the web root, never registered as a static directory.
+- **`supabase`**: a Supabase Storage bucket, via `app/infra/storage_supabase.py`, over the Storage REST API directly (`urllib`, no SDK — the same style as the AI provider adapters). Needs `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`; the service_role key bypasses the bucket's Row Level Security entirely, so the bucket **must be private** — access control here is the HMAC-signed photo URL below, not a Supabase policy.
+
+AI screening (`app/jobs/screening.py`) needs an actual filesystem path to read from regardless of backend (`encode_image_base64` opens a path); on `supabase` it downloads to a temp file for the duration of one screening call and removes it after, rather than changing the `AiProvider` protocol.
+
 ### Serving them back: `GET /evidence/{evidenceId}/photo`
 
-`UPLOAD_DIR` sits **outside the web root** and is never served as a static directory. The one way an image leaves the server is the signed route added to the contract in v2.1.0:
+The backend the bytes live on is never registered as a static directory and is never served directly. The one way an image leaves the server is the signed route added to the contract in v2.1.0:
 
 ```python
 # app/core/signing.py
@@ -874,13 +883,15 @@ Three rules, and the whole design rests on them:
 
 | Variable | Notes |
 |---|---|
-| `DATABASE_URL` | SQLite path |
+| `DATABASE_URL` | SQLite path by default; a hosted Postgres (Neon, Supabase, …) survives a restart. Postgres connections get `pool_pre_ping`, `pool_recycle=300`, and `prepare_threshold=None` (the last is required against a transaction-mode pooler — Supabase's Supavisor or Neon's PgBouncer — or psycopg's server-side prepared statements intermittently fail once the pooler hands a query to a different physical connection) |
 | `JWT_SECRET` | ⚠️ must **fail fast at startup** if unset outside development |
 | `JWT_TTL_HOURS` | 24. Also reported to the client as `AuthResponse.expiresAt`; no refresh endpoint exists |
 | `PHOTO_SIGNING_KEY` | ⚠️ separate secret from `JWT_SECRET`; same fail-fast rule |
 | `PHOTO_URL_TTL_SECONDS` | 86400 (24 h) |
-| `UPLOAD_DIR`, `MAX_UPLOAD_BYTES` | 5 MB |
-| `AI_PROVIDER`, `AI_TIMEOUT_SECONDS` | `local` / `keyword` / `null` |
+| `STORAGE_PROVIDER` | `local` (default) or `supabase` — see Part 12 |
+| `UPLOAD_DIR`, `MAX_UPLOAD_BYTES` | 2 MB. `UPLOAD_DIR` only matters on `STORAGE_PROVIDER=local` |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET` | `STORAGE_PROVIDER=supabase` only; ⚠️ fail fast at startup outside development if the provider is `supabase` and either is missing |
+| `AI_PROVIDER`, `AI_TIMEOUT_SECONDS` | `stub` / `local` / `remote` / `null` |
 | `CLUSTER_RADIUS_METERS` | 100 |
 | `AUTO_CLOSE_SWEEP_MINUTES` | 15 |
 

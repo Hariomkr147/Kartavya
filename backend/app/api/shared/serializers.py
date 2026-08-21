@@ -1,107 +1,221 @@
-"""Neutral response shapes — the ones every audience reuses.
+"""Neutral response shapes shared by citizen, officer, and admin APIs.
 
-Two hard rules:
-
-1. **Serializers never query.** They receive everything pre-loaded through a
-   `SerializationContext`. This keeps privacy decisions visible in one place and
-   stops a 20-item page from becoming 60 queries.
-2. **These shapes have NO reporter field at all** — structurally, not by
-   stripping it afterwards. The officer queue, the public feed and cluster
-   details all reuse them, so there is nothing here to accidentally leak.
-
-Only `app/api/admin/serializers.py` may ever emit reporter identity.
+Serializers never query and never expose reporter identity. Only the admin
+serializer may add reporter data after authorization and scoping are complete.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any
 
+from app.core.context import SerializationContext
+from app.core.serialization import iso_utc as _iso
+from app.core.signing import sign_photo_url
+from app.domain import severity as severity_domain
+from app.domain import sla as sla_domain
+from app.domain.enums import AiScreenStatus, StatusActor
 from app.models import Complaint, ComplaintCategory, Zone
 
 
-@dataclass
-class SerializationContext:
-    """Everything the serializers need, gathered once by the caller.
-
-    The service builds this; the serializer only reads it. `now` is passed in so
-    derived SLA labels are consistent across a whole page — computing
-    `datetime.now()` per item would let the first and last row of one response
-    disagree about what time it is.
-    """
-
-    now: datetime
-    categories: dict[int, ComplaintCategory] = field(default_factory=dict)
-    zones: dict[int, Zone] = field(default_factory=dict)
-    #: complaint_id -> COUNT(*), from ONE GROUP BY.
-    upvote_counts: dict[int, int] = field(default_factory=dict)
-    #: complaint_id -> first evidence row, for `photoUrl`.
-    first_evidence: dict[int, Any] = field(default_factory=dict)
-
-
 def serialize_complaint(complaint: Complaint, ctx: SerializationContext) -> dict[str, Any]:
-    """The compact `Complaint` shape (openapi.yaml: Complaint). TODO(phase 3).
+    """Return the compact Complaint contract shape without reporter identity."""
+    category = ctx.categories.get(complaint.category_id)
+    zone = ctx.zones.get(complaint.zone_id)
+    evidence = ctx.first_evidence.get(complaint.id)
+    current_sla = sla_domain.label(
+        target_hours=complaint.sla_target_hours,
+        started_at=complaint.sla_started_at,
+        paused_seconds=complaint.sla_paused_seconds,
+        paused_at=complaint.sla_paused_at,
+        now=ctx.now,
+    )
+    payload: dict[str, Any] = {
+        "id": str(complaint.id),
+        "category": (
+            serialize_category(category)
+            if category is not None
+            else {
+                "id": str(complaint.category_id or ""),
+                "code": "UNKNOWN",
+                "name": "Unknown",
+                "description": None,
+                "slaTargetHours": None,
+            }
+        ),
+        "status": complaint.status.value,
+        "severityLabel": severity_domain.label(complaint.severity_score).value,
+        "upvoteCount": ctx.upvote_counts.get(complaint.id, 0),
+        "zoneId": str(zone.id if zone is not None else complaint.zone_id or ""),
+        "zoneName": zone.zone_name if zone is not None else "Unknown",
+        "assignedOfficerId": (
+            str(complaint.assigned_officer_id)
+            if complaint.assigned_officer_id is not None
+            else None
+        ),
+        # On the compact shape too, not only ComplaintDetail: the officer
+        # queue has to be able to show that a row belongs to a cluster.
+        "clusterId": str(complaint.cluster_id) if complaint.cluster_id else None,
+        "createdAt": _iso(complaint.created_at),
+        "updatedAt": _iso(complaint.updated_at),
+    }
 
-    Derived on read, never stored:
-      * `severityLabel` <- `domain.severity.label(complaint.severity_score)`
-      * `slaLabel`      <- `domain.sla.label(...)` over the four sla_* columns
-      * `upvoteCount`   <- ctx.upvote_counts
-      * `photoUrl`      <- `core.signing.sign_photo_url(evidence.id)`, NEVER the
-        raw file_path. This is the one place a photo URL is minted, and it is
-        minted here precisely because scoping has already decided this caller
-        may see the parent complaint.
+    # Both fields are OPTIONAL in the contract and neither is nullable, so the
+    # absent case is an absent KEY — not `null`, and not `""`. The finished
+    # frontend's mock does exactly this (`?? undefined` in
+    # frontend/src/mocks/serializers.ts), and `photoUrl: ""` would be worse than
+    # useless: a browser resolves `<img src="">` against the current document
+    # and re-requests the page itself as an image.
+    if current_sla is not None:
+        payload["slaLabel"] = current_sla.value
+    if evidence is not None:
+        payload["photoUrl"] = sign_photo_url(evidence.id)
 
-    Do not add a `reporter` key. Not "temporarily", not "for debugging".
-    """
-    raise NotImplementedError
+    return payload
 
 
-def serialize_complaint_detail(complaint: Complaint, ctx: SerializationContext) -> dict[str, Any]:
-    """`ComplaintDetail` — the compact shape plus evidence, history and notes.
+def serialize_complaint_detail(
+    complaint: Complaint,
+    ctx: SerializationContext,
+    evidence_list: list[Any] | None = None,
+    history_list: list[Any] | None = None,
+    notes_list: list[Any] | None = None,
+) -> dict[str, Any]:
+    """Return ComplaintDetail, using explicit rows or preloaded context rows."""
+    complaint_id = complaint.id
+    evidence = (
+        evidence_list if evidence_list is not None else ctx.evidence_rows.get(complaint_id, [])
+    )
+    history = history_list if history_list is not None else ctx.history_rows.get(complaint_id, [])
+    notes = notes_list if notes_list is not None else ctx.note_rows.get(complaint_id, [])
 
-    TODO(phase 3). Progress notes carry `officerId`, never an officer name.
-    """
-    raise NotImplementedError
+    payload = serialize_complaint(complaint, ctx)
+    payload.update(
+        {
+            "description": complaint.description,
+            "latitude": complaint.latitude,
+            "longitude": complaint.longitude,
+            "severityScore": complaint.severity_score,
+            "slaTargetHours": complaint.sla_target_hours,
+            "clusterId": str(complaint.cluster_id) if complaint.cluster_id else None,
+            "evidence": [serialize_evidence(row, ctx) for row in evidence],
+            "statusHistory": [serialize_status_history(row) for row in history],
+            "progressNotes": [serialize_progress_note(row) for row in notes],
+        }
+    )
+    return payload
 
 
 def serialize_category(category: ComplaintCategory) -> dict[str, Any]:
-    """`Category`. Note the field renames: category_code -> `code`,
-    sla_hours -> `slaTargetHours`. TODO(phase 2).
-    """
-    raise NotImplementedError
+    return {
+        "id": str(category.id),
+        "code": category.category_code,
+        "name": category.category_name,
+        "description": category.description,
+        "slaTargetHours": category.sla_hours,
+    }
 
 
 def serialize_zone(zone: Zone) -> dict[str, Any]:
-    """`Zone`. TODO(phase 2)."""
-    raise NotImplementedError
+    return {
+        "id": str(zone.id),
+        "code": zone.zone_code,
+        "name": zone.zone_name,
+        "isCatchAll": zone.is_catch_all,
+        "isActive": zone.is_active,
+    }
 
 
 def serialize_evidence(evidence: Any, ctx: SerializationContext) -> dict[str, Any]:
-    """`Evidence`, including the AiConfidenceNote.
-
-    TODO(phase 3). `aiAvailable` is `ai_screen_status != UNAVAILABLE` — the UI
-    uses it to tell "no result yet" apart from "the model was down", so do not
-    collapse the two.
-    """
-    raise NotImplementedError
+    del ctx
+    return {
+        "id": str(evidence.id),
+        "photoUrl": sign_photo_url(evidence.id),
+        "sequence": evidence.sequence,
+        "aiConfidenceNote": {
+            "aiAvailable": evidence.ai_screen_status is not AiScreenStatus.UNAVAILABLE,
+            "matchesCategory": evidence.ai_matches_category,
+            "confidence": evidence.ai_confidence,
+            "note": evidence.ai_note,
+        },
+        "verdict": evidence.verdict.value if evidence.verdict else None,
+        "verdictReason": evidence.verdict_reason,
+        "reviewedByOfficerId": str(evidence.reviewed_by)
+        if evidence.reviewed_by is not None
+        else None,
+        "reviewedAt": _iso(evidence.reviewed_at),
+        "submittedAt": _iso(evidence.created_at),
+    }
 
 
 def serialize_status_history(entry: Any) -> dict[str, Any]:
-    """`StatusHistoryEntry`. TODO(phase 3).
+    payload = {
+        "id": str(entry.id),
+        "fromStatus": entry.from_status.value if entry.from_status else None,
+        "toStatus": entry.to_status.value,
+        "changedByRole": entry.actor_role.value,
+        "reason": entry.reason,
+        "remark": entry.remark,
+        "timestamp": _iso(entry.created_at),
+    }
+    if entry.actor_role is StatusActor.OFFICER and entry.changed_by_user_id is not None:
+        payload["changedByOfficerId"] = str(entry.changed_by_user_id)
+    return payload
 
-    `changedByOfficerId` is `changed_by_user_id` ONLY when actor_role is
-    OFFICER. For CITIZEN and ADMIN entries it stays absent — a citizen must not
-    learn which admin ruled on their dispute, and an officer must not learn
-    which citizen filed.
-    """
-    raise NotImplementedError
+
+def serialize_progress_note(note: Any) -> dict[str, Any]:
+    return {
+        "id": str(note.id),
+        "officerId": str(note.officer_id),
+        "text": note.note_text,
+        "createdAt": _iso(note.created_at),
+    }
+
+
+def serialize_cluster(cluster: Any, ctx: SerializationContext) -> dict[str, Any]:
+    """Return the OpenAPI Cluster shape from the cluster's preloaded members."""
+    members = ctx.cluster_members.get(cluster.id, [])
+    total_upvotes = sum(ctx.upvote_counts.get(member.id, 0) for member in members)
+    severity_score = severity_domain.score(cluster.unique_reporter_count, total_upvotes)
+    status_summary: dict[str, int] = {}
+    for member in members:
+        status = member.status.value
+        status_summary[status] = status_summary.get(status, 0) + 1
+
+    category = ctx.categories.get(cluster.category_id)
+    return {
+        "id": str(cluster.id),
+        "zoneId": str(cluster.zone_id),
+        "category": (
+            serialize_category(category)
+            if category is not None
+            else {
+                "id": str(cluster.category_id),
+                "code": "UNKNOWN",
+                "name": "Unknown",
+                "description": None,
+                "slaTargetHours": None,
+            }
+        ),
+        "reportCount": cluster.report_count,
+        "uniqueReporterCount": cluster.unique_reporter_count,
+        "severityScore": severity_score,
+        "severityLabel": severity_domain.label(severity_score).value,
+        "statusSummary": status_summary,
+        "centroidLat": cluster.centroid_lat,
+        "centroidLng": cluster.centroid_lng,
+        "createdAt": _iso(cluster.created_at),
+    }
+
+
+def serialize_cluster_detail(cluster: Any, ctx: SerializationContext) -> dict[str, Any]:
+    payload = serialize_cluster(cluster, ctx)
+    payload["complaints"] = [
+        serialize_complaint(member, ctx) for member in ctx.cluster_members.get(cluster.id, [])
+    ]
+    return payload
 
 
 def masked_display_name(user: Any) -> str:
-    """`display_name`, or a masked fallback like "Citizen #1042".
-
-    TODO(phase 2). The fallback is NEVER `full_name`. That column is visible
-    only on GET /users/me (self) and in admin views.
-    """
-    raise NotImplementedError
+    if getattr(user, "display_name", None):
+        return user.display_name
+    return f"Citizen #{user.id}"

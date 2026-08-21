@@ -20,6 +20,28 @@ _DEV_JWT_SECRET = "dev-only-jwt-secret-change-me"
 _DEV_PHOTO_KEY = "dev-only-photo-signing-key-change-me"
 
 
+def normalize_database_url(url: str) -> str:
+    """Make a hosted Postgres URL usable by SQLAlchemy 2 as-is.
+
+    Two long-standing footguns, both of which look like a broken deployment
+    rather than a URL problem:
+
+    1. Several providers still hand out `postgres://`. SQLAlchemy 2 removed
+       that alias and raises `Can't load plugin: sqlalchemy.dialects:postgres`.
+    2. A bare `postgresql://` selects psycopg2, which is not a dependency here.
+       This project installs psycopg 3, so the driver has to be named.
+
+    Anything already carrying an explicit driver (`postgresql+psycopg://`,
+    `postgresql+psycopg2://`, …) and every non-Postgres URL is left untouched,
+    so pasting Neon's connection string verbatim just works.
+    """
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://") :]
+    if url.startswith("postgresql://"):
+        url = "postgresql+psycopg://" + url[len("postgresql://") :]
+    return url
+
+
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.environ.get(name)
     if raw is None:
@@ -46,11 +68,32 @@ class BaseConfig:
 
     def __init__(self) -> None:
         # --- Persistence ---
-        self.SQLALCHEMY_DATABASE_URI = os.environ.get(
-            "DATABASE_URL", f"sqlite:///{BACKEND_ROOT / 'instance' / 'kartavya.sqlite3'}"
+        self.SQLALCHEMY_DATABASE_URI = normalize_database_url(
+            os.environ.get(
+                "DATABASE_URL", f"sqlite:///{BACKEND_ROOT / 'instance' / 'kartavya.sqlite3'}"
+            )
         )
         self.SQLALCHEMY_TRACK_MODIFICATIONS = False
         self.SQLALCHEMY_ECHO = _env_bool("SQLALCHEMY_ECHO", False)
+        # Postgres only. Neon/Supabase (and any pooler) drop idle connections,
+        # and a pooled connection that died while the free instance was asleep
+        # otherwise surfaces as a failed request on the next wake-up.
+        if self.SQLALCHEMY_DATABASE_URI.startswith("postgresql"):
+            self.SQLALCHEMY_ENGINE_OPTIONS = {
+                "pool_pre_ping": True,
+                "pool_recycle": 300,
+                # Supabase's pooled endpoint (Supavisor, port 6543) and Neon's
+                # pooled endpoint both run PgBouncer-style TRANSACTION-mode
+                # pooling: the physical backend connection can be swapped out
+                # between statements on what psycopg still thinks is one
+                # session. psycopg3 auto-prepares statements by name after a
+                # few uses, and a prepared statement created on one physical
+                # connection does not exist on the next one — it then fails
+                # with "prepared statement ... does not exist" under load.
+                # `prepare_threshold=None` turns server-side preparation off
+                # entirely. Harmless against a direct (unpooled) connection.
+                "connect_args": {"prepare_threshold": None},
+            }
 
         # --- Secrets ---
         # Two separate secrets on purpose: leaking the photo key must not hand
@@ -65,12 +108,25 @@ class BaseConfig:
         self.SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", self.JWT_SECRET)
 
         # --- Photo storage ---
-        self.UPLOAD_DIR = Path(
-            os.environ.get("UPLOAD_DIR", BACKEND_ROOT / "instance" / "uploads")
-        )
-        self.MAX_UPLOAD_BYTES = _env_int("MAX_UPLOAD_BYTES", 5 * 1024 * 1024)
+        # local sits outside the web root on this container's disk (ephemeral
+        # on most free hosting tiers). supabase persists to a Supabase Storage
+        # bucket via app/infra/storage_supabase.py. Either way, file_path is an
+        # opaque key and the client never sees it — every photo URL is a signed
+        # link to GET /evidence/{id}/photo (app/core/signing.py), which is the
+        # thing that actually enforces privacy, not the storage backend.
+        self.STORAGE_PROVIDER = os.environ.get("STORAGE_PROVIDER", "local").strip().lower()
+        self.UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR", BACKEND_ROOT / "instance" / "uploads"))
+        self.MAX_UPLOAD_BYTES = _env_int("MAX_UPLOAD_BYTES", 2 * 1024 * 1024)
         self.MAX_PHOTOS_PER_COMPLAINT = 3
         self.ALLOWED_PHOTO_MIME_TYPES = ("image/jpeg", "image/png")
+        # STORAGE_PROVIDER=supabase only. The service_role key bypasses the
+        # bucket's Row Level Security entirely, so it must never reach a
+        # client — it lives only here and in app/infra/storage_supabase.py.
+        # The bucket must be PRIVATE: access control is enforced by our own
+        # HMAC-signed photo URLs (app/core/signing.py), not by Supabase.
+        self.SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+        self.SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+        self.SUPABASE_STORAGE_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "evidence-photos")
 
         # --- AI (never blocks a request; failure mode is None) ---
         self.AI_PROVIDER = os.environ.get("AI_PROVIDER", "stub")
@@ -78,6 +134,47 @@ class BaseConfig:
         self.AI_BREAKER_FAILURE_THRESHOLD = _env_int("AI_BREAKER_FAILURE_THRESHOLD", 5)
         self.AI_BREAKER_COOLDOWN_SECONDS = _env_int("AI_BREAKER_COOLDOWN_SECONDS", 120)
         self.AI_WORKER_THREADS = _env_int("AI_WORKER_THREADS", 3)
+        self.AI_API_KEY = os.environ.get("AI_API_KEY", "")
+        self.AI_API_URL = os.environ.get("AI_API_URL", "https://api.openai.com/v1/chat/completions")
+        self.AI_MODEL_NAME = os.environ.get("AI_MODEL_NAME", "gpt-4o-mini")
+        self.AI_LOCAL_URL = os.environ.get("AI_LOCAL_URL", "http://localhost:11434")
+        self.AI_LOCAL_VISION_MODEL = os.environ.get("AI_LOCAL_VISION_MODEL", "llava")
+        self.AI_LOCAL_TEXT_MODEL = os.environ.get("AI_LOCAL_TEXT_MODEL", "llama3")
+        # Screening is fire-and-forget, so a test that submits evidence would
+        # otherwise race a background thread against its own assertions. This is
+        # the switch for that — not `TESTING`, so a test can still turn the real
+        # submission path on and assert it queues.
+        self.AI_SCREENING_ENABLED = _env_bool("AI_SCREENING_ENABLED", True)
+        # Screening that never landed is otherwise permanent: an UNAVAILABLE
+        # row is never retried, and a PENDING row whose task died with its
+        # process is never picked up at all. The sweeper re-queues both.
+        self.AI_SCREENING_RETRY_MINUTES = _env_int("AI_SCREENING_RETRY_MINUTES", 10)
+        # Bounded by AGE rather than a per-row attempt count, which would need a
+        # column complaint_evidence does not have. Past this, a row is never
+        # retried again.
+        #
+        # 6 hours, not 24: the failures worth recovering from are transient — a
+        # rate-limit burst clears in minutes, a provider outage in hours. The
+        # window also sets the worst case, since a row that keeps failing stays
+        # eligible for all of it. At a 10-minute cadence that is ~36 attempts
+        # for a photo the model will never accept (a corrupt file, say), which
+        # is the price of not having an attempts column to count against.
+        self.AI_SCREENING_RETRY_WINDOW_HOURS = _env_int("AI_SCREENING_RETRY_WINDOW_HOURS", 6)
+        # Caps what one sweep can cost against a rate-limited provider.
+        self.AI_SCREENING_RETRY_BATCH = _env_int("AI_SCREENING_RETRY_BATCH", 25)
+        # How long a row may sit PENDING before it is assumed orphaned — its
+        # task died with the process — and re-queued.
+        #
+        # Deliberately generous. There is no "last attempted" timestamp on
+        # complaint_evidence (it is append-only and carries only created_at),
+        # so staleness is measured from creation. A row re-queued by an earlier
+        # sweep therefore still looks old, and if its task has not finished the
+        # next sweep would queue it again. In practice screening resolves in
+        # seconds, but a burst can back up the three screening threads, so this
+        # sits far beyond any plausible queue wait. A duplicate is harmless
+        # anyway — screening only rewrites advisory fields — but it wastes a
+        # call against a rate-limited provider.
+        self.AI_SCREENING_STALE_PENDING_MINUTES = _env_int("AI_SCREENING_STALE_PENDING_MINUTES", 60)
 
         # --- Domain tuning ---
         # Cluster radius is config, not a domain constant: it is a tuning knob,
@@ -116,8 +213,18 @@ class BaseConfig:
                 f"KARTAVYA_ENV={self.ENV_NAME}. Set real secrets before starting."
             )
         if self.JWT_SECRET == self.PHOTO_SIGNING_KEY:
+            raise RuntimeError("JWT_SECRET and PHOTO_SIGNING_KEY must be different secrets.")
+        if self.STORAGE_PROVIDER not in {"local", "supabase"}:
             raise RuntimeError(
-                "JWT_SECRET and PHOTO_SIGNING_KEY must be different secrets."
+                f"Unknown STORAGE_PROVIDER={self.STORAGE_PROVIDER!r}. "
+                "Expected 'local' or 'supabase'."
+            )
+        if self.STORAGE_PROVIDER == "supabase" and not (
+            self.SUPABASE_URL and self.SUPABASE_SERVICE_ROLE_KEY
+        ):
+            raise RuntimeError(
+                "STORAGE_PROVIDER=supabase requires SUPABASE_URL and "
+                f"SUPABASE_SERVICE_ROLE_KEY while KARTAVYA_ENV={self.ENV_NAME}."
             )
 
 
@@ -141,6 +248,9 @@ class TestingConfig(BaseConfig):
         # A background scheduler inside a test suite is a source of flakes and
         # cross-test state. Jobs are called directly in tests/services/ instead.
         self.SCHEDULER_ENABLED = False
+        # Same reasoning for per-photo screening. Tests that want the submission
+        # path flip this back on explicitly.
+        self.AI_SCREENING_ENABLED = False
 
     def validate(self) -> None:
         return

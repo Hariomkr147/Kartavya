@@ -13,28 +13,120 @@ import {
 } from "lucide-react";
 import type { NavItem } from "@/components/layout/AppShell";
 
+// Nav items are module constants (they never change per render), so they
+// carry translation keys rather than resolved strings — the shell and the
+// command palette translate them at render time, which is also what makes
+// them follow a language switch.
 export const citizenNavItems: NavItem[] = [
-  { label: "Dashboard", to: "/citizen", icon: LayoutDashboard, end: true },
-  { label: "File a Complaint", to: "/citizen/file", icon: FilePlus2 },
-  { label: "My Complaints", to: "/citizen/complaints", icon: ClipboardList },
-  { label: "Feed", to: "/citizen/feed", icon: Rss },
-  { label: "My Kartavya", to: "/citizen/gamification", icon: Trophy },
+  {
+    labelKey: "nav.dashboard",
+    sectionKey: "navSections.overview",
+    to: "/citizen",
+    icon: LayoutDashboard,
+    end: true,
+  },
+  {
+    labelKey: "nav.fileComplaint",
+    sectionKey: "navSections.reporting",
+    to: "/citizen/file",
+    icon: FilePlus2,
+  },
+  {
+    labelKey: "nav.myComplaints",
+    sectionKey: "navSections.reporting",
+    to: "/citizen/complaints",
+    icon: ClipboardList,
+  },
+  {
+    labelKey: "nav.feed",
+    sectionKey: "navSections.community",
+    to: "/citizen/feed",
+    icon: Rss,
+  },
+  {
+    labelKey: "nav.myKartavya",
+    sectionKey: "navSections.community",
+    to: "/citizen/gamification",
+    icon: Trophy,
+  },
 ];
 
 export const officerNavItems: NavItem[] = [
-  { label: "Dashboard", to: "/officer", icon: LayoutDashboard, end: true },
-  { label: "Queue", to: "/officer/queue", icon: ClipboardList },
-  { label: "Clusters", to: "/officer/clusters", icon: Boxes },
+  {
+    labelKey: "nav.dashboard",
+    sectionKey: "navSections.overview",
+    to: "/officer",
+    icon: LayoutDashboard,
+    end: true,
+  },
+  {
+    labelKey: "nav.queue",
+    sectionKey: "navSections.casework",
+    to: "/officer/queue",
+    icon: ClipboardList,
+  },
+  {
+    labelKey: "nav.clusters",
+    sectionKey: "navSections.casework",
+    to: "/officer/clusters",
+    icon: Boxes,
+  },
 ];
 
 export const adminNavItems: NavItem[] = [
-  { label: "Dashboard", to: "/admin", icon: LayoutDashboard, end: true },
-  { label: "Complaints", to: "/admin/complaints", icon: ClipboardList },
-  { label: "Clusters", to: "/admin/clusters", icon: Boxes },
-  { label: "Disputes", to: "/admin/disputes", icon: Gavel },
-  { label: "Users", to: "/admin/users", icon: Users },
-  { label: "Zones & SLAs", to: "/admin/zones", icon: MapPinned },
-  { label: "Officers", to: "/admin/officers", icon: UserCog },
-  { label: "Leaderboard", to: "/admin/leaderboard", icon: Trophy },
-  { label: "Settings", to: "/admin/settings", icon: Settings },
+  {
+    labelKey: "nav.dashboard",
+    sectionKey: "navSections.overview",
+    to: "/admin",
+    icon: LayoutDashboard,
+    end: true,
+  },
+  {
+    labelKey: "nav.leaderboard",
+    sectionKey: "navSections.overview",
+    to: "/admin/leaderboard",
+    icon: Trophy,
+  },
+  {
+    labelKey: "nav.complaints",
+    sectionKey: "navSections.operations",
+    to: "/admin/complaints",
+    icon: ClipboardList,
+  },
+  {
+    labelKey: "nav.disputes",
+    sectionKey: "navSections.operations",
+    to: "/admin/disputes",
+    icon: Gavel,
+  },
+  {
+    labelKey: "nav.clusters",
+    sectionKey: "navSections.operations",
+    to: "/admin/clusters",
+    icon: Boxes,
+  },
+  {
+    labelKey: "nav.officers",
+    sectionKey: "navSections.administration",
+    to: "/admin/officers",
+    icon: UserCog,
+  },
+  {
+    labelKey: "nav.users",
+    sectionKey: "navSections.administration",
+    to: "/admin/users",
+    icon: Users,
+  },
+  {
+    labelKey: "nav.zonesAndSlas",
+    sectionKey: "navSections.administration",
+    to: "/admin/zones",
+    icon: MapPinned,
+  },
+  {
+    labelKey: "nav.settings",
+    sectionKey: "navSections.system",
+    to: "/admin/settings",
+    icon: Settings,
+  },
 ];

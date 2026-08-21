@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Trophy } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/Tabs";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -6,16 +7,23 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
 import { useLeaderboard } from "@/hooks/useLeaderboard";
 import { cn } from "@/lib/utils";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 const PAGE_SIZE = 20;
 
 export function AdminLeaderboardPage() {
+  const { t } = useTranslation();
   const [period, setPeriod] = useState<"monthly" | "all_time">("monthly");
   const [page, setPage] = useState(1);
 
   // Admins have no zoneId, so `scope=zone` isn't meaningful for this
   // account — only the city-wide ranking is offered here.
-  const { data: leaderboard, isLoading } = useLeaderboard({
+  const {
+    data: leaderboard,
+    isLoading,
+    isFetching,
+    refetch,
+  } = useLeaderboard({
     scope: "city",
     period,
     page,
@@ -26,12 +34,17 @@ export function AdminLeaderboardPage() {
     <div className="mx-auto w-full max-w-3xl space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="font-display text-display-sm font-semibold text-ink">
-            Leaderboard
-          </h1>
-          <p className="text-ink-muted mt-1 text-sm">
-            City-wide citizen rankings by civic service points.
-          </p>
+          <div className="flex items-center gap-2">
+            <h1 className="font-display text-display-sm font-semibold text-ink">
+              {t("nav.leaderboard")}
+            </h1>
+            <RefreshButton
+              onRefresh={refetch}
+              refreshing={isFetching}
+              what="the leaderboard"
+            />
+          </div>
+          <p className="text-ink-muted mt-1 text-sm">{t("adminLeaderboard.subtitle")}</p>
         </div>
         <Tabs
           value={period}
@@ -41,8 +54,8 @@ export function AdminLeaderboardPage() {
           }}
         >
           <TabsList>
-            <TabsTrigger value="monthly">Monthly</TabsTrigger>
-            <TabsTrigger value="all_time">All-time</TabsTrigger>
+            <TabsTrigger value="monthly">{t("gamification.monthly")}</TabsTrigger>
+            <TabsTrigger value="all_time">{t("gamification.allTime")}</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
@@ -56,8 +69,8 @@ export function AdminLeaderboardPage() {
       ) : !leaderboard || leaderboard.data.length === 0 ? (
         <EmptyState
           icon={Trophy}
-          title="No leaderboard activity yet"
-          description="Rankings appear once citizens start earning points."
+          title={t("gamification.noLeaderboard")}
+          description={t("adminLeaderboard.emptyBody")}
           className="rounded-lg border border-line bg-surface"
         />
       ) : (
@@ -74,7 +87,8 @@ export function AdminLeaderboardPage() {
                   #{entry.rank}
                 </span>
                 <p className="flex-1 truncate text-sm font-medium text-ink">
-                  {entry.displayName ?? `Citizen #${entry.citizenId}`}
+                  {entry.displayName ??
+                    t("gamification.citizenNumber", { citizenId: entry.citizenId })}
                 </p>
                 <p className="font-mono text-sm font-semibold text-ink">{entry.points}</p>
               </div>

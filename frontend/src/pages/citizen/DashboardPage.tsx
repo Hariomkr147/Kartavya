@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -33,6 +34,7 @@ import { useComplaintUpdates } from "@/hooks/useComplaintUpdates";
 import { staggerContainer, staggerItem } from "@/lib/motionVariants";
 import { formatFullDate, timeOfDayGreeting } from "@/lib/greeting";
 import type { Complaint, ComplaintStatus } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 function topBreakdown(
   complaints: Complaint[],
@@ -72,8 +74,9 @@ const ACTIVE_STATUSES = new Set<ComplaintStatus>([
 const RESOLVED_STATUSES = new Set<ComplaintStatus>(["RESOLVED", "CLOSED"]);
 
 export function CitizenDashboardPage() {
+  const { t } = useTranslation();
   const { user } = useAuth();
-  const { data, isLoading } = useMyComplaints({
+  const { data, isLoading, isFetching, refetch } = useMyComplaints({
     pageSize: FETCH_SIZE,
     sort: "-createdAt",
   });
@@ -118,16 +121,20 @@ export function CitizenDashboardPage() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-ink-faint text-sm font-medium">{formatFullDate()}</p>
-          <h1 className="font-display text-display-sm mt-0.5 font-semibold text-ink">
-            {timeOfDayGreeting()}, {firstName}
-          </h1>
-          <p className="text-ink-muted mt-1 text-sm">
-            Here's what's happening with your reports.
-          </p>
+          <div className="flex items-center gap-2">
+            <h1 className="font-display text-display-sm mt-0.5 font-semibold text-ink">
+              {t("citizenDashboard.greeting", {
+                greeting: timeOfDayGreeting(),
+                name: firstName,
+              })}
+            </h1>
+            <RefreshButton onRefresh={refetch} refreshing={isFetching} what="this dashboard" />
+          </div>
+          <p className="text-ink-muted mt-1 text-sm">{t("citizenDashboard.subtitle")}</p>
         </div>
         <LinkButton to="/citizen/file" size="lg">
           <FilePlus2 className="size-4" aria-hidden="true" />
-          File a complaint
+          {t("citizenDashboard.fileComplaint")}
         </LinkButton>
       </div>
 
@@ -149,24 +156,28 @@ export function CitizenDashboardPage() {
           <Link
             to="/citizen/complaints?bucket=active"
             className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-            aria-label={`View ${active.length} active complaints`}
+            aria-label={t("citizenDashboard.viewActive", { count: active.length })}
           >
             <StatCard
               icon={ClipboardList}
-              label="Active complaints"
+              label={t("citizenDashboard.activeComplaints")}
               value={active.length}
-              hint={runningLateCount > 0 ? `${runningLateCount} running late` : undefined}
+              hint={
+                runningLateCount > 0
+                  ? t("citizenDashboard.runningLate", { count: runningLateCount })
+                  : undefined
+              }
               hintTone="warning"
             />
           </Link>
           <Link
             to="/citizen/complaints?bucket=resolved"
             className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-            aria-label={`View ${resolvedCount} resolved complaints`}
+            aria-label={t("citizenDashboard.viewResolved", { count: resolvedCount })}
           >
             <StatCard
               icon={CheckCircle2}
-              label="Resolved"
+              label={t("status.RESOLVED")}
               value={resolvedCount}
               accent="good"
             />
@@ -174,18 +185,22 @@ export function CitizenDashboardPage() {
           <Link
             to="/citizen/complaints?action=1"
             className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-            aria-label={`View ${actionNeeded.length} complaints needing your attention`}
+            aria-label={t("citizenDashboard.viewAttention", {
+              count: actionNeeded.length,
+            })}
           >
             <StatCard
               icon={CircleAlert}
-              label="Needs your attention"
+              label={t("citizenDashboard.needsAttention")}
               value={actionNeeded.length}
               accent={actionNeeded.length > 0 ? "warning" : "brand"}
               hint={
                 actionNeeded.length > 0
                   ? [
-                      toConfirm.length > 0 && `${toConfirm.length} to confirm`,
-                      needEvidence.length > 0 && `${needEvidence.length} needs a photo`,
+                      toConfirm.length > 0 &&
+                        t("citizenDashboard.toConfirm", { count: toConfirm.length }),
+                      needEvidence.length > 0 &&
+                        t("citizenDashboard.needsPhoto", { count: needEvidence.length }),
                     ]
                       .filter(Boolean)
                       .join(" · ")
@@ -196,16 +211,16 @@ export function CitizenDashboardPage() {
           <Link
             to="/citizen/gamification"
             className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-            aria-label="View your Civic Service Points, badges and leaderboard"
+            aria-label={t("citizenDashboard.viewPoints")}
           >
             <StatCard
               icon={Trophy}
-              label="Civic Service Points"
+              label={t("citizenDashboard.csp")}
               value={points?.totalLifetimeCsp ?? 0}
               accent="csp"
               hint={
                 (points?.currentMonthCsp ?? 0) > 0
-                  ? `+${points?.currentMonthCsp} this month`
+                  ? t("citizenDashboard.thisMonth", { count: points?.currentMonthCsp ?? 0 })
                   : undefined
               }
             />
@@ -217,12 +232,8 @@ export function CitizenDashboardPage() {
         <ActionSection
           tone="good"
           icon={CheckCircle2}
-          title={
-            toConfirm.length === 1
-              ? "1 fix is waiting on your word"
-              : `${toConfirm.length} fixes are waiting on your word`
-          }
-          description="An officer says these are done. Confirm to close them and collect your points — or open one to dispute it."
+          title={t("citizenDashboard.confirmSection.title", { count: toConfirm.length })}
+          description={t("citizenDashboard.confirmSection.description")}
           complaints={toConfirm}
           renderAction={(complaint) => <ConfirmFixButton complaintId={complaint.id} />}
         />
@@ -232,12 +243,10 @@ export function CitizenDashboardPage() {
         <ActionSection
           tone="warning"
           icon={Camera}
-          title={
-            needEvidence.length === 1
-              ? "1 report needs a clearer photo"
-              : `${needEvidence.length} reports need a clearer photo`
-          }
-          description="The resolution clock is paused on these until you send a better picture."
+          title={t("citizenDashboard.evidenceSection.title", {
+            count: needEvidence.length,
+          })}
+          description={t("citizenDashboard.evidenceSection.description")}
           complaints={needEvidence}
         />
       )}
@@ -246,10 +255,10 @@ export function CitizenDashboardPage() {
         <section className="space-y-3 lg:col-span-2">
           <div className="flex items-center justify-between">
             <h2 className="font-display text-lg font-semibold text-ink">
-              Recent complaints
+              {t("citizenDashboard.recentComplaints")}
             </h2>
             <LinkButton to="/citizen/complaints" variant="ghost" size="sm">
-              View all
+              {t("common.viewAll")}
             </LinkButton>
           </div>
 
@@ -262,9 +271,13 @@ export function CitizenDashboardPage() {
           ) : recent.length === 0 ? (
             <EmptyState
               icon={FilePlus2}
-              title="No complaints yet"
-              description="Report your first civic issue — a photo, a pin on the map, and a category is all it takes."
-              action={<LinkButton to="/citizen/file">File a complaint</LinkButton>}
+              title={t("citizenDashboard.empty.title")}
+              description={t("citizenDashboard.empty.description")}
+              action={
+                <LinkButton to="/citizen/file">
+                  {t("citizenDashboard.fileComplaint")}
+                </LinkButton>
+              }
               className="rounded-lg border border-line bg-surface"
             />
           ) : (
@@ -292,7 +305,7 @@ export function CitizenDashboardPage() {
             <div className="relative flex items-center gap-2">
               <Trophy className="text-csp size-5" aria-hidden="true" />
               <p className="font-display text-base font-semibold text-ink">
-                Civic Service Points
+                {t("citizenDashboard.csp")}
               </p>
             </div>
             {pointsLoading ? (
@@ -304,7 +317,7 @@ export function CitizenDashboardPage() {
             )}
             {(points?.currentMonthCsp ?? 0) > 0 && (
               <p className="bg-csp/15 text-csp relative mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium">
-                +{points?.currentMonthCsp} this month
+                {t("citizenDashboard.thisMonth", { count: points?.currentMonthCsp ?? 0 })}
               </p>
             )}
             <LinkButton
@@ -313,7 +326,7 @@ export function CitizenDashboardPage() {
               size="sm"
               className="relative mt-4 w-full"
             >
-              View badges &amp; leaderboard
+              {t("citizenDashboard.viewBadges")}
             </LinkButton>
           </div>
 
@@ -325,11 +338,11 @@ export function CitizenDashboardPage() {
             <div className="flex items-center gap-2">
               <Rss className="text-brand size-5" aria-hidden="true" />
               <p className="font-display text-base font-semibold text-ink">
-                Explore the feed
+                {t("citizenDashboard.exploreFeed")}
               </p>
             </div>
             <p className="text-ink-muted mt-2 text-sm">
-              See what's being reported and fixed in your zone.
+              {t("citizenDashboard.exploreFeedBody")}
             </p>
             <LinkButton
               to="/citizen/feed"
@@ -337,7 +350,7 @@ export function CitizenDashboardPage() {
               size="sm"
               className="mt-4 w-full"
             >
-              Open feed
+              {t("citizenDashboard.openFeed")}
             </LinkButton>
           </div>
         </aside>
@@ -350,7 +363,7 @@ export function CitizenDashboardPage() {
               <div className="mb-3 flex items-center gap-2">
                 <Tag className="text-ink-muted size-4" aria-hidden="true" />
                 <h2 className="font-display text-sm font-semibold text-ink">
-                  What you report most
+                  {t("citizenDashboard.whatYouReport")}
                 </h2>
               </div>
               <HorizontalBarChart data={categoryBreakdown} />
@@ -361,7 +374,7 @@ export function CitizenDashboardPage() {
               <div className="mb-3 flex items-center gap-2">
                 <MapPinned className="text-ink-muted size-4" aria-hidden="true" />
                 <h2 className="font-display text-sm font-semibold text-ink">
-                  Where you report
+                  {t("citizenDashboard.whereYouReport")}
                 </h2>
               </div>
               <HorizontalBarChart data={zoneBreakdown} />

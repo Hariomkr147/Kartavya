@@ -1,3 +1,5 @@
+import i18n from "@/i18n";
+import type { TranslationKey } from "@/i18n";
 import type { ComplaintStatus, StatusHistoryEntry } from "@/types/api";
 
 /**
@@ -49,23 +51,10 @@ const STAGE_ORDER: StageKey[] = [
   "CLOSED",
 ];
 
-const STAGE_LABELS: Record<StageKey, string> = {
-  FILED: "Filed",
-  EVIDENCE: "Evidence check",
-  ACCEPTED: "Accepted",
-  WORKING: "Being fixed",
-  FIXED: "Fixed",
-  CLOSED: "Closed",
-};
-
-const STAGE_HINTS: Record<StageKey, string> = {
-  FILED: "Your report reached the zone office and is waiting to be picked up.",
-  EVIDENCE: "An officer is checking your photos before the work is scheduled.",
-  ACCEPTED: "Accepted as a genuine issue — the resolution clock is running.",
-  WORKING: "An officer is on it. You'll be asked to confirm once they're done.",
-  FIXED: "The officer says it's fixed — your confirmation closes it for good.",
-  CLOSED: "This report is finished.",
-};
+// Labels and hints are resolved through i18next at call time rather than
+// held in module constants, so a language switch reaches them too. This is
+// the one outward dependency in this module; the projection itself stays a
+// pure function of `status`.
 
 /** Which stage each contract status belongs to. */
 const STATUS_STAGE: Record<ComplaintStatus, StageKey> = {
@@ -97,13 +86,12 @@ export interface Lifecycle {
   detour: { label: string; tone: "warning" | "bad" } | null;
 }
 
-const DETOURS: Partial<Record<ComplaintStatus, { label: string; tone: "warning" | "bad" }>> =
-  {
-    NEEDS_MORE_EVIDENCE: { label: "Paused — more evidence needed", tone: "warning" },
-    REOPENED: { label: "Reopened — dispute under review", tone: "warning" },
-    REJECTED: { label: "Rejected — stopped here", tone: "bad" },
-    UNRESOLVABLE: { label: "Marked unresolvable — stopped here", tone: "bad" },
-  };
+const DETOUR_TONES: Partial<Record<ComplaintStatus, "warning" | "bad">> = {
+  NEEDS_MORE_EVIDENCE: "warning",
+  REOPENED: "warning",
+  REJECTED: "bad",
+  UNRESOLVABLE: "bad",
+};
 
 export function describeLifecycle(status: ComplaintStatus): Lifecycle {
   const currentStage = STATUS_STAGE[status];
@@ -130,14 +118,27 @@ export function describeLifecycle(status: ComplaintStatus): Lifecycle {
     // is confirmed-good at the moment they're disputing that it isn't.
     else state = "upcoming";
 
-    return { key, label: STAGE_LABELS[key], hint: STAGE_HINTS[key], state };
+    return {
+      key,
+      label: i18n.t(`lifecycle.stage.${key}`),
+      hint: i18n.t(`lifecycle.hint.${key}`),
+      state,
+    };
   });
 
   return {
     stages,
     currentIndex,
     isTerminal,
-    detour: DETOURS[status] ?? null,
+    detour: DETOUR_TONES[status]
+      ? {
+          // Only the four statuses in DETOUR_TONES reach this branch, but
+          // the template literal widens to every status for the type
+          // checker.
+          label: i18n.t(`lifecycle.detour.${status}` as TranslationKey),
+          tone: DETOUR_TONES[status]!,
+        }
+      : null,
   };
 }
 

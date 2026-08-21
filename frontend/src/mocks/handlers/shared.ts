@@ -4,6 +4,7 @@ import { toCluster, toClusterDetail } from "../serializers";
 import { requireRole, paginate, parsePagination, Errors } from "../lib/http";
 import { fromApiId, toApiId } from "../lib/ids";
 import { TERMINAL_STATUSES } from "../lib/fsm";
+import { liveClusterIds } from "../lib/cluster";
 
 const BASE = "/api/v1";
 
@@ -13,7 +14,11 @@ export const sharedHandlers = [
     if (!auth.ok) return auth.response;
 
     const url = new URL(request.url);
-    let rows = db.clusters;
+    // Dissolved clusters — every member finished and left — are hidden. The
+    // rows stay (they hold the one-time reward latch) but nothing can be done
+    // to them, so listing them is pure noise that only accumulates.
+    const live = liveClusterIds();
+    let rows = db.clusters.filter((c) => live.has(c.id));
     if (auth.user.role === "OFFICER") {
       rows = rows.filter((c) => c.zoneId === auth.user.zoneId);
     } else {
@@ -30,7 +35,7 @@ export const sharedHandlers = [
     if (!auth.ok) return auth.response;
 
     const cluster = db.clusters.find((c) => c.id === fromApiId(String(params.clusterId)));
-    if (!cluster) return Errors.notFound();
+    if (!cluster || !liveClusterIds().has(cluster.id)) return Errors.notFound();
     if (auth.user.role === "OFFICER" && cluster.zoneId !== auth.user.zoneId)
       return Errors.forbidden();
 

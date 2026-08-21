@@ -1,10 +1,10 @@
-const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
+const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
 const ALLOWED_TYPES = ["image/jpeg", "image/png"];
 
 export type PhotoValidation = { ok: true; url: string } | { ok: false; message: string };
 
 /**
- * Validates an uploaded photo (JPEG/PNG, max 5MB per openapi.yaml) and turns
+ * Validates an uploaded photo (JPEG/PNG, max 2MB per openapi.yaml) and turns
  * it into a renderable URL. Encodes as a base64 `data:` URI (rather than
  * `URL.createObjectURL`) so the persisted `filePath` survives
  * JSON.stringify/localStorage round-trips and reload/cross-tab viewing —
@@ -20,7 +20,7 @@ export async function validateAndStorePhoto(file: File | null): Promise<PhotoVal
     return { ok: false, message: "Photo must be a JPEG or PNG image." };
   }
   if (file.size > MAX_PHOTO_BYTES) {
-    return { ok: false, message: "Photo must be 5 MB or smaller." };
+    return { ok: false, message: "Photo must be 2 MB or smaller." };
   }
   const buffer = await file.arrayBuffer();
   let binary = "";

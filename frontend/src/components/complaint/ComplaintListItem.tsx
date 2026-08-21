@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { ArrowUp, CircleAlert, MapPin, RefreshCw } from "lucide-react";
 import { StatusPill, SlaPill, SeverityPill } from "@/components/ui/pills";
@@ -7,11 +8,15 @@ import { DynamicIcon } from "@/components/DynamicIcon";
 import { iconForCategory } from "@/lib/categoryIcons";
 import { relativeTime } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
+import type { TranslationKey } from "@/i18n";
 import type { Complaint } from "@/types/api";
 
-const ACTION_LABELS: Record<NonNullable<Complaint["citizenActionNeeded"]>, string> = {
-  CONFIRM_FIX: "Confirm the fix",
-  PROVIDE_MORE_EVIDENCE: "Add more evidence",
+const ACTION_LABEL_KEYS: Record<
+  NonNullable<Complaint["citizenActionNeeded"]>,
+  TranslationKey
+> = {
+  CONFIRM_FIX: "complaintRow.confirmFix",
+  PROVIDE_MORE_EVIDENCE: "complaintRow.addEvidence",
 };
 
 /** Terminal per `schema.dbml` — their SLA label is history, not a live alarm. */
@@ -41,6 +46,8 @@ export function ComplaintListItem({
    */
   action?: ReactNode;
 }) {
+  const { t } = useTranslation();
+
   return (
     <div
       className={cn(
@@ -50,7 +57,10 @@ export function ComplaintListItem({
     >
       <Link
         to={to}
-        aria-label={`${complaint.category.name} complaint ${complaint.id}`}
+        aria-label={t("complaintRow.ariaLabel", {
+          category: complaint.category.name,
+          complaintId: complaint.id,
+        })}
         className="absolute inset-0 z-0 rounded-lg focus:outline-none"
       />
 
@@ -82,14 +92,14 @@ export function ComplaintListItem({
           {showUpdatedAt && complaint.updatedAt && (
             <span className="inline-flex items-center gap-0.5 font-sans">
               <RefreshCw className="size-3" aria-hidden="true" />
-              updated {relativeTime(complaint.updatedAt)}
+              {t("complaintRow.updated", { when: relativeTime(complaint.updatedAt) })}
             </span>
           )}
         </p>
         {complaint.citizenActionNeeded && (
           <p className="text-status-needs_more_evidence mt-1 flex items-center gap-1 text-xs font-medium">
             <CircleAlert className="size-3.5" aria-hidden="true" />
-            {ACTION_LABELS[complaint.citizenActionNeeded]}
+            {t(ACTION_LABEL_KEYS[complaint.citizenActionNeeded])}
           </p>
         )}
       </div>

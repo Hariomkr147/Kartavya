@@ -52,9 +52,7 @@ def nearest_active_zone(zones: Sequence[Z], lat: float, lng: float) -> Z | None:
     return min(active, key=lambda z: haversine_meters(lat, lng, z.center_lat, z.center_lng))
 
 
-def within_radius(
-    lat1: float, lng1: float, lat2: float, lng2: float, radius_meters: float
-) -> bool:
+def within_radius(lat1: float, lng1: float, lat2: float, lng2: float, radius_meters: float) -> bool:
     """Used by clustering: same category, same zone, and inside this radius."""
     return haversine_meters(lat1, lng1, lat2, lng2) <= radius_meters
 

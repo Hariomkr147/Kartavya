@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ArrowUp, Link2, List, MapPin, MapPinned, Rss, UserRound } from "lucide-react";
 import { Combobox } from "@/components/ui/Combobox";
 import { PhotoThumb } from "@/components/ui/PhotoThumb";
@@ -23,7 +24,9 @@ import { useZones } from "@/hooks/useZones";
 import { useSearchParamState } from "@/hooks/useSearchParamState";
 import { ApiRequestError } from "@/services/http";
 import { cn } from "@/lib/utils";
+import type { TranslationKey } from "@/i18n";
 import type { FeedItem, SeverityLabel, UpvoteResult } from "@/types/api";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 
 const PAGE_SIZE = 12;
 // Bumped only while the (client-only) severity filter is active — the API
@@ -36,19 +39,19 @@ const FETCH_SIZE = 100;
 const OWN_COMPLAINTS_PARAMS = { pageSize: FETCH_SIZE, sort: "-updatedAt" };
 const RESOLVED_STATUSES = new Set(["CLOSED", "REJECTED", "UNRESOLVABLE"]);
 
-const SORT_OPTIONS: { value: string; label: string }[] = [
-  { value: "-createdAt", label: "Newest first" },
-  { value: "createdAt", label: "Oldest first" },
-  { value: "-severity", label: "Severity (highest first)" },
-  { value: "-upvotes", label: "Most upvoted" },
+const SORT_OPTIONS: { value: string; labelKey: TranslationKey }[] = [
+  { value: "-createdAt", labelKey: "sort.newestFirst" },
+  { value: "createdAt", labelKey: "sort.oldestFirst" },
+  { value: "-severity", labelKey: "sort.severityHighest" },
+  { value: "-upvotes", labelKey: "sort.mostUpvoted" },
 ];
 
-const SEVERITY_OPTIONS: { value: SeverityLabel | ""; label: string }[] = [
-  { value: "", label: "All severities" },
-  { value: "LOW", label: "Low" },
-  { value: "MEDIUM", label: "Medium" },
-  { value: "HIGH", label: "High" },
-  { value: "CRITICAL", label: "Critical" },
+const SEVERITY_OPTIONS: { value: SeverityLabel | ""; labelKey: TranslationKey }[] = [
+  { value: "", labelKey: "filters.allSeverities" },
+  { value: "LOW", labelKey: "severity.LOW" },
+  { value: "MEDIUM", labelKey: "severity.MEDIUM" },
+  { value: "HIGH", labelKey: "severity.HIGH" },
+  { value: "CRITICAL", labelKey: "severity.CRITICAL" },
 ];
 
 // Tailwind can't see class names built at runtime, so the severity cap on
@@ -68,6 +71,7 @@ const boolCodec = {
 };
 
 export function FeedPage() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { toast } = useToast();
   const [categoryId, setCategoryId] = useSearchParamState("category", "");
@@ -95,7 +99,7 @@ export function FeedPage() {
 
   const hasSeverityFilter = severity !== "";
 
-  const { data, isLoading } = useFeed({
+  const { data, isLoading, isFetching, refetch } = useFeed({
     page: hasSeverityFilter ? 1 : page,
     pageSize: hasSeverityFilter ? FETCH_SIZE : PAGE_SIZE,
     sort,
@@ -132,7 +136,7 @@ export function FeedPage() {
       lat: i.latitude,
       lng: i.longitude,
       label: i.severityLabel
-        ? `${i.category.name} · ${i.severityLabel}`
+        ? `${i.category.name} · ${t(`severity.${i.severityLabel}`)}`
         : i.category.name,
     }));
 
@@ -159,12 +163,12 @@ export function FeedPage() {
     try {
       await navigator.clipboard.writeText(url);
       toast({
-        title: "Link copied",
-        description: "Shareable link to this feed card.",
+        title: t("feed.linkCopied"),
+        description: t("feed.linkCopiedBody"),
         variant: "success",
       });
     } catch {
-      toast({ title: "Couldn't copy link", variant: "error" });
+      toast({ title: t("feed.linkCopyFailed"), variant: "error" });
     }
   }
 
@@ -175,11 +179,9 @@ export function FeedPage() {
       setUpvoteResults((prev) => ({ ...prev, [item.id]: result }));
     } catch (error) {
       toast({
-        title: "Couldn't add your upvote",
+        title: t("feed.upvoteFailed"),
         description:
-          error instanceof ApiRequestError
-            ? error.message
-            : "Something went wrong. Please try again.",
+          error instanceof ApiRequestError ? error.message : t("errors.generic"),
         variant: "error",
       });
     } finally {
@@ -197,12 +199,17 @@ export function FeedPage() {
     <div className="mx-auto w-full max-w-6xl space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-display-sm font-semibold text-ink">Feed</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="font-display text-display-sm font-semibold text-ink">
+              {t("nav.feed")}
+            </h1>
+            <RefreshButton onRefresh={refetch} refreshing={isFetching} what="the feed" />
+          </div>
           <p className="text-ink-muted mt-1 flex items-center gap-1.5 text-sm">
             <MapPin className="size-4" aria-hidden="true" />
             {zoneName
-              ? `What's being reported in ${zoneName}`
-              : "What's being reported in your zone"}
+              ? t("feed.subtitleZone", { zone: zoneName })
+              : t("feed.subtitle")}
           </p>
         </div>
         <div className="border-line inline-flex rounded-md border p-0.5">
@@ -210,7 +217,7 @@ export function FeedPage() {
             type="button"
             onClick={() => setView("list")}
             aria-pressed={view === "list"}
-            aria-label="List view"
+            aria-label={t("feed.listView")}
             className={cn(
               "inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-sm font-medium transition-colors",
               view === "list"
@@ -219,27 +226,27 @@ export function FeedPage() {
             )}
           >
             <List className="size-4" aria-hidden="true" />
-            List
+            {t("feed.list")}
           </button>
           <button
             type="button"
             onClick={() => setView("map")}
             aria-pressed={view === "map"}
-            aria-label="Map view"
+            aria-label={t("feed.mapView")}
             className={cn(
               "inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-sm font-medium transition-colors",
               view === "map" ? "bg-brand text-brand-fg" : "text-ink-muted hover:text-ink",
             )}
           >
             <MapPinned className="size-4" aria-hidden="true" />
-            Map
+            {t("feed.map")}
           </button>
         </div>
       </div>
 
       <div className="flex flex-wrap items-end gap-4 rounded-lg border border-line bg-surface p-4">
         <div className="min-w-[10rem] flex-1">
-          <Label htmlFor="feed-category-filter">Category</Label>
+          <Label htmlFor="feed-category-filter">{t("filters.category")}</Label>
           <Combobox
             id="feed-category-filter"
             value={categoryId}
@@ -248,13 +255,13 @@ export function FeedPage() {
               resetPage();
             }}
             options={[
-              { value: "", label: "All categories" },
+              { value: "", label: t("filters.allCategories") },
               ...(categories?.map((c) => ({ value: c.id, label: c.name })) ?? []),
             ]}
           />
         </div>
         <div className="min-w-[10rem] flex-1">
-          <Label htmlFor="feed-severity-filter">Severity</Label>
+          <Label htmlFor="feed-severity-filter">{t("filters.severity")}</Label>
           <Combobox
             id="feed-severity-filter"
             value={severity}
@@ -262,11 +269,14 @@ export function FeedPage() {
               setSeverity(v as SeverityLabel | "");
               resetPage();
             }}
-            options={SEVERITY_OPTIONS}
+            options={SEVERITY_OPTIONS.map((option) => ({
+              value: option.value,
+              label: t(option.labelKey),
+            }))}
           />
         </div>
         <div className="min-w-[10rem] flex-1">
-          <Label htmlFor="feed-sort">Sort by</Label>
+          <Label htmlFor="feed-sort">{t("filters.sortBy")}</Label>
           <Combobox
             id="feed-sort"
             value={sort}
@@ -274,19 +284,23 @@ export function FeedPage() {
               setSort(v);
               resetPage();
             }}
-            options={SORT_OPTIONS}
+            options={SORT_OPTIONS.map((option) => ({
+              value: option.value,
+              label: t(option.labelKey),
+            }))}
           />
         </div>
-        <Checkbox
-          id="feed-include-resolved"
-          label="Include closed & rejected"
-          checked={includeResolved}
-          onChange={(e) => {
-            setIncludeResolved(e.target.checked);
-            resetPage();
-          }}
-          className="mb-3"
-        />
+        <div className="flex h-11 shrink-0 items-center lg:px-2">
+          <Checkbox
+            id="feed-include-resolved"
+            label={t("feed.includeResolved")}
+            checked={includeResolved}
+            onChange={(e) => {
+              setIncludeResolved(e.target.checked);
+              resetPage();
+            }}
+          />
+        </div>
       </div>
 
       {isLoading ? (
@@ -298,13 +312,9 @@ export function FeedPage() {
       ) : items.length === 0 ? (
         <EmptyState
           icon={Rss}
-          title={
-            hasFilters ? "No complaints match these filters" : "Nothing reported yet"
-          }
+          title={hasFilters ? t("feed.emptyFiltered") : t("feed.emptyTitle")}
           description={
-            hasFilters
-              ? "Try a different category or include closed complaints."
-              : "Once neighbors start reporting issues in your zone, they'll show up here."
+            hasFilters ? t("feed.emptyFilteredBody") : t("feed.emptyBody")
           }
           className="rounded-lg border border-line bg-surface"
         />
@@ -313,15 +323,14 @@ export function FeedPage() {
           <div className="space-y-2">
             <MiniMap pins={pins} height={420} zoom={13} onPinClick={focusPin} />
             <p className="text-ink-faint text-xs">
-              Showing the {pins.length} of {items.length} complaints on this page that
-              have a location. Tap a pin to open its card.
+              {t("feed.mapNote", { pins: pins.length, total: items.length })}
             </p>
           </div>
         ) : (
           <EmptyState
             icon={MapPinned}
-            title="No mapped locations on this page"
-            description="None of the currently loaded complaints have location data."
+            title={t("feed.noPinsTitle")}
+            description={t("feed.noPinsBody")}
             className="rounded-lg border border-line bg-surface"
           />
         )
@@ -377,6 +386,7 @@ function FeedCard({
   onCopyLink: () => void;
   cardRef: (el: HTMLDivElement | null) => void;
 }) {
+  const { t } = useTranslation();
   const { data: landmark, isLoading: landmarkLoading } = useLandmark(
     item.latitude,
     item.longitude,
@@ -420,7 +430,7 @@ function FeedCard({
         <button
           type="button"
           onClick={onCopyLink}
-          aria-label="Copy link to this complaint"
+          aria-label={t("feed.copyLink")}
           className="bg-surface/90 text-ink-muted hover:text-ink absolute top-2 right-2 inline-flex size-7 items-center justify-center rounded-full shadow-sm"
         >
           <Link2 className="size-3.5" aria-hidden="true" />
@@ -443,7 +453,7 @@ function FeedCard({
             {landmarkLoading ? (
               <Skeleton className="h-3 w-32" />
             ) : (
-              <span className="truncate">{landmark ?? "Location unavailable"}</span>
+              <span className="truncate">{landmark ?? t("feed.locationUnavailable")}</span>
             )}
           </div>
         )}
@@ -463,10 +473,10 @@ function FeedCard({
             // your own report") is better said once, in the label itself.
             <span
               className="border-brand/30 bg-brand/10 text-brand flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium"
-              title="You can't upvote your own report — each upvote a neighbour adds earns you points."
+              title={t("feed.ownReportHint")}
             >
               <UserRound className="size-3.5" aria-hidden="true" />
-              Your report · {upvoteCount}
+              {t("feed.ownReport", { count: upvoteCount })}
             </span>
           ) : (
             <button
@@ -475,8 +485,8 @@ function FeedCard({
               onClick={onUpvote}
               aria-label={
                 hasUpvoted
-                  ? `You have upvoted this complaint — ${upvoteCount} total`
-                  : `Upvote this complaint — ${upvoteCount} so far`
+                  ? t("feed.upvoted", { count: upvoteCount })
+                  : t("feed.upvote", { count: upvoteCount })
               }
               className={cn(
                 "flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",

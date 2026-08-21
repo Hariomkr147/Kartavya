@@ -175,6 +175,7 @@
    * the font size, against 7.9x for Tamil and 3.1x for Hindi.
    */
   html:lang(ml) {
+    --text-display-sm: 1.375rem;
     --text-display-lg: clamp(1.5rem, 7vw, 2.5rem);
     --text-display-xl: clamp(1.5rem, 3.5vw, 2.625rem);
   }
@@ -244,8 +245,29 @@
       :lang(kn),
       :lang(ml)
     )
-    :is(h1, h2, h3, h4) {
+    :is(h1, h2, h3, h4, .font-display) {
     text-wrap: pretty;
+  }
+
+  /*
+   * And the net itself goes on the root, not on headings: display-sized text
+   * is not always a heading (the closing call-to-action is a `<p>`), and a
+   * word too long for its container overflows the page the same way wherever
+   * it sits. `break-word` engages only when the word cannot fit a line of its
+   * own, so ordinary text is untouched.
+   */
+  html:is(
+    :lang(hi),
+    :lang(mr),
+    :lang(bn),
+    :lang(pa),
+    :lang(gu),
+    :lang(or),
+    :lang(ta),
+    :lang(te),
+    :lang(kn),
+    :lang(ml)
+  ) {
     overflow-wrap: break-word;
   }
 }

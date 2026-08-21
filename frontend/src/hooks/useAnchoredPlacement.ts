@@ -9,6 +9,8 @@ const MIN_PANEL_HEIGHT = 140;
 export interface AnchoredPlacement {
   /** Document-space `top`, already accounting for a flip. */
   top: number;
+  /** Document-space `left`, clamped to keep the panel inside the viewport. */
+  left: number;
   /** Cap for the panel's height; pair with `overflow-y: auto`. */
   maxHeight: number;
   /** False for the one frame before measurement — keep the panel hidden. */
@@ -40,16 +42,18 @@ export function useAnchoredPlacement(
   triggerRect: DOMRect | null,
   panelRef: RefObject<HTMLElement | null>,
   fallbackTop: number,
+  align: "start" | "end" = "start",
 ): AnchoredPlacement {
   // `forRect` is what makes `measured` self-invalidating: the trigger rect is
   // a fresh object on every open, so a placement computed for a previous open
   // no longer matches and reads as unmeasured without an effect to reset it.
   const [placement, setPlacement] = useState<{
     top: number;
+    left: number;
     maxHeight: number;
     flipped: boolean;
     forRect: DOMRect | null;
-  }>({ top: fallbackTop, maxHeight: 0, flipped: false, forRect: null });
+  }>({ top: fallbackTop, left: 0, maxHeight: 0, flipped: false, forRect: null });
 
   // Layout, not passive: this has to land before paint or the panel visibly
   // jumps from the unflipped position to the flipped one.
@@ -69,18 +73,34 @@ export function useAnchoredPlacement(
     );
     const height = Math.min(panelHeight, available);
 
+    // The same problem on the other axis, which only shows up on narrow
+    // screens: an `end`-aligned panel hangs to the *left* of its trigger, so
+    // a 224px panel under a trigger 150px from the left edge renders half
+    // of itself off-screen with no way to scroll to it — the viewport does
+    // not scroll left. Anchor by a clamped left instead of by `right`.
+    const panelWidth = panelRef.current.getBoundingClientRect().width;
+    const preferredLeft =
+      align === "end" ? triggerRect.right - panelWidth : triggerRect.left;
+    const left =
+      Math.max(
+        VIEWPORT_MARGIN,
+        Math.min(preferredLeft, window.innerWidth - panelWidth - VIEWPORT_MARGIN),
+      ) + window.scrollX;
+
     setPlacement({
       top: flipped
         ? triggerRect.top + window.scrollY - PANEL_GAP - height
         : triggerRect.bottom + window.scrollY + PANEL_GAP,
+      left,
       maxHeight: available,
       flipped,
       forRect: triggerRect,
     });
-  }, [open, triggerRect, panelRef]);
+  }, [open, triggerRect, panelRef, align]);
 
   return {
     top: placement.top,
+    left: placement.left,
     maxHeight: placement.maxHeight,
     flipped: placement.flipped,
     measured: open && triggerRect !== null && placement.forRect === triggerRect,

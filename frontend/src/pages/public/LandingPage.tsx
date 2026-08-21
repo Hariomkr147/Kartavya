@@ -102,7 +102,7 @@ export function LandingPage() {
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
         <div className="flex items-center gap-2">
           <ShieldCheck className="text-brand size-6" aria-hidden="true" />
-          <span className="font-display text-lg font-semibold">Kartavya</span>
+          <span className="font-brand text-lg font-semibold">Kartavya</span>
         </div>
         <div className="flex items-center gap-2">
           {/* Before sign-in is exactly where the language switch has to be

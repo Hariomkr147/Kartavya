@@ -5,7 +5,15 @@ import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Link, useNavigate } from "react-router-dom";
-import { Eye, EyeOff, Mail, ShieldAlert, ShieldCheck, User } from "lucide-react";
+import {
+  ArrowLeft,
+  Eye,
+  EyeOff,
+  Mail,
+  ShieldAlert,
+  ShieldCheck,
+  User,
+} from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
@@ -82,12 +90,19 @@ export function RegisterPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-canvas px-4 py-12">
       <div className="w-full max-w-sm">
-        <div className="mb-2 flex justify-end">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <Link
+            to="/"
+            className="text-ink-muted inline-flex items-center gap-1.5 rounded-md px-2 py-2 text-sm transition-colors hover:text-ink"
+          >
+            <ArrowLeft className="size-4 shrink-0" aria-hidden="true" />
+            {t("common.back")}
+          </Link>
           <LanguageSwitcher />
         </div>
         <Link to="/" className="mb-8 flex items-center justify-center gap-2">
           <ShieldCheck className="text-brand size-7" aria-hidden="true" />
-          <span className="font-display text-xl font-semibold text-ink">Kartavya</span>
+          <span className="font-brand text-xl font-semibold text-ink">Kartavya</span>
         </Link>
 
         <div className="rounded-lg border border-line bg-surface p-6 shadow-xs">

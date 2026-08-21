@@ -139,10 +139,10 @@ export function DropdownMenu({
   /** Accessible name, required in practice for `role="dialog"`. */
   label?: string;
 }) {
-  const { open, setOpen, triggerRef, position, triggerRect } =
+  const { open, setOpen, triggerRef, align, position, triggerRect } =
     useDropdownContext("DropdownMenu");
   const menuRef = useRef<HTMLDivElement>(null);
-  const placement = useAnchoredPlacement(open, triggerRect, menuRef, position.top);
+  const placement = useAnchoredPlacement(open, triggerRect, menuRef, position.top, align);
   useDismissOnViewportChange(open, menuRef, () => setOpen(false));
 
   useEffect(() => {
@@ -178,8 +178,11 @@ export function DropdownMenu({
       style={{
         position: "absolute",
         top: placement.measured ? placement.top : position.top,
-        left: position.left,
-        right: position.right,
+        // Once measured the panel is anchored by a viewport-clamped `left`;
+        // `right` only holds it in place for the hidden measuring frame.
+        left: placement.measured ? placement.left : position.left,
+        right: placement.measured ? undefined : position.right,
+        maxWidth: `calc(100vw - 16px)`,
         maxHeight: placement.measured ? placement.maxHeight : undefined,
         // Hidden for the single measuring frame, so the menu is never seen at
         // the unflipped position before settling.

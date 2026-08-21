@@ -22,9 +22,9 @@ export type TranslationKey = ParseKeys;
 
 /**
  * Only English ships in the main bundle; every other locale is a separate
- * chunk fetched the first time it is selected. With six languages and ~600
- * keys each, bundling them all would have added ~200 KB of JSON that all but
- * one language's users never read.
+ * chunk fetched the first time it is selected. With ten translated languages
+ * and ~880 keys each, bundling them all would have added several hundred KB of
+ * JSON that all but one language's users never read.
  */
 const loaders: Record<Exclude<Language, "en">, () => Promise<{ default: object }>> = {
   hi: () => import("./locales/hi.json"),
@@ -34,6 +34,9 @@ const loaders: Record<Exclude<Language, "en">, () => Promise<{ default: object }
   ta: () => import("./locales/ta.json"),
   pa: () => import("./locales/pa.json"),
   gu: () => import("./locales/gu.json"),
+  kn: () => import("./locales/kn.json"),
+  ml: () => import("./locales/ml.json"),
+  or: () => import("./locales/or.json"),
 };
 
 async function ensureBundle(lng: Language): Promise<void> {

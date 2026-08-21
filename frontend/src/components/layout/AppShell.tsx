@@ -48,7 +48,14 @@ export interface AppShellProps {
 }
 
 const SIDEBAR_COLLAPSED_KEY = "kartavya-sidebar-collapsed";
-const SIDEBAR_WIDTH_EXPANDED = 240;
+// 280, not 240: the rail has to hold the longest nav label in every language,
+// and translated labels run longer than the English ones it was sized for
+// ("Zones & SLAs" is "மண்டலங்கள் மற்றும் SLAs" in Tamil, which wanted 239px of
+// the 215px a 240px rail left it). It overflowed rather than wrapped, and
+// since the nav sets `overflow-y-auto`, the x-axis computes to `auto` too —
+// so the rail grew its own horizontal scrollbar. 280 is the widest measured
+// requirement across all eleven languages, with room to spare.
+const SIDEBAR_WIDTH_EXPANDED = 280;
 const SIDEBAR_WIDTH_COLLAPSED = 72;
 const SIDEBAR_WIDTH_TRANSITION = { duration: 0.22, ease: [0.32, 0.72, 0, 1] as const };
 
@@ -65,7 +72,7 @@ function FadeLabel({ children, className }: { children: ReactNode; className?: s
       initial={{ opacity: 0 }}
       animate={{ opacity: 1, transition: LABEL_ENTER_TRANSITION }}
       exit={{ opacity: 0, transition: LABEL_EXIT_TRANSITION }}
-      className={cn("whitespace-nowrap", className)}
+      className={cn("truncate whitespace-nowrap", className)}
     >
       {children}
     </motion.span>
@@ -152,7 +159,7 @@ export function AppShell({ roleLabelKey, accountPath, navItems }: AppShellProps)
 
   function renderNav(opts: { collapsedRail: boolean }) {
     return (
-      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-4">
+      <nav className="flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-3 py-4">
         {navItems.map((item, index) => {
           const startsSection =
             item.sectionKey != null &&
@@ -252,7 +259,7 @@ export function AppShell({ roleLabelKey, accountPath, navItems }: AppShellProps)
             onClick={() => setMobileNavOpen(false)}
             aria-hidden="true"
           />
-          <aside className="animate-in slide-in-from-left relative flex h-full w-64 flex-col bg-surface duration-200">
+          <aside className="animate-in slide-in-from-left relative flex h-full w-72 flex-col bg-surface duration-200">
             <div className="flex items-center justify-between px-4 pt-4">
               <Brand bordered={false} />
               <button
@@ -415,7 +422,7 @@ function Brand({
       <ShieldCheck className="text-brand size-6 shrink-0" aria-hidden="true" />
       <AnimatePresence initial={false}>
         {!iconOnly && (
-          <FadeLabel key="label" className="font-display text-lg font-semibold text-ink">
+          <FadeLabel key="label" className="font-brand text-lg font-semibold text-ink">
             Kartavya
           </FadeLabel>
         )}

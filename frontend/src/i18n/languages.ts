@@ -1,5 +1,5 @@
 /**
- * Supported UI languages: English plus the five most-spoken Indian languages.
+ * Supported UI languages: English plus ten widely-spoken Indian languages.
  *
  * `nativeName` is deliberately the endonym — a citizen scanning the language
  * picker is looking for their own script, not the English exonym — with
@@ -13,7 +13,10 @@ export const LANGUAGES = [
   { code: "te", nativeName: "తెలుగు", englishName: "Telugu" },
   { code: "ta", nativeName: "தமிழ்", englishName: "Tamil" },
   { code: "pa", nativeName: "ਪੰਜਾਬੀ", englishName: "Punjabi" },
-  { code: "gu", nativeName: "ગુજરાતી", englishName: "Gujarati" }
+  { code: "gu", nativeName: "ગુજરાતી", englishName: "Gujarati" },
+  { code: "kn", nativeName: "ಕನ್ನಡ", englishName: "Kannada" },
+  { code: "ml", nativeName: "മലയാളം", englishName: "Malayalam" },
+  { code: "or", nativeName: "ଓଡ଼ିଆ", englishName: "Odia" },
 ] as const;
 
 export type Language = (typeof LANGUAGES)[number]["code"];

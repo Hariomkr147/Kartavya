@@ -51,16 +51,19 @@ function HeroGrid() {
   );
 }
 
-const ACTORS: { icon: typeof Camera; labelKey: TranslationKey; textKey: TranslationKey }[] =
-  [
-    { icon: Camera, labelKey: "roles.citizen", textKey: "landing.actors.citizen" },
-    {
-      icon: ClipboardCheck,
-      labelKey: "roles.officer",
-      textKey: "landing.actors.officer",
-    },
-    { icon: BarChart3, labelKey: "roles.admin", textKey: "landing.actors.admin" },
-  ];
+const ACTORS: {
+  icon: typeof Camera;
+  labelKey: TranslationKey;
+  textKey: TranslationKey;
+}[] = [
+  { icon: Camera, labelKey: "roles.citizen", textKey: "landing.actors.citizen" },
+  {
+    icon: ClipboardCheck,
+    labelKey: "roles.officer",
+    textKey: "landing.actors.officer",
+  },
+  { icon: BarChart3, labelKey: "roles.admin", textKey: "landing.actors.admin" },
+];
 
 // The five happy-path statuses, reusing the same `status.*` labels the pills
 // use everywhere else rather than a second copy of the wording.
@@ -99,10 +102,10 @@ export function LandingPage() {
 
   return (
     <div className="min-h-screen bg-canvas text-ink">
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
+      <header className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-6 sm:px-6">
         <div className="flex items-center gap-2">
           <ShieldCheck className="text-brand size-6" aria-hidden="true" />
-          <span className="font-display text-lg font-semibold">Kartavya</span>
+          <span className="font-brand text-lg font-semibold">Kartavya</span>
         </div>
         <div className="flex items-center gap-2">
           {/* Before sign-in is exactly where the language switch has to be
@@ -110,13 +113,16 @@ export function LandingPage() {
               register first. */}
           <LanguageSwitcher />
           <ThemeToggle />
+          {/* Four controls do not fit a 390px header once the labels are
+              translated. Sign-in is the one that can go: the hero below
+              carries the same link as a full-size button. */}
           <Link
             to="/login"
-            className="text-ink-muted px-3 py-2 text-sm font-medium hover:text-ink"
+            className="text-ink-muted hidden px-3 py-2 text-sm font-medium whitespace-nowrap hover:text-ink sm:block"
           >
             {t("landing.signIn")}
           </Link>
-          <LinkButton to="/register" size="sm">
+          <LinkButton to="/register" size="sm" className="whitespace-nowrap">
             {t("landing.getStarted")}
           </LinkButton>
         </div>

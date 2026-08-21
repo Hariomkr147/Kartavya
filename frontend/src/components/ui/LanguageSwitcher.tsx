@@ -22,7 +22,15 @@ export function LanguageOptions({ onPick }: { onPick?: () => void }) {
   const { t } = useTranslation();
 
   return (
-    <div role="radiogroup" aria-label={t("settingsPopover.language")} className="grid gap-0.5">
+    // Eleven languages is past what a popover can show at once, and the list
+    // grows every time one is added — so it scrolls in place rather than
+    // stretching its host (which, in the settings popover, pushed the account
+    // and sign-out rows below the fold).
+    <div
+      role="radiogroup"
+      aria-label={t("settingsPopover.language")}
+      className="grid max-h-56 gap-0.5 overflow-y-auto overscroll-contain"
+    >
       {languages.map((option) => {
         const active = option.code === language;
         return (
@@ -90,10 +98,18 @@ export function LanguageSwitcher({ className }: { className?: string }) {
           )}
         >
           <Languages className="size-4 shrink-0" aria-hidden="true" />
-          <span>{languageMeta(language).nativeName}</span>
+          {/* The endonym is the useful part of this trigger, but it is also
+              the widest thing in a mobile header that already carries a theme
+              toggle and two links — so below `sm` the icon stands alone. The
+              button keeps its aria-label either way. */}
+          <span className="hidden sm:inline">{languageMeta(language).nativeName}</span>
         </button>
       </DropdownTrigger>
-      <DropdownMenu role="dialog" label={t("settingsPopover.language")} className="w-56 p-0">
+      <DropdownMenu
+        role="dialog"
+        label={t("settingsPopover.language")}
+        className="w-56 p-0"
+      >
         <LanguageMenu />
       </DropdownMenu>
     </Dropdown>

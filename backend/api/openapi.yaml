@@ -2,7 +2,7 @@ openapi: 3.0.3
 
 info:
   title: Kartavya API
-  version: 3.0.0
+  version: 3.1.0
   description: >
     # Kartavya — A Gamified Civic Upkeep Platform
 
@@ -2346,11 +2346,16 @@ paths:
 
         **Who is on the board, and who may read it.** Active citizens only:
         `role = CITIZEN` and `is_active = true`. Officers and admins never
-        appear — they earn no points — and the board is **citizen-only to
-        read** as well: an officer or admin calling this gets `403`, the same
-        as every other endpoint in this group (`/complaints/my`,
-        `/gamification/points`, `/gamification/badges`). A deactivated
-        citizen is dropped from the rankings entirely
+        appear — they earn no points — but **an admin may read** the board,
+        for cross-zone gamification oversight; an officer calling this still
+        gets `403`, as with every other endpoint in this group
+        (`/complaints/my`, `/gamification/points`, `/gamification/badges`).
+        Reading is not the same as being ranked: an admin caller sees the
+        citizen ranking unchanged and gets `currentUser: null`, because they
+        are not on the board they are reading. An admin has no `zoneId`, so
+        `scope=city` is the only meaningful scope for them — `scope=zone`
+        is accepted but returns the zone-less pool, not an error. A
+        deactivated citizen is dropped from the rankings entirely
         and everyone below them moves up; the account keeps its
         `points_ledger` history, so reactivating restores its place. Citizens
         with a zero (or negative) total for the period **do** appear, at the
@@ -2371,15 +2376,12 @@ paths:
 
         **`currentUser`.** The caller's own row, computed against the full
         ranking rather than the returned page, so it is correct no matter
-        which page was requested. Given the `403` above, every caller who
-        reaches a `200` is an active citizen, and every active citizen is
-        ranked — including at zero, and including one with no `zoneId` under
-        `scope=zone`, who ranks among the other zone-less citizens. So no
-        current path returns `null` here. The field stays nullable rather
-        than required because that is a property of who may call the
-        endpoint, not of the ranking itself: widening access later (to let
-        an officer see their ward's board, say) would reintroduce the case
-        without touching this schema. Clients should keep handling `null`.
+        which page was requested. Every active citizen is ranked — including
+        at zero, and including one with no `zoneId` under `scope=zone`, who
+        ranks among the other zone-less citizens — so a citizen caller
+        always finds themselves here. An admin caller never does, and gets
+        `null`: the field is nullable precisely because who may *read* the
+        board is a wider set than who is *on* it. Clients must handle `null`.
       parameters:
         - name: scope
           in: query
@@ -2414,7 +2416,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: Only citizens can read the leaderboard.
+          description: Only citizens and admins can read the leaderboard.
           content:
             application/json:
               schema:

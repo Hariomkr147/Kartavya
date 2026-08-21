@@ -47,6 +47,7 @@ from app.services.complaints.views import ComplaintDetailData
 bp = Blueprint("citizen", __name__)
 
 CITIZEN = UserRole.CITIZEN
+ADMIN = UserRole.ADMIN
 
 
 def _utcnow() -> datetime:
@@ -356,7 +357,7 @@ def get_my_badges():
 
 
 @bp.get("/leaderboard")
-@require_role(CITIZEN)
+@require_role(CITIZEN, ADMIN)
 @validate_query(LeaderboardQuery)
 def get_leaderboard_route(query: LeaderboardQuery):
     """200 LeaderboardResponse.
@@ -364,6 +365,11 @@ def get_leaderboard_route(query: LeaderboardQuery):
     Sequential ranks, total order (points, then account age, then id),
     DEACTIVATED citizens excluded, zero-point citizens included.
     Handles are `display_name` or a masked fallback — never `full_name`.
+
+    The one endpoint in this citizen group an admin may also read, for
+    cross-zone oversight. Reading is not being ranked: the admin is not a
+    CITIZEN, so no row matches them and `currentUser` comes back `null`.
+    Officers stay out — they have no oversight remit over gamification.
     """
     from app.services.gamification.leaderboard import get_leaderboard_service
 

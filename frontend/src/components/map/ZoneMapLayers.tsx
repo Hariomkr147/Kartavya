@@ -18,15 +18,22 @@ import {
   zoneVoronoiCells,
   type LatLngBounds,
 } from "@/lib/zoneVoronoi";
+import type { ZoneMapLayerState } from "@/lib/zoneMapLayers";
 import type { Cluster, ClusterDetail, Complaint, SeverityLabel, Zone } from "@/types/api";
 
-export interface ZoneMapLayerState {
-  zoneRegions: boolean;
-  zoneLabels: boolean;
-  clusters: boolean;
-  clusterMembers: boolean;
-  standalone: boolean;
-  tethers: boolean;
+/**
+ * Where a mark leads when it is clicked.
+ *
+ * The same map serves an admin and an officer, and the two apps route the
+ * same row differently — an admin's complaint lives at
+ * `/admin/complaints/{id}`, an officer's at `/officer/queue/{id}`. Passing
+ * the paths in keeps this component ignorant of both route tables rather than
+ * teaching it to branch on a role, which is the thing that would otherwise
+ * have to be edited again for the next audience.
+ */
+export interface ZoneMapLinks {
+  complaint: (complaintId: string) => string;
+  cluster: (clusterId: string) => string;
 }
 
 /**
@@ -93,6 +100,24 @@ const TETHER_STYLE = {
   lineCap: "round" as const,
   interactive: false,
 };
+
+/**
+ * How strongly a zone's cell is drawn.
+ *
+ * An officer works exactly one zone, so their map has a figure and a ground:
+ * the assigned cell is the work, and its neighbours are there only because a
+ * Voronoi cell has no shape without them — the boundary between two zones IS
+ * the perpendicular bisector of their centres, so the adjacent zones cannot
+ * simply be dropped. Drawing them faintly says "this is the edge of your
+ * patch" without inviting an officer to hunt for their complaints over there;
+ * the server would not have sent any.
+ *
+ * With no home zone (the admin map) every cell is drawn at full strength,
+ * because no zone is more the admin's than another.
+ */
+const CELL_HOME = { weight: 2.5, fillOpacity: 0.16, opacity: 1 };
+const CELL_NEUTRAL = { weight: 1.5, fillOpacity: 0.12, opacity: 1 };
+const CELL_NEIGHBOUR = { weight: 1, fillOpacity: 0.04, opacity: 0.55 };
 
 /** One drop shadow, so every mark reads as part of the same family of objects. */
 const SHADOW = "drop-shadow(0 1px 1.5px rgba(0,0,0,.45))";
@@ -240,7 +265,7 @@ function MarkTooltip({
  * itself. Only the layers actually switched on are listed — a legend for
  * marks that are not drawn is just clutter.
  */
-function Legend({ layers }: { layers: ZoneMapLayerState }) {
+function Legend({ layers, homeZone }: { layers: ZoneMapLayerState; homeZone?: Zone }) {
   const { t } = useTranslation();
   const shapes: { key: string; label: string; swatch: ReactNode }[] = [];
 
@@ -309,6 +334,24 @@ function Legend({ layers }: { layers: ZoneMapLayerState }) {
         <span className="block size-3 rounded-[2px] border border-current border-dashed opacity-70" />
       ),
     });
+    // Two cell weights are on screen the moment a home zone is set, and the
+    // heavier one is not self-explanatory — say which is which, in the zone's
+    // own hue so the swatch matches the cell it names.
+    if (homeZone) {
+      shapes.push({
+        key: "home-zone",
+        label: t("fields.yourZone"),
+        swatch: (
+          <span
+            className="block size-3 rounded-[2px] border-2 border-dashed"
+            style={{
+              borderColor: `hsl(${zoneHue(homeZone.code)} 55% 45%)`,
+              background: `hsl(${zoneHue(homeZone.code)} 65% 52% / .16)`,
+            }}
+          />
+        ),
+      });
+    }
   }
   if (shapes.length === 0) return null;
 
@@ -354,6 +397,8 @@ export function ZoneMapLayers({
   standalone,
   clusterDetails,
   layers,
+  links,
+  homeZoneId,
   height = 620,
 }: {
   zones: Zone[];
@@ -361,20 +406,32 @@ export function ZoneMapLayers({
   standalone: Complaint[];
   clusterDetails: ClusterDetail[];
   layers: ZoneMapLayerState;
+  links: ZoneMapLinks;
+  /** The one zone this viewer works, if they have one. Drawn as the figure. */
+  homeZoneId?: string;
   height?: number;
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [viewport, setViewport] = useState<Viewport | null>(null);
 
+  const homeZone = useMemo(
+    () => zones.find((z) => z.id === homeZoneId),
+    [zones, homeZoneId],
+  );
+
+  // An officer opens this map to see their own patch, so it opens there
+  // rather than on the mean of every zone in the city — which, with zones
+  // spread across a district, can be a place they have no complaints in.
   const centre = useMemo<[number, number]>(() => {
+    if (homeZone) return [homeZone.centerLat, homeZone.centerLng];
     const placed = zones.filter((z) => !z.isCatchAll && z.isActive);
     if (placed.length === 0) return [12.9716, 77.5946];
     return [
       placed.reduce((s, z) => s + z.centerLat, 0) / placed.length,
       placed.reduce((s, z) => s + z.centerLng, 0) / placed.length,
     ];
-  }, [zones]);
+  }, [zones, homeZone]);
 
   // Recomputed as the viewport moves: cells are clipped to what is on screen,
   // so panning must re-clip rather than leave cells stopping at the old edge.
@@ -417,16 +474,20 @@ export function ZoneMapLayers({
         {layers.zoneRegions &&
           cells.map(({ zone, ring }) => {
             const hue = zoneHue(zone.code);
+            const emphasis = !homeZoneId
+              ? CELL_NEUTRAL
+              : zone.id === homeZoneId
+                ? CELL_HOME
+                : CELL_NEIGHBOUR;
             return (
               <Polygon
                 key={zone.id}
                 positions={ring}
                 pathOptions={{
                   color: `hsl(${hue} 55% 45%)`,
-                  weight: 1.5,
                   dashArray: "5 4",
                   fillColor: `hsl(${hue} 65% 52%)`,
-                  fillOpacity: 0.12,
+                  ...emphasis,
                 }}
               />
             );
@@ -479,7 +540,7 @@ export function ZoneMapLayers({
                 position={[c.latitude as number, c.longitude as number]}
                 icon={pinIcon(color)}
                 zIndexOffset={Z_STANDALONE}
-                eventHandlers={{ click: () => navigate(`/admin/complaints/${c.id}`) }}
+                eventHandlers={{ click: () => navigate(links.complaint(c.id)) }}
               >
                 <Tooltip direction="top" className="kv-map-tip" opacity={1}>
                   <MarkTooltip
@@ -489,7 +550,11 @@ export function ZoneMapLayers({
                     lines={[
                       c.category.name,
                       t(`status.${c.status}`),
-                      c.zoneName ?? "",
+                      // An officer's map is one zone, so naming it on every
+                      // pin says nothing. Their third line is the SLA state,
+                      // which is what decides where they go next.
+                      (homeZoneId ? c.slaLabel && t(`sla.${c.slaLabel}`) : c.zoneName) ??
+                        "",
                     ].filter(Boolean)}
                   />
                 </Tooltip>
@@ -508,7 +573,7 @@ export function ZoneMapLayers({
               // citizen's report and landing on the group loses exactly the
               // thing that was clicked.
               eventHandlers={{
-                click: () => navigate(`/admin/complaints/${complaint.id}`),
+                click: () => navigate(links.complaint(complaint.id)),
               }}
             >
               <Tooltip direction="top" className="kv-map-tip" opacity={1}>
@@ -533,7 +598,7 @@ export function ZoneMapLayers({
               position={[cluster.centroidLat, cluster.centroidLng]}
               icon={clusterIcon(cluster)}
               zIndexOffset={Z_CLUSTER}
-              eventHandlers={{ click: () => navigate(`/admin/clusters/${cluster.id}`) }}
+              eventHandlers={{ click: () => navigate(links.cluster(cluster.id)) }}
             >
               <Tooltip direction="top" className="kv-map-tip" opacity={1}>
                 <MarkTooltip
@@ -553,7 +618,7 @@ export function ZoneMapLayers({
           ))}
       </MapContainer>
 
-      <Legend layers={layers} />
+      <Legend layers={layers} homeZone={homeZone} />
     </div>
   );
 }

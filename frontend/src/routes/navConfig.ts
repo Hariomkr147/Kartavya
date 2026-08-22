@@ -72,6 +72,12 @@ export const officerNavItems: NavItem[] = [
     to: "/officer/clusters",
     icon: Boxes,
   },
+  {
+    labelKey: "nav.zoneMap",
+    sectionKey: "navSections.casework",
+    to: "/officer/map",
+    icon: Map,
+  },
 ];
 
 export const adminNavItems: NavItem[] = [

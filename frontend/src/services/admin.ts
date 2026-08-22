@@ -66,10 +66,24 @@ export type ExportComplaintsParams = Omit<
   "sort" | "page" | "pageSize"
 >;
 
+/**
+ * Sends only the six filters `exportComplaintsCsv` declares in openapi.yaml.
+ *
+ * The admin complaints page builds one filter object and feeds it to both the
+ * list and the export, and `QueryParams`' index signature means a leftover
+ * `sort` key type-checks fine here. The backend validates this query with
+ * Pydantic `extra="forbid"` and answers 400 VALIDATION_ERROR; the mock ignores
+ * unknown query params, so the export appeared to work in development and
+ * failed for every admin in production. Picking the allowed keys here fixes it
+ * once, instead of trusting each call site to strip them.
+ */
 export function exportComplaintsCsv(
   params: ExportComplaintsParams = {},
 ): Promise<string> {
-  return apiFetch<string>("/admin/export/complaints", { query: params });
+  const { zoneId, categoryId, status, slaLabel, dateFrom, dateTo } = params;
+  return apiFetch<string>("/admin/export/complaints", {
+    query: { zoneId, categoryId, status, slaLabel, dateFrom, dateTo },
+  });
 }
 
 export interface GetAllUsersParams extends QueryParams {

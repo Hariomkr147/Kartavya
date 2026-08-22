@@ -175,10 +175,18 @@ The full list of fourteen is in `docs/backend/architecture.md` §16.4. These cau
 6. **Re-load the user row on every request.** Never authorize from JWT claims alone: a deactivated user and a reassigned officer must both take effect immediately.
 7. `PRAGMA foreign_keys=ON` must be on, or every FK rule in the schema is inert.
 8. Auto-close and admin-rejected disputes credit **zero** points.
-9. `avgResolutionHours` is `resolved_at − sla_started_at − sla_paused_seconds` in all three dashboards. The frontend mock computes it three other ways; the contract wins.
+9. `avgResolutionHours` is `resolved_at − sla_started_at − sla_paused_seconds` in all three dashboards — never `closed_at − created_at`. The wait between "officer fixed it" and "citizen confirmed it" is not the officer's to answer for.
 10. **The SLA clock starts once.** `review_evidence()` may only call `sla.start()` when `sla_started_at IS NULL` — a `VALID` verdict is also how a complaint returns from an officer's post-acceptance recall, and restarting there both hands back a fresh deadline and double-discounts the paused span.
+11. **An admin may not deactivate or delete the last way back in.** `PATCH`/`DELETE /admin/users/{id}` answer `409 LAST_ADMIN` when the target is the caller's own admin account, or the only remaining active one. There is no API that mints an ADMIN (`CreateUserRequest.role` is `CITIZEN`/`OFFICER`), and a deactivated account cannot log in, so one unguarded `PATCH` strands the whole admin surface with no recovery short of database surgery.
 
-Two more places the mock disagrees with the contract, where the contract wins: the leaderboard must filter out deactivated citizens (the mock includes them), and `AuthResponse.expiresAt` is required (the mock omits it).
+### Where the mock and the contract can drift
+
+The mock (`frontend/src/mocks/`) is the default in development (`VITE_USE_MOCKS=true`), so anywhere it is *more permissive* than the backend is a bug a client can only discover in production. Two real ones shipped this way: it let admins read `/leaderboard` when the contract said citizens-only, and it accepted unrecognised request enums — an unknown evidence verdict drove a complaint to terminal REJECTED with a 200 in reply.
+
+`mocks/lib/enums.ts` now guards every enum-valued body field and query parameter; keep its lists identical to `openapi.yaml`. Two known, deliberate gaps remain, both in the same permissive direction:
+
+- Pagination is clamped (`page=0` → 1, `pageSize=9999` → 100) where the backend's `ge=1, le=100` returns `400`.
+- Unknown body/query fields are ignored where the backend's `extra="forbid"` returns `400`.
 
 ## Testing layout
 

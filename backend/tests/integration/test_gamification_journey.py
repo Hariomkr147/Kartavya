@@ -255,22 +255,37 @@ def test_officers_and_admins_are_never_ranked(platform, citizen, officer, admin)
 
 
 def test_the_gamification_group_is_citizen_only(platform, citizen, officer, admin):
-    """All four of these reads are guarded the same way, and now say so.
+    """These reads are guarded the same way, and now say so.
 
-    The 403 used to be implemented on all four and documented on none, while
+    The 403 used to be implemented on all of them and documented on none, while
     `/feed` and `POST /complaints` — guarded identically — did document it.
-    `openapi.yaml` now carries it on all six, so this test is checking the
-    contract rather than just the code.
+    `openapi.yaml` now carries it, so this test is checking the contract rather
+    than just the code.
     """
     for path in (
         "/complaints/my",
         "/gamification/points",
         "/gamification/badges",
-        "/leaderboard?scope=city&period=all_time",
     ):
         citizen.get(path)
         officer.get(path, expect=403)
         admin.get(path, expect=403)
+
+
+def test_the_leaderboard_is_the_one_read_an_admin_shares(platform, citizen, officer, admin):
+    """Contract 3.1.0 widened `/leaderboard` to admins, and only `/leaderboard`.
+
+    It is the exception to the rule above, so it is asserted apart from it:
+    officers stay out, and an admin reading the board is never *on* it —
+    `currentUser` is null and no row is theirs.
+    """
+    path = "/leaderboard?scope=city&period=all_time"
+    citizen.get(path)
+    officer.get(path, expect=403)
+
+    board = admin.get(path).get_json()
+    assert board["currentUser"] is None
+    assert all(entry["citizenId"] != admin.id for entry in board["data"])
 
 
 def test_zone_champion_belongs_to_whoever_is_actually_first(platform):

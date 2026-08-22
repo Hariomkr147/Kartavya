@@ -2,7 +2,7 @@ openapi: 3.0.3
 
 info:
   title: Kartavya API
-  version: 3.1.0
+  version: 3.2.0
   description: >
     # Kartavya — A Gamified Civic Upkeep Platform
 
@@ -1798,6 +1798,16 @@ paths:
         complaints become unassigned and available to whichever officer now
         covers that zone, rather than staying stuck with someone who can no
         longer see them.
+
+
+        **An admin may not deactivate the last way back in.** Setting
+        `active: false` is refused with `409 LAST_ADMIN` when the target is the
+        caller's own account, or when it is the only remaining active admin.
+        Admins cannot be created through this API (`CreateUserRequest.role` is
+        `CITIZEN` or `OFFICER` only), and a deactivated account cannot log in,
+        so without this guard one `PATCH` would strand the whole admin surface
+        with no route back short of database surgery. Deactivating a *different*
+        admin while another active one remains is still allowed.
       parameters:
         - $ref: "#/components/parameters/UserId"
       requestBody:
@@ -1822,7 +1832,10 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: The new email is already taken by another account.
+          description: >
+            The new email is already taken by another account
+            (`EMAIL_TAKEN`), or deactivating this account would leave no way
+            back into the admin surface (`LAST_ADMIN`).
           content:
             application/json:
               schema:
@@ -1837,6 +1850,12 @@ paths:
         points, evidence reviews, progress notes, or status changes on record
         will be refused. This endpoint is intended only for truly empty/test
         accounts.
+
+
+        The same `LAST_ADMIN` guard as `PATCH` applies: an admin may never
+        delete their own account, nor the only remaining active admin. A fresh
+        admin has no linked records, so without this the linked-records check
+        would not stop the platform's last way in from being deleted outright.
       parameters:
         - $ref: "#/components/parameters/UserId"
       responses:
@@ -1849,11 +1868,65 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: This account has linked records and cannot be hard-deleted. Deactivate it instead.
+          description: >
+            This account has linked records and cannot be hard-deleted
+            (`HAS_LINKED_RECORDS`) — deactivate it instead; or deleting it
+            would leave no way back into the admin surface (`LAST_ADMIN`).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+
+  /admin/users/{userId}/reset-password:
+    post:
+      tags: [Admin]
+      operationId: resetUserPassword
+      summary: Set a new password for a user
+      description: >
+        Admin-initiated password reset, for the everyday case of a citizen or
+        officer who has locked themselves out. There is no self-service
+        forgot-password flow in this system, so without this an account with a
+        forgotten password is unrecoverable.
+
+
+        Unlike `POST /users/me/change-password`, this does **not** require the
+        account's current password — that is the entire point, and it is why
+        the endpoint is admin-only. The admin is expected to hand the new
+        password to its owner out of band; nothing is emailed, and the account
+        holder is not notified.
+
+
+        The new password is subject to the same minimum length as registration.
+        Nothing else about the account changes: role, zone, active flag,
+        complaints, points, and history are all untouched.
+
+
+        **Existing sessions are not revoked.** JWTs in this system are stateless
+        and carry no password generation, so any token already issued for the
+        account stays valid until it expires (`JWT_TTL_HOURS`, 24h by default).
+        This endpoint restores access; it is not a way to evict an intruder. To
+        cut off a live session now, deactivate the account
+        (`PATCH /admin/users/{userId}` with `active: false`), which every
+        request re-checks against the database.
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminResetPasswordRequest"
+      responses:
+        "204":
+          description: Password set (no content).
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # ---------------------------------------------------------------------------
   # ADMIN — zones, SLAs, settings
@@ -2160,6 +2233,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OfficerPerformance"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2918,6 +2993,19 @@ components:
         currentPassword:
           type: string
           format: password
+        newPassword:
+          type: string
+          format: password
+          minLength: 8
+
+    AdminResetPasswordRequest:
+      type: object
+      description: >
+        An admin setting a password on someone else's behalf. Deliberately has
+        no `currentPassword`: the admin does not know it, and requiring it would
+        defeat the purpose of a reset.
+      required: [newPassword]
+      properties:
         newPassword:
           type: string
           format: password

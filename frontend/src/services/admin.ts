@@ -1,5 +1,6 @@
 import { apiFetch, type QueryParams } from "./http";
 import type {
+  AdminResetPasswordRequest,
   AiZoneReport,
   AssignOfficerRequest,
   Category,
@@ -60,9 +61,14 @@ export function reviewDispute(
   });
 }
 
-export type ExportComplaintsParams = Omit<GetAdminComplaintsParams, "sort" | "page" | "pageSize">;
+export type ExportComplaintsParams = Omit<
+  GetAdminComplaintsParams,
+  "sort" | "page" | "pageSize"
+>;
 
-export function exportComplaintsCsv(params: ExportComplaintsParams = {}): Promise<string> {
+export function exportComplaintsCsv(
+  params: ExportComplaintsParams = {},
+): Promise<string> {
   return apiFetch<string>("/admin/export/complaints", { query: params });
 }
 
@@ -88,6 +94,21 @@ export function updateUser(userId: string, body: UpdateUserRequest): Promise<Use
 
 export function deleteUser(userId: string): Promise<void> {
   return apiFetch<void>(`/admin/users/${userId}`, { method: "DELETE" });
+}
+
+/**
+ * Admin-initiated password reset. There is no self-service forgot-password
+ * flow, so this is the only way back in for a locked-out account. Does not
+ * revoke sessions — see the contract note on the endpoint.
+ */
+export function resetUserPassword(
+  userId: string,
+  body: AdminResetPasswordRequest,
+): Promise<void> {
+  return apiFetch<void>(`/admin/users/${userId}/reset-password`, {
+    method: "POST",
+    body,
+  });
 }
 
 export function createZone(body: CreateZoneRequest): Promise<Zone> {

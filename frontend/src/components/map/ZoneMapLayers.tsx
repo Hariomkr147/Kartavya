@@ -13,6 +13,7 @@ import {
 import L from "leaflet";
 import { resolveApiAssetUrl } from "@/services/http";
 import {
+  tessellatableZones,
   zoneHue,
   zoneLabelPosition,
   zoneVoronoiCells,
@@ -265,7 +266,15 @@ function MarkTooltip({
  * itself. Only the layers actually switched on are listed — a legend for
  * marks that are not drawn is just clutter.
  */
-function Legend({ layers, homeZone }: { layers: ZoneMapLayerState; homeZone?: Zone }) {
+function Legend({
+  layers,
+  focusZone,
+  focusLabel,
+}: {
+  layers: ZoneMapLayerState;
+  focusZone?: Zone;
+  focusLabel?: string;
+}) {
   const { t } = useTranslation();
   const shapes: { key: string; label: string; swatch: ReactNode }[] = [];
 
@@ -334,19 +343,24 @@ function Legend({ layers, homeZone }: { layers: ZoneMapLayerState; homeZone?: Zo
         <span className="block size-3 rounded-[2px] border border-current border-dashed opacity-70" />
       ),
     });
-    // Two cell weights are on screen the moment a home zone is set, and the
+    // Two cell weights are on screen the moment a zone is in focus, and the
     // heavier one is not self-explanatory — say which is which, in the zone's
     // own hue so the swatch matches the cell it names.
-    if (homeZone) {
+    //
+    // Only when the caller supplies a name for it. An officer's focus is
+    // "your zone" and wants saying; an admin's is whichever zone they picked
+    // in the filter directly above the map, and repeating it in the legend
+    // would be the third place that name appears on one screen.
+    if (focusZone && focusLabel) {
       shapes.push({
-        key: "home-zone",
-        label: t("fields.yourZone"),
+        key: "focus-zone",
+        label: focusLabel,
         swatch: (
           <span
             className="block size-3 rounded-[2px] border-2 border-dashed"
             style={{
-              borderColor: `hsl(${zoneHue(homeZone.code)} 55% 45%)`,
-              background: `hsl(${zoneHue(homeZone.code)} 65% 52% / .16)`,
+              borderColor: `hsl(${zoneHue(focusZone.code)} 55% 45%)`,
+              background: `hsl(${zoneHue(focusZone.code)} 65% 52% / .16)`,
             }}
           />
         ),
@@ -398,7 +412,8 @@ export function ZoneMapLayers({
   clusterDetails,
   layers,
   links,
-  homeZoneId,
+  focusZoneId,
+  focusLabel,
   height = 620,
 }: {
   zones: Zone[];
@@ -407,31 +422,45 @@ export function ZoneMapLayers({
   clusterDetails: ClusterDetail[];
   layers: ZoneMapLayerState;
   links: ZoneMapLinks;
-  /** The one zone this viewer works, if they have one. Drawn as the figure. */
-  homeZoneId?: string;
+  /**
+   * The zone the map is currently about, drawn as the figure against its
+   * neighbours: an officer's assigned zone, or the zone an admin has filtered
+   * to. Undefined means no zone is privileged and every cell is drawn alike.
+   */
+  focusZoneId?: string;
+  /** Names the focused zone in the legend. Omit to leave it out of the legend. */
+  focusLabel?: string;
   height?: number;
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [viewport, setViewport] = useState<Viewport | null>(null);
 
-  const homeZone = useMemo(
-    () => zones.find((z) => z.id === homeZoneId),
-    [zones, homeZoneId],
+  // Resolved through `tessellatableZones` rather than by id alone, so the
+  // catch-all can never become the focus. It is a real zone with real
+  // complaints in it, and filtering to it is legitimate — but its centre is
+  // seeded at (0, 0), in the Gulf of Guinea, and it has no cell to emphasise.
+  // Focusing it would centre the map on the ocean and grey out every zone
+  // that does have a cell.
+  const focusZone = useMemo(
+    () => tessellatableZones(zones).find((z) => z.id === focusZoneId),
+    [zones, focusZoneId],
   );
+  /** The focus, once it is known to be a zone the map can actually draw. */
+  const focusId = focusZone?.id;
 
   // An officer opens this map to see their own patch, so it opens there
   // rather than on the mean of every zone in the city — which, with zones
   // spread across a district, can be a place they have no complaints in.
   const centre = useMemo<[number, number]>(() => {
-    if (homeZone) return [homeZone.centerLat, homeZone.centerLng];
+    if (focusZone) return [focusZone.centerLat, focusZone.centerLng];
     const placed = zones.filter((z) => !z.isCatchAll && z.isActive);
     if (placed.length === 0) return [12.9716, 77.5946];
     return [
       placed.reduce((s, z) => s + z.centerLat, 0) / placed.length,
       placed.reduce((s, z) => s + z.centerLng, 0) / placed.length,
     ];
-  }, [zones, homeZone]);
+  }, [zones, focusZone]);
 
   // Recomputed as the viewport moves: cells are clipped to what is on screen,
   // so panning must re-clip rather than leave cells stopping at the old edge.
@@ -474,9 +503,9 @@ export function ZoneMapLayers({
         {layers.zoneRegions &&
           cells.map(({ zone, ring }) => {
             const hue = zoneHue(zone.code);
-            const emphasis = !homeZoneId
+            const emphasis = !focusId
               ? CELL_NEUTRAL
-              : zone.id === homeZoneId
+              : zone.id === focusId
                 ? CELL_HOME
                 : CELL_NEIGHBOUR;
             return (
@@ -553,8 +582,7 @@ export function ZoneMapLayers({
                       // An officer's map is one zone, so naming it on every
                       // pin says nothing. Their third line is the SLA state,
                       // which is what decides where they go next.
-                      (homeZoneId ? c.slaLabel && t(`sla.${c.slaLabel}`) : c.zoneName) ??
-                        "",
+                      (focusId ? c.slaLabel && t(`sla.${c.slaLabel}`) : c.zoneName) ?? "",
                     ].filter(Boolean)}
                   />
                 </Tooltip>
@@ -618,7 +646,7 @@ export function ZoneMapLayers({
           ))}
       </MapContainer>
 
-      <Legend layers={layers} homeZone={homeZone} />
+      <Legend layers={layers} focusZone={focusZone} focusLabel={focusLabel} />
     </div>
   );
 }

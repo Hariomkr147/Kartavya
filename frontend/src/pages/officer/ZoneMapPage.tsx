@@ -126,7 +126,8 @@ export function OfficerZoneMapPage() {
             clusterDetails={clusterDetails}
             layers={layers}
             links={LINKS}
-            homeZoneId={zoneId ?? undefined}
+            focusZoneId={zoneId ?? undefined}
+            focusLabel={t("fields.yourZone")}
           />
           <p className="text-ink-muted text-xs">
             {t("feed.mapNote", {

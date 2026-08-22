@@ -1,21 +1,13 @@
 import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, FileQuestion } from "lucide-react";
-import { StatusPill, SeverityPill, SlaPill } from "@/components/ui/pills";
-import { PhotoThumb } from "@/components/ui/PhotoThumb";
+import { SeverityPill } from "@/components/ui/pills";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { DynamicIcon } from "@/components/DynamicIcon";
-import { MiniMap } from "@/components/ui/MiniMap";
 import { HorizontalBarChart } from "@/components/charts/HorizontalBarChart";
-import {
-  Table,
-  TableHead,
-  TableBody,
-  TableRow,
-  TableHeaderCell,
-  TableCell,
-} from "@/components/ui/DataTable";
+import { ClusterMap } from "@/components/complaint/ClusterMap";
+import { ClusterMembersTable } from "@/components/complaint/ClusterMembersTable";
 import { useCluster } from "@/hooks/useCluster";
 import { useZones } from "@/hooks/useZones";
 import { iconForCategory } from "@/lib/categoryIcons";
@@ -140,19 +132,9 @@ export function AdminClusterDetailPage() {
         </div>
         <div className="rounded-lg border border-line bg-surface p-4">
           <h2 className="font-display mb-3 text-base font-semibold text-ink">
-            {t("clusterDetail.centroid")}
+            {t("feed.map")}
           </h2>
-          <MiniMap
-            pins={[
-              {
-                id: cluster.id,
-                lat: cluster.centroidLat,
-                lng: cluster.centroidLng,
-                label: cluster.category.name,
-              },
-            ]}
-            height={200}
-          />
+          <ClusterMap cluster={cluster} hrefFor={(id) => `/admin/complaints/${id}`} />
         </div>
       </div>
 
@@ -160,54 +142,10 @@ export function AdminClusterDetailPage() {
         <h2 className="font-display mb-3 text-base font-semibold text-ink">
           {t("clusterDetail.memberComplaints")}
         </h2>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableHeaderCell className="w-16">{t("columns.photo")}</TableHeaderCell>
-              <TableHeaderCell>{t("columns.complaint")}</TableHeaderCell>
-              <TableHeaderCell>{t("filters.status")}</TableHeaderCell>
-              <TableHeaderCell>{t("filters.severity")}</TableHeaderCell>
-              <TableHeaderCell>{t("columns.sla")}</TableHeaderCell>
-              <TableHeaderCell>{t("columns.filed")}</TableHeaderCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {cluster.complaints.map((c) => (
-              <TableRow key={c.id}>
-                <TableCell>
-                  <Link
-                    to={`/admin/complaints/${c.id}`}
-                    className="bg-surface-hover flex size-10 items-center justify-center overflow-hidden rounded-md"
-                  >
-                    <PhotoThumb
-                      src={c.photoUrl}
-                      className="size-full object-cover"
-                      iconClassName="text-ink-faint size-4"
-                    />
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  <Link
-                    to={`/admin/complaints/${c.id}`}
-                    className="text-ink font-mono text-xs hover:underline"
-                  >
-                    {c.id}
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  <StatusPill status={c.status} />
-                </TableCell>
-                <TableCell>
-                  {c.severityLabel && <SeverityPill severity={c.severityLabel} />}
-                </TableCell>
-                <TableCell>{c.slaLabel && <SlaPill sla={c.slaLabel} />}</TableCell>
-                <TableCell className="text-ink-muted text-sm">
-                  {relativeTime(c.createdAt)}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        <ClusterMembersTable
+          complaints={cluster.complaints}
+          hrefFor={(id) => `/admin/complaints/${id}`}
+        />
       </section>
     </div>
   );

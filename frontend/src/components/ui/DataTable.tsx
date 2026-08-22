@@ -5,6 +5,7 @@ import type {
   ThHTMLAttributes,
 } from "react";
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
+import type { SortableColumnProps } from "@/hooks/useSortableRows";
 import { useDensity } from "@/contexts/DensityContext";
 import { cn } from "@/lib/utils";
 
@@ -83,11 +84,8 @@ export function TableCell({
   return <td className={cn("px-4 py-3 text-ink", className)} {...props} />;
 }
 
-export interface SortableHeaderCellProps extends ThHTMLAttributes<HTMLTableCellElement> {
-  active: boolean;
-  direction: "asc" | "desc";
-  onSort: () => void;
-}
+export interface SortableHeaderCellProps
+  extends ThHTMLAttributes<HTMLTableCellElement>, SortableColumnProps {}
 
 /**
  * A `TableHeaderCell` that's also a sort control — click to cycle
@@ -104,11 +102,17 @@ export function SortableHeaderCell({
 }: SortableHeaderCellProps) {
   const Icon = !active ? ChevronsUpDown : direction === "asc" ? ArrowUp : ArrowDown;
   return (
-    <TableHeaderCell className={cn("p-0", className)} {...props}>
+    // `aria-sort` belongs on the columnheader itself, not the button inside
+    // it — on the button it is simply ignored, so a screen reader announced
+    // no sort state at all.
+    <TableHeaderCell
+      aria-sort={active ? (direction === "asc" ? "ascending" : "descending") : "none"}
+      className={cn("p-0", className)}
+      {...props}
+    >
       <button
         type="button"
         onClick={onSort}
-        aria-sort={active ? (direction === "asc" ? "ascending" : "descending") : "none"}
         className={cn(
           "flex w-full items-center gap-1.5 px-4 py-3 text-left text-xs font-semibold tracking-wide uppercase transition-colors",
           active ? "text-ink" : "text-ink-muted hover:text-ink",

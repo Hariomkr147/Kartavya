@@ -32,10 +32,12 @@ import {
   TableBody,
   TableRow,
   TableHeaderCell,
+  SortableHeaderCell,
   TableCell,
 } from "@/components/ui/DataTable";
 import { ZoneSummaryPanel } from "@/components/admin/ZoneSummaryPanel";
 import { ZoneAiReportPanel } from "@/components/admin/ZoneAiReportPanel";
+import { useSortableRows } from "@/hooks/useSortableRows";
 import { useZones } from "@/hooks/useZones";
 import { useCategories } from "@/hooks/useCategories";
 import { useAdminUsers } from "@/hooks/useAdminUsers";
@@ -124,6 +126,17 @@ function ZonesTab() {
     );
   }, [zones, search]);
 
+  // `/zones` returns every zone in one response, so this sorts the whole list
+  // rather than a page — same client-side model as the officer queue and the
+  // cluster member tables.
+  const { sorted: sortedZones, sortableProps } = useSortableRows(visibleZones, {
+    code: (z) => z.code,
+    name: (z) => z.name,
+    status: (z) => (z.isActive ? 1 : 0),
+    pending: (z) => metricsByZone.get(z.id)?.pending ?? 0,
+    overdue: (z) => metricsByZone.get(z.id)?.overdue ?? 0,
+  });
+
   async function handleDelete() {
     if (!deletingZone) return;
     setDeleteError(null);
@@ -160,26 +173,34 @@ function ZonesTab() {
       {isLoading ? (
         <Skeleton className="h-48 w-full" />
       ) : visibleZones.length === 0 ? (
-        <p className="text-ink-muted text-sm">
-          {t("adminZones.noMatch", { search })}
-        </p>
+        <p className="text-ink-muted text-sm">{t("adminZones.noMatch", { search })}</p>
       ) : (
         <Table>
           <TableHead>
             <TableRow>
               <TableHeaderCell className="w-8" />
-              <TableHeaderCell>{t("adminZones.code")}</TableHeaderCell>
-              <TableHeaderCell>{t("adminUsers.name")}</TableHeaderCell>
-              <TableHeaderCell>{t("filters.status")}</TableHeaderCell>
-              <TableHeaderCell>{t("adminDashboard.pending")}</TableHeaderCell>
-              <TableHeaderCell>{t("sla.OVERDUE")}</TableHeaderCell>
+              <SortableHeaderCell {...sortableProps("code")}>
+                {t("adminZones.code")}
+              </SortableHeaderCell>
+              <SortableHeaderCell {...sortableProps("name")}>
+                {t("adminUsers.name")}
+              </SortableHeaderCell>
+              <SortableHeaderCell {...sortableProps("status")}>
+                {t("filters.status")}
+              </SortableHeaderCell>
+              <SortableHeaderCell {...sortableProps("pending")}>
+                {t("adminDashboard.pending")}
+              </SortableHeaderCell>
+              <SortableHeaderCell {...sortableProps("overdue")}>
+                {t("sla.OVERDUE")}
+              </SortableHeaderCell>
               <TableHeaderCell className="text-right">
                 {t("columns.actions")}
               </TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {visibleZones.map((zone) => {
+            {sortedZones.map((zone) => {
               const metrics = metricsByZone.get(zone.id);
               const expanded = expandedZoneId === zone.id;
               return (
@@ -594,26 +615,34 @@ function AssignOfficerModal({ zone, onClose }: { zone: Zone; onClose: () => void
 function SlasTab() {
   const { t } = useTranslation();
   const { data: categories, isLoading } = useCategories();
+  // The twelve categories arrive in one response, so this is the same
+  // client-side sort every other fully-loaded table uses.
+  const { sorted, sortableProps } = useSortableRows(categories ?? [], {
+    category: (c) => c.name,
+    targetHours: (c) => c.slaTargetHours,
+  });
 
   if (isLoading) return <Skeleton className="h-64 w-full" />;
 
   return (
     <div className="space-y-3">
-      <p className="text-ink-muted -mt-1 text-sm">
-        {t("adminZones.slaNote")}
-      </p>
+      <p className="text-ink-muted -mt-1 text-sm">{t("adminZones.slaNote")}</p>
       <Table>
         <TableHead>
           <TableRow>
-            <TableHeaderCell>{t("filters.category")}</TableHeaderCell>
-            <TableHeaderCell>{t("adminZones.targetHours")}</TableHeaderCell>
+            <SortableHeaderCell {...sortableProps("category")}>
+              {t("filters.category")}
+            </SortableHeaderCell>
+            <SortableHeaderCell {...sortableProps("targetHours")}>
+              {t("adminZones.targetHours")}
+            </SortableHeaderCell>
             <TableHeaderCell className="text-right">
               {t("columns.actions")}
             </TableHeaderCell>
           </TableRow>
         </TableHead>
         <TableBody>
-          {categories?.map((category) => (
+          {sorted.map((category) => (
             <SlaRow
               key={category.id}
               categoryId={category.id}
@@ -654,7 +683,9 @@ function SlaRow({
       await updateSla.mutateAsync(parsed);
       toast({ title: t("adminZones.slaUpdated", { name }), variant: "success" });
     } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : t("adminSettings.updateFailed"));
+      setError(
+        err instanceof ApiRequestError ? err.message : t("adminSettings.updateFailed"),
+      );
     }
   }
 

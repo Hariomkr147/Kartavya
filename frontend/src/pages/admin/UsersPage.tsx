@@ -112,15 +112,14 @@ export function AdminUsersPage() {
         (u.email ?? "").toLowerCase().includes(term),
     );
   }, [data, search]);
-  const {
-    sorted: rows,
-    sort,
-    toggleSort,
-  } = useSortableRows<User, UserSortKey>(filteredRows, {
-    name: (u) => u.name,
-    email: (u) => u.email,
-    createdAt: (u) => u.createdAt,
-  });
+  const { sorted: rows, sortableProps } = useSortableRows<User, UserSortKey>(
+    filteredRows,
+    {
+      name: (u) => u.name,
+      email: (u) => u.email,
+      createdAt: (u) => u.createdAt,
+    },
+  );
 
   const createUser = useCreateUser();
   const deleteUser = useDeleteUser();
@@ -284,28 +283,16 @@ export function AdminUsersPage() {
           <Table>
             <TableHead>
               <TableRow>
-                <SortableHeaderCell
-                  active={sort.key === "name"}
-                  direction={sort.direction}
-                  onSort={() => toggleSort("name")}
-                >
+                <SortableHeaderCell {...sortableProps("name")}>
                   {t("adminUsers.name")}
                 </SortableHeaderCell>
                 <TableHeaderCell>{t("fields.displayName")}</TableHeaderCell>
-                <SortableHeaderCell
-                  active={sort.key === "email"}
-                  direction={sort.direction}
-                  onSort={() => toggleSort("email")}
-                >
+                <SortableHeaderCell {...sortableProps("email")}>
                   {t("fields.email")}
                 </SortableHeaderCell>
                 <TableHeaderCell>{t("adminUsers.role")}</TableHeaderCell>
                 <TableHeaderCell>{t("filters.zone")}</TableHeaderCell>
-                <SortableHeaderCell
-                  active={sort.key === "createdAt"}
-                  direction={sort.direction}
-                  onSort={() => toggleSort("createdAt")}
-                >
+                <SortableHeaderCell {...sortableProps("createdAt")}>
                   {t("adminUsers.memberSince")}
                 </SortableHeaderCell>
                 <TableHeaderCell>{t("filters.status")}</TableHeaderCell>

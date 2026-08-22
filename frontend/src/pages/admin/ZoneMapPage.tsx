@@ -100,6 +100,11 @@ export function AdminZoneMapPage() {
             clusterDetails={clusterDetails}
             layers={layers}
             links={LINKS}
+            // Filtering to a zone makes that zone what the map is about, so
+            // its cell becomes the figure and the map opens on its centre.
+            // The legend is left unlabelled: the zone's name is already in
+            // the filter directly above and written across its own cell.
+            focusZoneId={zoneId || undefined}
           />
           <p className="text-ink-muted text-xs">
             {t("feed.mapNote", {

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { ClipboardList, Copy, Download, MoreHorizontal, Search, X } from "lucide-react";
 import { DatePicker } from "@/components/ui/DatePicker";
 import { PhotoThumb } from "@/components/ui/PhotoThumb";
@@ -34,7 +34,11 @@ import { useAdminComplaints } from "@/hooks/useAdminComplaints";
 import { useCategories } from "@/hooks/useCategories";
 import { useZones } from "@/hooks/useZones";
 import { useOverrideComplaint } from "@/hooks/useOverrideComplaint";
-import { useSearchParamState, csvCodec } from "@/hooks/useSearchParamState";
+import {
+  useSearchParamState,
+  useSearchParamsWriter,
+  csvCodec,
+} from "@/hooks/useSearchParamState";
 import { exportRowsToCsv } from "@/lib/csvExport";
 import { iconForCategory } from "@/lib/categoryIcons";
 import { relativeTime } from "@/lib/datetime";
@@ -122,14 +126,10 @@ export function AdminComplaintsPage() {
     deserialize: pageDeserialize,
   });
   const [exporting, setExporting] = useState(false);
-  // Bypasses the per-field `useSearchParamState` setters below for the
-  // "clear all" case: each of those setters closes over its own stale
-  // snapshot of the URL from this render, so calling several of them back
-  // to back (one per filter) makes each call clobber the previous one's
-  // change instead of composing — only the last field actually clears.
-  // One functional `setSearchParams` update removes every filter key in a
-  // single atomic navigation instead.
-  const [, setRawSearchParams] = useSearchParams();
+  // Clears every filter key in one write rather than calling the seven
+  // per-field setters in a row. They compose now, but one navigation for one
+  // user action is still the honest shape of "clear all".
+  const writeSearchParams = useSearchParamsWriter();
   const [reassigningComplaint, setReassigningComplaint] = useState<Complaint | null>(
     null,
   );
@@ -215,13 +215,17 @@ export function AdminComplaintsPage() {
       },
       {
         header: t("filters.severity"),
-        accessor: (c: Complaint) => (c.severityLabel ? t(`severity.${c.severityLabel}`) : ""),
+        accessor: (c: Complaint) =>
+          c.severityLabel ? t(`severity.${c.severityLabel}`) : "",
       },
       {
         header: t("columns.sla"),
         accessor: (c: Complaint) => (c.slaLabel ? t(`sla.${c.slaLabel}`) : ""),
       },
-      { header: t("adminComplaints.columns.filedAt"), accessor: (c: Complaint) => c.createdAt },
+      {
+        header: t("adminComplaints.columns.filedAt"),
+        accessor: (c: Complaint) => c.createdAt,
+      },
       {
         header: t("adminComplaints.columns.officerId"),
         accessor: (c: Complaint) => c.assignedOfficerId ?? "",
@@ -281,7 +285,9 @@ export function AdminComplaintsPage() {
     if (dateFrom) {
       chips.push({
         key: "from",
-        label: t("adminComplaints.chips.from", { date: dateFrom.toLocaleDateString(locale) }),
+        label: t("adminComplaints.chips.from", {
+          date: dateFrom.toLocaleDateString(locale),
+        }),
         onRemove: () => {
           setDateFrom(undefined);
           resetPage();
@@ -317,19 +323,26 @@ export function AdminComplaintsPage() {
     }
     return chips;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoneId, categoryId, slaLabel, dateFrom, dateTo, search, statuses, zones, categories, t, locale]);
+  }, [
+    zoneId,
+    categoryId,
+    slaLabel,
+    dateFrom,
+    dateTo,
+    search,
+    statuses,
+    zones,
+    categories,
+    t,
+    locale,
+  ]);
 
   function handleClearAllFilters() {
-    setRawSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        for (const key of ["zone", "category", "status", "sla", "from", "to", "q"]) {
-          next.delete(key);
-        }
-        return next;
-      },
-      { replace: true },
-    );
+    writeSearchParams((params) => {
+      for (const key of ["zone", "category", "status", "sla", "from", "to", "q"]) {
+        params.delete(key);
+      }
+    });
     resetPage();
   }
 
@@ -560,9 +573,7 @@ export function AdminComplaintsPage() {
           <Table>
             <TableHead>
               <TableRow>
-                <TableHeaderCell className="w-14">
-                  {t("columns.photo")}
-                </TableHeaderCell>
+                <TableHeaderCell className="w-14">{t("columns.photo")}</TableHeaderCell>
                 <TableHeaderCell>{t("filters.category")}</TableHeaderCell>
                 <TableHeaderCell>{t("filters.zone")}</TableHeaderCell>
                 <TableHeaderCell>{t("filters.status")}</TableHeaderCell>
@@ -741,7 +752,9 @@ function ReassignZoneModal({
           />
         </div>
         <div>
-          <Label htmlFor="reassign-reason">{t("adminComplaints.reasonRecommended")}</Label>
+          <Label htmlFor="reassign-reason">
+            {t("adminComplaints.reasonRecommended")}
+          </Label>
           <Input
             id="reassign-reason"
             value={reason}

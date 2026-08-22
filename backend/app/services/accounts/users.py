@@ -136,9 +136,46 @@ def create_user(
         return user
 
 
+def _guard_last_admin(user: User, *, acting_admin_id: int, verb: str) -> None:
+    """Refuse to strand the admin surface with no way back in.
+
+    Two ways one request can do that, and both must be closed here rather than
+    in the UI: an admin turning off their *own* account, and an admin turning
+    off the only other active one. Either leaves zero active admins, and there
+    is no route back — `create_user` refuses to mint an ADMIN, and a
+    deactivated account cannot log in. The only recovery is editing the
+    database by hand.
+
+    Non-admin targets are never blocked, and deactivating one admin while
+    another active admin remains is still allowed.
+    """
+    if user.role is not UserRole.ADMIN:
+        return
+    if user.id == acting_admin_id:
+        raise ConflictError(
+            "LAST_ADMIN",
+            f"You cannot {verb} your own admin account — you would be locked out "
+            "immediately, and admins cannot be created through this API.",
+        )
+    remaining = db.session.scalar(
+        select(func.count(User.id)).where(
+            User.role == UserRole.ADMIN,
+            User.is_active.is_(True),
+            User.id != user.id,
+        )
+    )
+    if not remaining:
+        raise ConflictError(
+            "LAST_ADMIN",
+            f"This is the only active admin account left — {verb} it and nobody "
+            "can reach the admin surface again.",
+        )
+
+
 def update_user(
     *,
     user_id: int,
+    acting_admin_id: int,
     full_name: str | None,
     email: str | None,
     zone_id: int | None,
@@ -149,6 +186,8 @@ def update_user(
         user = db.session.get(User, user_id)
         if user is None:
             raise NotFoundError("No such user.")
+        if active is False:
+            _guard_last_admin(user, acting_admin_id=acting_admin_id, verb="deactivate")
         if email is not None:
             normalized = email.strip().lower()
             duplicate = db.session.scalar(
@@ -172,9 +211,10 @@ def update_user(
         return user
 
 
-def deactivate_user(*, user_id: int) -> User:
+def deactivate_user(*, user_id: int, acting_admin_id: int) -> User:
     return update_user(
         user_id=user_id,
+        acting_admin_id=acting_admin_id,
         full_name=None,
         email=None,
         zone_id=None,
@@ -183,11 +223,31 @@ def deactivate_user(*, user_id: int) -> User:
     )
 
 
-def delete_user(*, user_id: int) -> None:
+def reset_password(*, user_id: int, new_password: str) -> None:
+    """POST /admin/users/{id}/reset-password — admin sets a password directly.
+
+    No current-password check, deliberately: the admin does not know it, which
+    is the whole reason this exists. `require_role(ADMIN)` on the route is what
+    authorizes it.
+
+    Does NOT revoke sessions. JWTs here are stateless and carry no password
+    generation, so a token already issued for this account keeps working until
+    it expires. Deactivation is the tool for cutting off a live session, since
+    `core.auth` re-reads `is_active` on every request.
+    """
     with transaction():
         user = db.session.get(User, user_id)
         if user is None:
             raise NotFoundError("No such user.")
+        user.password_hash = hash_password(new_password)
+
+
+def delete_user(*, user_id: int, acting_admin_id: int) -> None:
+    with transaction():
+        user = db.session.get(User, user_id)
+        if user is None:
+            raise NotFoundError("No such user.")
+        _guard_last_admin(user, acting_admin_id=acting_admin_id, verb="delete")
         blockers = {
             "complaintsFiled": db.session.scalar(
                 select(func.count(Complaint.id)).where(Complaint.citizen_id == user_id)

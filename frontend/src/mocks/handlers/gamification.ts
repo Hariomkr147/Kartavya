@@ -3,6 +3,7 @@ import { db } from "../db/store";
 import { requireRole, paginate, parsePagination, Errors } from "../lib/http";
 import { lifetimePoints } from "../lib/points";
 import { toApiId } from "../lib/ids";
+import { LEADERBOARD_PERIODS, checkEnumParam } from "../lib/enums";
 
 const BASE = "/api/v1";
 
@@ -76,6 +77,10 @@ export const gamificationHandlers = [
     if (scope !== "zone" && scope !== "city") {
       return Errors.badRequest("scope must be 'zone' or 'city'.");
     }
+    // `period` defaults to monthly, but a value that is present and wrong is a
+    // 400 on the backend, not a silent fall back to the default.
+    const badPeriod = checkEnumParam(url, "period", LEADERBOARD_PERIODS);
+    if (badPeriod) return badPeriod;
     const period = url.searchParams.get("period") === "all_time" ? "all_time" : "monthly";
     const now = new Date();
 

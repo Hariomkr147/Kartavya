@@ -41,8 +41,11 @@ export function closedComplaintCount(citizenId: number): number {
 function isZoneRankOne(citizenId: number): boolean {
   const citizen = db.users.find((u) => u.id === citizenId);
   if (!citizen || citizen.role !== "CITIZEN" || citizen.zoneId == null) return false;
+  // Deactivated citizens are out of the running, exactly as they are on the
+  // leaderboard itself — otherwise a zone's #1 could be an account that no
+  // longer appears anywhere, and the badge would go to nobody.
   const zonePeers = db.users.filter(
-    (u) => u.role === "CITIZEN" && u.zoneId === citizen.zoneId,
+    (u) => u.role === "CITIZEN" && u.isActive && u.zoneId === citizen.zoneId,
   );
   const ranked = zonePeers
     .map((u) => ({ id: u.id, points: lifetimePoints(u.id) }))
@@ -50,10 +53,19 @@ function isZoneRankOne(citizenId: number): boolean {
   return ranked.length > 0 && ranked[0].id === citizenId;
 }
 
-/** At least `count` of this citizen's complaints have closedAt within any `days`-day window. */
+/**
+ * At least `count` of this citizen's complaints have closedAt within any
+ * `days`-day window.
+ *
+ * Only complaints that are *currently* CLOSED count. `closedAt` survives a
+ * reopen (the dispute path sets REOPENED without clearing it), so filtering on
+ * the timestamp alone would let a complaint that is open again keep paying
+ * into this badge — and would award it earlier than the backend, which
+ * filters on `status == CLOSED`.
+ */
 function hasClosedWithinDays(citizenId: number, days: number, count: number): boolean {
   const closedTimestamps = db.complaints
-    .filter((c) => c.citizenId === citizenId && c.closedAt)
+    .filter((c) => c.citizenId === citizenId && c.status === "CLOSED" && c.closedAt)
     .map((c) => new Date(c.closedAt!).getTime())
     .sort((a, b) => a - b);
   const windowMs = days * 24 * 3600 * 1000;

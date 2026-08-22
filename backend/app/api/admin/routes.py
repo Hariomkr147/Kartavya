@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from flask import Blueprint, Response, current_app, jsonify, stream_with_context
 
 from app.api.admin.schemas import (
+    AdminResetPasswordRequest,
     AssignOfficerRequest,
     ComplaintOverrideRequest,
     ComplaintQuery,
@@ -52,6 +53,9 @@ from app.services.accounts.users import (
 from app.services.accounts.users import (
     list_users,
     reassign_officer_zone,
+)
+from app.services.accounts.users import (
+    reset_password as reset_password_service,
 )
 from app.services.accounts.users import (
     update_user as update_user_service,
@@ -214,6 +218,7 @@ def get_user_by_id(user_id: int):
 def update_user(user_id: int, body: UpdateUserRequest):
     user = update_user_service(
         user_id=user_id,
+        acting_admin_id=current_user().id,
         full_name=body.name,
         email=str(body.email) if body.email is not None else None,
         zone_id=body.zoneId,
@@ -226,7 +231,16 @@ def update_user(user_id: int, body: UpdateUserRequest):
 @bp.delete("/admin/users/<int:user_id>")
 @require_role(ADMIN)
 def delete_user(user_id: int):
-    delete_user_service(user_id=user_id)
+    delete_user_service(user_id=user_id, acting_admin_id=current_user().id)
+    return Response(status=204)
+
+
+@bp.post("/admin/users/<int:user_id>/reset-password")
+@require_role(ADMIN)
+@validate_body(AdminResetPasswordRequest)
+def reset_user_password(user_id: int, body: AdminResetPasswordRequest):
+    """204. Admin sets a password directly — no current-password check."""
+    reset_password_service(user_id=user_id, new_password=body.newPassword)
     return Response(status=204)
 
 

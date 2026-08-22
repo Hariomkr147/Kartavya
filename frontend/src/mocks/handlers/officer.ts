@@ -20,6 +20,15 @@ import {
   TERMINAL_STATUSES,
 } from "../lib/fsm";
 import { fromApiId } from "../lib/ids";
+import {
+  COMPLAINT_STATUSES,
+  EVIDENCE_VERDICTS,
+  SEVERITY_LABELS,
+  SLA_LABELS,
+  checkEnum,
+  checkEnumParam,
+  firstProblem,
+} from "../lib/enums";
 import type {
   BatchStatusUpdateRequest,
   EvidenceReviewRequest,
@@ -93,6 +102,13 @@ export const officerHandlers = [
     if (!auth.ok) return auth.response;
 
     const url = new URL(request.url);
+    const badFilter = firstProblem(
+      checkEnumParam(url, "status", COMPLAINT_STATUSES),
+      checkEnumParam(url, "slaLabel", SLA_LABELS),
+      checkEnumParam(url, "severityLabel", SEVERITY_LABELS),
+    );
+    if (badFilter) return badFilter;
+
     const statusFilter = url.searchParams.getAll("status");
     const categoryId = url.searchParams.get("categoryId");
     const slaFilter = url.searchParams.get("slaLabel");
@@ -165,6 +181,12 @@ export const officerHandlers = [
       if (complaint.zoneId !== auth.user.zoneId) return Errors.forbidden();
 
       const body = (await request.json()) as EvidenceReviewRequest;
+      // Before any lifecycle logic: an unrecognised verdict used to fall
+      // through to the final `else` here and drive the complaint to terminal
+      // REJECTED. The backend answers 400.
+      const badVerdict = checkEnum("verdict", body.verdict, EVIDENCE_VERDICTS);
+      if (badVerdict) return badVerdict;
+
       const check = validateEvidenceReview(
         complaint.status,
         complaint.slaStartedAt,

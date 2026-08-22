@@ -123,6 +123,12 @@ class UpdateUserRequest(AdminModel):
         return value
 
 
+class AdminResetPasswordRequest(AdminModel):
+    """Admin-initiated reset. No `currentPassword` — see the contract note."""
+
+    newPassword: str = Field(min_length=8)
+
+
 class AssignOfficerRequest(AdminModel):
     officerId: int = Field(gt=0)
 

@@ -40,10 +40,12 @@ import {
 import { useAdminUsers } from "@/hooks/useAdminUsers";
 import { useCreateUser } from "@/hooks/useCreateUser";
 import { useUpdateUser } from "@/hooks/useUpdateUser";
+import { useResetUserPassword } from "@/hooks/useResetUserPassword";
 import { useDeleteUser } from "@/hooks/useDeleteUser";
 import { useZones } from "@/hooks/useZones";
 import { useSortableRows } from "@/hooks/useSortableRows";
 import { ApiRequestError } from "@/services/http";
+import { useAuth } from "@/contexts/AuthContext";
 import type { TranslationKey } from "@/i18n";
 import type { Role, User } from "@/types/api";
 import { RefreshButton } from "@/components/ui/RefreshButton";
@@ -174,9 +176,7 @@ export function AdminUsersPage() {
       setDeletingUser(null);
     } catch (error) {
       setDeleteError(
-        error instanceof ApiRequestError
-          ? error.message
-          : t("errors.generic"),
+        error instanceof ApiRequestError ? error.message : t("errors.generic"),
       );
     }
   }
@@ -551,7 +551,13 @@ function EditUserModal({
   const { t } = useTranslation();
   const { toast } = useToast();
   const { data: zones } = useZones();
+  const { user: me } = useAuth();
   const updateUser = useUpdateUser(user.id);
+
+  // An admin turning off their own account is locked out on the next request,
+  // and there is no API that mints a replacement admin. The server refuses it
+  // with 409 LAST_ADMIN; this keeps the control from being reachable at all.
+  const isSelf = me?.id === user.id;
 
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email ?? "");
@@ -641,13 +647,128 @@ function EditUserModal({
             )}
           </div>
         )}
-        <Checkbox
-          id="edit-active"
-          label={t("adminUsers.accountActive")}
-          checked={active}
-          onChange={(e) => setActive(e.target.checked)}
-        />
+        <div>
+          <Checkbox
+            id="edit-active"
+            label={t("adminUsers.accountActive")}
+            checked={active}
+            disabled={isSelf}
+            onChange={(e) => setActive(e.target.checked)}
+          />
+          {isSelf && (
+            <p className="text-ink-faint mt-1.5 text-xs">
+              {t("adminUsers.cannotDeactivateSelf")}
+            </p>
+          )}
+        </div>
+        <ResetPasswordSection user={user} />
       </div>
     </Modal>
+  );
+}
+
+/**
+ * Admin-initiated password reset, inside the edit dialog.
+ *
+ * Separate from the Save button on purpose: this posts to its own endpoint the
+ * moment it is confirmed, so it must not look like a field that Save will
+ * commit. Nothing is emailed — the admin hands the password over out of band.
+ */
+function ResetPasswordSection({ user }: { user: User }) {
+  const { t } = useTranslation();
+  const { toast } = useToast();
+  const resetPassword = useResetUserPassword(user.id);
+
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleReset() {
+    setError(null);
+    if (password.length < 8) {
+      setError(t("validation.newPasswordMinLength"));
+      return;
+    }
+    if (password !== confirmation) {
+      setError(t("validation.passwordsMismatch"));
+      return;
+    }
+    try {
+      await resetPassword.mutateAsync({ newPassword: password });
+      toast({ title: t("account.passwordUpdated"), variant: "success" });
+      setPassword("");
+      setConfirmation("");
+      setOpen(false);
+    } catch (err) {
+      if (err instanceof ApiRequestError) setError(err.message);
+      else setError(t("errors.generic"));
+    }
+  }
+
+  return (
+    <div className="border-edge border-t pt-4">
+      {open ? (
+        <div className="space-y-3">
+          <p className="text-ink-faint text-xs">{t("adminUsers.resetPasswordHint")}</p>
+          <div>
+            <Label htmlFor="reset-password" required>
+              {t("fields.newPassword")}
+            </Label>
+            <Input
+              id="reset-password"
+              type="password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <p className="text-ink-faint mt-1.5 text-xs">{t("register.passwordHint")}</p>
+          </div>
+          <div>
+            <Label htmlFor="reset-password-confirm" required>
+              {t("fields.confirmNewPassword")}
+            </Label>
+            <Input
+              id="reset-password-confirm"
+              type="password"
+              autoComplete="new-password"
+              value={confirmation}
+              onChange={(e) => setConfirmation(e.target.value)}
+            />
+          </div>
+          {error && (
+            <p className="text-status-overdue text-sm" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={handleReset}
+              loading={resetPassword.isPending}
+              disabled={resetPassword.isPending}
+            >
+              {t("adminUsers.resetPassword")}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setOpen(false);
+                setError(null);
+                setPassword("");
+                setConfirmation("");
+              }}
+            >
+              {t("common.cancel")}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+          {t("adminUsers.resetPassword")}
+        </Button>
+      )}
+    </div>
   );
 }

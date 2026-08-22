@@ -803,6 +803,8 @@ export interface paths {
         /**
          * Permanently delete a user (use with care)
          * @description Hard-deletes an account. **Prefer deactivation** (`PATCH` with `active: false`) instead — deleting a user who already has complaints, points, evidence reviews, progress notes, or status changes on record will be refused. This endpoint is intended only for truly empty/test accounts.
+         *
+         *     The same `LAST_ADMIN` guard as `PATCH` applies: an admin may never delete their own account, nor the only remaining active admin. A fresh admin has no linked records, so without this the linked-records check would not stop the platform's last way in from being deleted outright.
          */
         delete: operations["deleteUser"];
         options?: never;
@@ -810,8 +812,36 @@ export interface paths {
         /**
          * Update or deactivate a user
          * @description Edits a user's details, reassigns an officer to a new zone, or activates/deactivates an account via the `active` flag. **Deactivating** (rather than deleting) is the recommended way to disable an account: a deactivated user cannot log in, but all their complaints, points, and history stay intact for the audit trail. Reassigning an officer's zone takes effect immediately: they instantly lose access to the old zone's complaints, and every non-terminal complaint still assigned to them there has `assignedOfficerId` cleared back to `null` — those complaints become unassigned and available to whichever officer now covers that zone, rather than staying stuck with someone who can no longer see them.
+         *
+         *     **An admin may not deactivate the last way back in.** Setting `active: false` is refused with `409 LAST_ADMIN` when the target is the caller's own account, or when it is the only remaining active admin. Admins cannot be created through this API (`CreateUserRequest.role` is `CITIZEN` or `OFFICER` only), and a deactivated account cannot log in, so without this guard one `PATCH` would strand the whole admin surface with no route back short of database surgery. Deactivating a *different* admin while another active one remains is still allowed.
          */
         patch: operations["updateUser"];
+        trace?: never;
+    };
+    "/admin/users/{userId}/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set a new password for a user
+         * @description Admin-initiated password reset, for the everyday case of a citizen or officer who has locked themselves out. There is no self-service forgot-password flow in this system, so without this an account with a forgotten password is unrecoverable.
+         *
+         *     Unlike `POST /users/me/change-password`, this does **not** require the account's current password — that is the entire point, and it is why the endpoint is admin-only. The admin is expected to hand the new password to its owner out of band; nothing is emailed, and the account holder is not notified.
+         *
+         *     The new password is subject to the same minimum length as registration. Nothing else about the account changes: role, zone, active flag, complaints, points, and history are all untouched.
+         *
+         *     **Existing sessions are not revoked.** JWTs in this system are stateless and carry no password generation, so any token already issued for the account stays valid until it expires (`JWT_TTL_HOURS`, 24h by default). This endpoint restores access; it is not a way to evict an intruder. To cut off a live session now, deactivate the account (`PATCH /admin/users/{userId}` with `active: false`), which every request re-checks against the database.
+         */
+        post: operations["resetUserPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/admin/zones": {
@@ -1282,6 +1312,11 @@ export interface components {
         ChangePasswordRequest: {
             /** Format: password */
             currentPassword: string;
+            /** Format: password */
+            newPassword: string;
+        };
+        /** @description An admin setting a password on someone else's behalf. Deliberately has no `currentPassword`: the admin does not know it, and requiring it would defeat the purpose of a reset. */
+        AdminResetPasswordRequest: {
             /** Format: password */
             newPassword: string;
         };
@@ -3149,7 +3184,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description This account has linked records and cannot be hard-deleted. Deactivate it instead. */
+            /** @description This account has linked records and cannot be hard-deleted (`HAS_LINKED_RECORDS`) — deactivate it instead; or deleting it would leave no way back into the admin surface (`LAST_ADMIN`). */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -3188,7 +3223,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description The new email is already taken by another account. */
+            /** @description The new email is already taken by another account (`EMAIL_TAKEN`), or deactivating this account would leave no way back into the admin surface (`LAST_ADMIN`). */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -3197,6 +3232,34 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+        };
+    };
+    resetUserPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminResetPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Password set (no content). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     createZone: {
@@ -3471,6 +3534,7 @@ export interface operations {
                     "application/json": components["schemas"]["OfficerPerformance"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];

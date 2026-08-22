@@ -795,6 +795,7 @@
     "queue": "Queue",
     "settings": "Settings",
     "users": "Users",
+    "zoneMap": "Zone Map",
     "zonesAndSlas": "Zones & SLAs"
   },
   "navSections": {
@@ -1081,6 +1082,18 @@
     "passwordRequired": "Password is required",
     "passwordsMismatch": "Passwords don't match",
     "zoneRequired": "Choose your zone"
+  },
+  "zoneMap": {
+    "clusterMembers": "Cluster members",
+    "layers": "Layers",
+    "memberLimitNote_one": "{{count}} more cluster not expanded.",
+    "memberLimitNote_other": "{{count}} more clusters not expanded.",
+    "noZones": "No zones to map",
+    "standalone": "Standalone complaints",
+    "tethers": "Links to cluster",
+    "title": "Zone map",
+    "zoneLabels": "Zone names",
+    "zoneRegions": "Zone regions"
   },
   "zoneSummary": {
     "active": "Active",

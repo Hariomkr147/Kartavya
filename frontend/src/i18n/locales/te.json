@@ -795,6 +795,7 @@
     "queue": "పనుల క్యూ",
     "settings": "సెట్టింగ్‌లు",
     "users": "వినియోగదారులు",
+    "zoneMap": "జోన్ మ్యాప్",
     "zonesAndSlas": "జోన్లు & SLAs"
   },
   "navSections": {
@@ -1081,6 +1082,18 @@
     "passwordRequired": "పాస్‌వర్డ్ తప్పనిసరి",
     "passwordsMismatch": "పాస్‌వర్డ్‌లు సరిపోలడం లేదు",
     "zoneRequired": "మీ జోన్‌ను ఎంచుకోండి"
+  },
+  "zoneMap": {
+    "clusterMembers": "సమూహ ఫిర్యాదులు",
+    "layers": "పొరలు",
+    "memberLimitNote_one": "మరో {{count}} సమూహం విస్తరించలేదు.",
+    "memberLimitNote_other": "మరో {{count}} సమూహాలు విస్తరించలేదు.",
+    "noZones": "మ్యాప్ కోసం జోన్లు లేవు",
+    "standalone": "వేరుగా ఉన్న ఫిర్యాదులు",
+    "tethers": "సమూహంతో లింక్",
+    "title": "జోన్ మ్యాప్",
+    "zoneLabels": "జోన్ పేర్లు",
+    "zoneRegions": "జోన్ సరిహద్దులు"
   },
   "zoneSummary": {
     "active": "యాక్టివ్",

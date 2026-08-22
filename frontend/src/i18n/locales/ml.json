@@ -795,6 +795,7 @@
     "queue": "ക്യൂ",
     "settings": "ക്രമീകരണങ്ങൾ",
     "users": "ഉപയോക്താക്കൾ",
+    "zoneMap": "സോൺ ഭൂപടം",
     "zonesAndSlas": "സോണുകളും SLAs"
   },
   "navSections": {
@@ -1081,6 +1082,18 @@
     "passwordRequired": "പാസ്‌വേഡ് നിർബന്ധമാണ്",
     "passwordsMismatch": "പാസ്‌വേഡുകൾ പൊരുത്തപ്പെടുന്നില്ല",
     "zoneRequired": "നിങ്ങളുടെ സോൺ തിരഞ്ഞെടുക്കുക"
+  },
+  "zoneMap": {
+    "clusterMembers": "ക്ലസ്റ്ററിലെ പരാതികൾ",
+    "layers": "പാളികൾ",
+    "memberLimitNote_one": "മറ്റൊരു {{count}} ക്ലസ്റ്റർ തുറന്നിട്ടില്ല.",
+    "memberLimitNote_other": "മറ്റ് {{count}} ക്ലസ്റ്ററുകൾ തുറന്നിട്ടില്ല.",
+    "noZones": "ഭൂപടത്തിന് സോണുകളില്ല",
+    "standalone": "ഒറ്റപ്പെട്ട പരാതികൾ",
+    "tethers": "ക്ലസ്റ്റർ ബന്ധം",
+    "title": "സോൺ ഭൂപടം",
+    "zoneLabels": "സോൺ പേരുകൾ",
+    "zoneRegions": "സോൺ അതിരുകൾ"
   },
   "zoneSummary": {
     "active": "സജീവം",

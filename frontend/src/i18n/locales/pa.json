@@ -795,6 +795,7 @@
     "queue": "ਕਤਾਰ",
     "settings": "ਸੈਟਿੰਗਾਂ",
     "users": "ਉਪਭੋਗਤਾ",
+    "zoneMap": "ਜ਼ੋਨ ਨਕਸ਼ਾ",
     "zonesAndSlas": "ਜ਼ੋਨ ਅਤੇ SLAs"
   },
   "navSections": {
@@ -1081,6 +1082,18 @@
     "passwordRequired": "ਪਾਸਵਰਡ ਲਾਜ਼ਮੀ ਹੈ",
     "passwordsMismatch": "ਪਾਸਵਰਡ ਮੇਲ ਨਹੀਂ ਖਾਂਦੇ",
     "zoneRequired": "ਆਪਣਾ ਜ਼ੋਨ ਚੁਣੋ"
+  },
+  "zoneMap": {
+    "clusterMembers": "ਸਮੂਹ ਦੀਆਂ ਸ਼ਿਕਾਇਤਾਂ",
+    "layers": "ਪਰਤਾਂ",
+    "memberLimitNote_one": "ਹੋਰ {{count}} ਸਮੂਹ ਨਹੀਂ ਖੋਲ੍ਹਿਆ ਗਿਆ।",
+    "memberLimitNote_other": "ਹੋਰ {{count}} ਸਮੂਹ ਨਹੀਂ ਖੋਲ੍ਹੇ ਗਏ।",
+    "noZones": "ਨਕਸ਼ੇ ਲਈ ਕੋਈ ਜ਼ੋਨ ਨਹੀਂ",
+    "standalone": "ਵੱਖਰੀਆਂ ਸ਼ਿਕਾਇਤਾਂ",
+    "tethers": "ਸਮੂਹ ਨਾਲ ਜੋੜ",
+    "title": "ਜ਼ੋਨ ਨਕਸ਼ਾ",
+    "zoneLabels": "ਜ਼ੋਨ ਦੇ ਨਾਂ",
+    "zoneRegions": "ਜ਼ੋਨ ਹੱਦਾਂ"
   },
   "zoneSummary": {
     "active": "ਸਰਗਰਮ",

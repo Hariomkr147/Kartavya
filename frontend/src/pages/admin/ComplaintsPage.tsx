@@ -26,6 +26,7 @@ import {
   TableBody,
   TableRow,
   TableHeaderCell,
+  SortableHeaderCell,
   TableCell,
   DataTableEmpty,
 } from "@/components/ui/DataTable";
@@ -39,7 +40,8 @@ import {
   useSearchParamsWriter,
   csvCodec,
 } from "@/hooks/useSearchParamState";
-import { exportRowsToCsv } from "@/lib/csvExport";
+import { useServerSortableColumns } from "@/hooks/useServerSortableColumns";
+import { downloadCsv, exportRowsToCsv } from "@/lib/csvExport";
 import { iconForCategory } from "@/lib/categoryIcons";
 import { relativeTime } from "@/lib/datetime";
 import { exportComplaintsCsv, type GetAdminComplaintsParams } from "@/services/admin";
@@ -91,6 +93,7 @@ function pageDeserialize(raw: string): number {
   return Number.isFinite(n) && n >= 1 ? n : 1;
 }
 
+const DEFAULT_SORT = "-createdAt";
 const PAGE_SIZE = 15;
 
 export function AdminComplaintsPage() {
@@ -117,7 +120,7 @@ export function AdminComplaintsPage() {
     serialize: dateSerialize,
     deserialize: dateDeserialize,
   });
-  const [sort, setSort] = useSearchParamState("sort", "-createdAt");
+  const [sort, setSort] = useSearchParamState("sort", DEFAULT_SORT);
   const [search, setSearch] = useSearchParamState("q", "");
   // In the URL like every other filter here — so "Copy link to this view"
   // (below) reopens on the same page instead of always resetting to page 1.
@@ -135,6 +138,27 @@ export function AdminComplaintsPage() {
   );
 
   const statuses = useMemo(() => new Set(statusList as ComplaintStatus[]), [statusList]);
+
+  // Header sorting drives the same URL `sort` param the dropdown below writes,
+  // so the two can never disagree — and, unlike the officer queue's in-memory
+  // sort, it reorders the whole filtered set rather than the 15 rows on
+  // screen. Only the columns the server can ORDER BY get a control
+  // (SORTABLE_FIELDS in app/services/queries.py); category, zone and status
+  // are not among them and keep plain headers.
+  const { sortableProps } = useServerSortableColumns({
+    sort,
+    setSort: (next) => {
+      setSort(next);
+      resetPage();
+    },
+    fields: {
+      severity: "severity",
+      sla: "sla",
+      upvotes: "upvotes",
+      createdAt: "createdAt",
+    },
+    defaultSort: DEFAULT_SORT,
+  });
 
   const { data: zones } = useZones();
   const { data: categories } = useCategories();
@@ -185,14 +209,11 @@ export function AdminComplaintsPage() {
   async function handleExport() {
     setExporting(true);
     try {
-      const csv = await exportComplaintsCsv(filters);
-      const blob = new Blob([csv], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = "complaints.csv";
-      anchor.click();
-      URL.revokeObjectURL(url);
+      // `filters` carries `sort`, which this endpoint does not accept — the
+      // service strips it. Same `downloadCsv` as the visible-page export
+      // below: a detached anchor's click() is ignored by Firefox, and the BOM
+      // is what stops Excel mangling non-ASCII zone names.
+      downloadCsv("complaints.csv", await exportComplaintsCsv(filters));
     } catch (error) {
       toast({
         title: t("adminComplaints.exportFailed"),
@@ -577,11 +598,19 @@ export function AdminComplaintsPage() {
                 <TableHeaderCell>{t("filters.category")}</TableHeaderCell>
                 <TableHeaderCell>{t("filters.zone")}</TableHeaderCell>
                 <TableHeaderCell>{t("filters.status")}</TableHeaderCell>
-                <TableHeaderCell>{t("filters.severity")}</TableHeaderCell>
-                <TableHeaderCell>{t("columns.sla")}</TableHeaderCell>
-                <TableHeaderCell>{t("columns.upvotes")}</TableHeaderCell>
+                <SortableHeaderCell {...sortableProps("severity")}>
+                  {t("filters.severity")}
+                </SortableHeaderCell>
+                <SortableHeaderCell {...sortableProps("sla")}>
+                  {t("columns.sla")}
+                </SortableHeaderCell>
+                <SortableHeaderCell {...sortableProps("upvotes")}>
+                  {t("columns.upvotes")}
+                </SortableHeaderCell>
                 <TableHeaderCell>{t("roles.officer")}</TableHeaderCell>
-                <TableHeaderCell>{t("columns.filed")}</TableHeaderCell>
+                <SortableHeaderCell {...sortableProps("createdAt")}>
+                  {t("columns.filed")}
+                </SortableHeaderCell>
                 <TableHeaderCell className="text-right">
                   {t("columns.actions")}
                 </TableHeaderCell>

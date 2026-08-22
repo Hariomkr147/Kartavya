@@ -795,6 +795,7 @@
     "queue": "કાર્ય કતાર",
     "settings": "સેટિંગ્સ",
     "users": "વપરાશકર્તાઓ",
+    "zoneMap": "ઝોન નકશો",
     "zonesAndSlas": "ઝોન અને SLAs"
   },
   "navSections": {
@@ -1081,6 +1082,18 @@
     "passwordRequired": "પાસવર્ડ જરૂરી છે",
     "passwordsMismatch": "પાસવર્ડ મેળ ખાતા નથી",
     "zoneRequired": "તમારો ઝોન પસંદ કરો"
+  },
+  "zoneMap": {
+    "clusterMembers": "ક્લસ્ટરની ફરિયાદો",
+    "layers": "સ્તરો",
+    "memberLimitNote_one": "બીજું {{count}} ક્લસ્ટર ખોલ્યું નથી.",
+    "memberLimitNote_other": "બીજાં {{count}} ક્લસ્ટર ખોલ્યાં નથી.",
+    "noZones": "નકશા માટે કોઈ ઝોન નથી",
+    "standalone": "અલગ ફરિયાદો",
+    "tethers": "ક્લસ્ટર સાથે જોડાણ",
+    "title": "ઝોન નકશો",
+    "zoneLabels": "ઝોનનાં નામ",
+    "zoneRegions": "ઝોન સીમાઓ"
   },
   "zoneSummary": {
     "active": "સક્રિય",

@@ -795,6 +795,7 @@
     "queue": "பணி வரிசை",
     "settings": "அமைப்புகள்",
     "users": "பயனர்கள்",
+    "zoneMap": "மண்டல வரைபடம்",
     "zonesAndSlas": "மண்டலங்கள் மற்றும் SLAs"
   },
   "navSections": {
@@ -1081,6 +1082,18 @@
     "passwordRequired": "கடவுச்சொல் அவசியம்",
     "passwordsMismatch": "கடவுச்சொற்கள் பொருந்தவில்லை",
     "zoneRequired": "உங்கள் மண்டலத்தைத் தேர்வு செய்யவும்"
+  },
+  "zoneMap": {
+    "clusterMembers": "கொத்தின் புகார்கள்",
+    "layers": "அடுக்குகள்",
+    "memberLimitNote_one": "மேலும் {{count}} கொத்து விரிக்கப்படவில்லை.",
+    "memberLimitNote_other": "மேலும் {{count}} கொத்துகள் விரிக்கப்படவில்லை.",
+    "noZones": "வரைபடத்திற்கு மண்டலங்கள் இல்லை",
+    "standalone": "தனிப் புகார்கள்",
+    "tethers": "கொத்துடன் இணைப்பு",
+    "title": "மண்டல வரைபடம்",
+    "zoneLabels": "மண்டலப் பெயர்கள்",
+    "zoneRegions": "மண்டல எல்லைகள்"
   },
   "zoneSummary": {
     "active": "செயலில் உள்ளவை",

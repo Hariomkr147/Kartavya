@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import L from "leaflet";
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
@@ -15,11 +16,31 @@ const defaultIcon = L.icon({
   shadowSize: [41, 41],
 });
 
+/**
+ * A cluster's centroid is not a place anyone reported — it is the average of
+ * the places they did. Drawing it with the same teardrop as a real complaint
+ * is what made a twelve-report cluster read as one pin, so it gets a marker
+ * that cannot be mistaken for one: a hollow brand-coloured ring, sized to sit
+ * behind the member pins rather than compete with them.
+ */
+const centroidIcon = L.divIcon({
+  className: "",
+  html: `<span style="display:block;width:18px;height:18px;border-radius:9999px;border:3px solid var(--color-brand);background:color-mix(in oklab, var(--color-brand) 20%, transparent);box-shadow:0 0 0 2px rgba(0,0,0,.15)"></span>`,
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+  popupAnchor: [0, -10],
+});
+
 export interface MiniMapPin {
   id: string;
   lat: number;
   lng: number;
+  /** Plain-text popup. Ignored when `popup` is given. */
   label?: string;
+  /** Popup content when a plain string is not enough — e.g. a link to the complaint. */
+  popup?: ReactNode;
+  /** `centroid` marks a derived point (a cluster average), not a reported one. */
+  variant?: "default" | "centroid";
 }
 
 export interface MiniMapProps {
@@ -77,10 +98,11 @@ export function MiniMap({
           <Marker
             key={pin.id}
             position={[pin.lat, pin.lng]}
-            icon={defaultIcon}
+            icon={pin.variant === "centroid" ? centroidIcon : defaultIcon}
+            zIndexOffset={pin.variant === "centroid" ? -100 : 0}
             eventHandlers={onPinClick ? { click: () => onPinClick(pin.id) } : undefined}
           >
-            {pin.label && <Popup>{pin.label}</Popup>}
+            {(pin.popup ?? pin.label) && <Popup>{pin.popup ?? pin.label}</Popup>}
           </Marker>
         ))}
       </MapContainer>

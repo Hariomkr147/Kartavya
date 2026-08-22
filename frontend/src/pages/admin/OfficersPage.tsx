@@ -86,7 +86,7 @@ export function AdminOfficersPage() {
     [officers, zones, perfByOfficerId],
   );
 
-  const { sorted, sort, toggleSort } = useSortableRows<OfficerRow, OfficerSortKey>(rows, {
+  const { sorted, sortableProps } = useSortableRows<OfficerRow, OfficerSortKey>(rows, {
     name: (r) => r.officer.name,
     zone: (r) => r.zoneName,
     totalHandled: (r) => r.perf?.totalHandled ?? null,
@@ -181,46 +181,22 @@ export function AdminOfficersPage() {
           <TableHead>
             <TableRow>
               <TableHeaderCell className="w-8" />
-              <SortableHeaderCell
-                active={sort.key === "name"}
-                direction={sort.direction}
-                onSort={() => toggleSort("name")}
-              >
+              <SortableHeaderCell {...sortableProps("name")}>
                 {t("roles.officer")}
               </SortableHeaderCell>
-              <SortableHeaderCell
-                active={sort.key === "zone"}
-                direction={sort.direction}
-                onSort={() => toggleSort("zone")}
-              >
+              <SortableHeaderCell {...sortableProps("zone")}>
                 {t("filters.zone")}
               </SortableHeaderCell>
-              <SortableHeaderCell
-                active={sort.key === "totalHandled"}
-                direction={sort.direction}
-                onSort={() => toggleSort("totalHandled")}
-              >
+              <SortableHeaderCell {...sortableProps("totalHandled")}>
                 {t("adminOfficers.handled")}
               </SortableHeaderCell>
-              <SortableHeaderCell
-                active={sort.key === "onTimePct"}
-                direction={sort.direction}
-                onSort={() => toggleSort("onTimePct")}
-              >
+              <SortableHeaderCell {...sortableProps("onTimePct")}>
                 {t("adminOfficers.onTimePct")}
               </SortableHeaderCell>
-              <SortableHeaderCell
-                active={sort.key === "acceptPct"}
-                direction={sort.direction}
-                onSort={() => toggleSort("acceptPct")}
-              >
+              <SortableHeaderCell {...sortableProps("acceptPct")}>
                 {t("adminOfficers.acceptRate")}
               </SortableHeaderCell>
-              <SortableHeaderCell
-                active={sort.key === "avgResolutionHours"}
-                direction={sort.direction}
-                onSort={() => toggleSort("avgResolutionHours")}
-              >
+              <SortableHeaderCell {...sortableProps("avgResolutionHours")}>
                 {t("adminDashboard.avgResolution")}
               </SortableHeaderCell>
             </TableRow>

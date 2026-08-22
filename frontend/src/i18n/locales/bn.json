@@ -795,6 +795,7 @@
     "queue": "কাজের সারি",
     "settings": "সেটিংস",
     "users": "ব্যবহারকারীগণ",
+    "zoneMap": "অঞ্চল মানচিত্র",
     "zonesAndSlas": "জোন ও SLAs"
   },
   "navSections": {
@@ -1081,6 +1082,18 @@
     "passwordRequired": "পাসওয়ার্ড আবশ্যক",
     "passwordsMismatch": "পাসওয়ার্ড দুটি মিলছে না",
     "zoneRequired": "আপনার জোন নির্বাচন করুন"
+  },
+  "zoneMap": {
+    "clusterMembers": "গুচ্ছের অভিযোগ",
+    "layers": "স্তর",
+    "memberLimitNote_one": "আরও {{count}}টি গুচ্ছ খোলা হয়নি।",
+    "memberLimitNote_other": "আরও {{count}}টি গুচ্ছ খোলা হয়নি।",
+    "noZones": "মানচিত্রের জন্য কোনো অঞ্চল নেই",
+    "standalone": "পৃথক অভিযোগ",
+    "tethers": "গুচ্ছের সংযোগ",
+    "title": "অঞ্চল মানচিত্র",
+    "zoneLabels": "অঞ্চলের নাম",
+    "zoneRegions": "অঞ্চলের সীমা"
   },
   "zoneSummary": {
     "active": "সক্রিয়",

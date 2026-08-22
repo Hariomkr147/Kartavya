@@ -795,6 +795,7 @@
     "queue": "କାର୍ଯ୍ୟ କ୍ରମ",
     "settings": "ସେଟିଂସ୍",
     "users": "ବ୍ୟବହାରକାରୀଗଣ",
+    "zoneMap": "ଅଞ୍ଚଳ ମାନଚିତ୍ର",
     "zonesAndSlas": "ଜୋନ୍ ଓ SLAs"
   },
   "navSections": {
@@ -1081,6 +1082,18 @@
     "passwordRequired": "ପାସୱାର୍ଡ ବାଧ୍ୟତାମୂଳକ",
     "passwordsMismatch": "ପାସୱାର୍ଡ ଦୁଇଟି ମେଳ ଖାଉନାହିଁ",
     "zoneRequired": "ଆପଣଙ୍କ ଜୋନ୍ ବାଛନ୍ତୁ"
+  },
+  "zoneMap": {
+    "clusterMembers": "ଗୁଚ୍ଛର ଅଭିଯୋଗ",
+    "layers": "ସ୍ତର",
+    "memberLimitNote_one": "ଆଉ {{count}}ଟି ଗୁଚ୍ଛ ଖୋଲାଯାଇନାହିଁ।",
+    "memberLimitNote_other": "ଆଉ {{count}}ଟି ଗୁଚ୍ଛ ଖୋଲାଯାଇନାହିଁ।",
+    "noZones": "ମାନଚିତ୍ର ପାଇଁ କୌଣସି ଅଞ୍ଚଳ ନାହିଁ",
+    "standalone": "ପୃଥକ ଅଭିଯୋଗ",
+    "tethers": "ଗୁଚ୍ଛ ସହ ସଂଯୋଗ",
+    "title": "ଅଞ୍ଚଳ ମାନଚିତ୍ର",
+    "zoneLabels": "ଅଞ୍ଚଳର ନାମ",
+    "zoneRegions": "ଅଞ୍ଚଳ ସୀମା"
   },
   "zoneSummary": {
     "active": "ସକ୍ରିୟ",

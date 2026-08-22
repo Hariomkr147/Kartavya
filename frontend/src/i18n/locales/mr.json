@@ -795,6 +795,7 @@
     "queue": "रांग (Queue)",
     "settings": "सेटिंग्ज",
     "users": "वापरकर्ते",
+    "zoneMap": "क्षेत्र नकाशा",
     "zonesAndSlas": "झोन आणि SLAs"
   },
   "navSections": {
@@ -1081,6 +1082,18 @@
     "passwordRequired": "पासवर्ड आवश्यक आहे",
     "passwordsMismatch": "पासवर्ड जुळत नाहीत",
     "zoneRequired": "तुमचा झोन निवडा"
+  },
+  "zoneMap": {
+    "clusterMembers": "समूहातील तक्रारी",
+    "layers": "स्तर",
+    "memberLimitNote_one": "आणखी {{count}} समूह उघडलेला नाही.",
+    "memberLimitNote_other": "आणखी {{count}} समूह उघडलेले नाहीत.",
+    "noZones": "नकाशासाठी क्षेत्रे नाहीत",
+    "standalone": "स्वतंत्र तक्रारी",
+    "tethers": "समूहाशी जोड",
+    "title": "क्षेत्र नकाशा",
+    "zoneLabels": "क्षेत्रांची नावे",
+    "zoneRegions": "क्षेत्र सीमा"
   },
   "zoneSummary": {
     "active": "सक्रिय",

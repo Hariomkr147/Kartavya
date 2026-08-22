@@ -14,13 +14,7 @@ import type { ComplaintStatus, StatusHistoryEntry } from "@/types/api";
  * `ComplaintDetail`.
  */
 
-export type StageKey =
-  | "FILED"
-  | "EVIDENCE"
-  | "ACCEPTED"
-  | "WORKING"
-  | "FIXED"
-  | "CLOSED";
+export type StageKey = "FILED" | "EVIDENCE" | "ACCEPTED" | "WORKING" | "FIXED" | "CLOSED";
 
 export type StageState =
   | "done"
@@ -71,8 +65,39 @@ const STATUS_STAGE: Record<ComplaintStatus, StageKey> = {
   CLOSED: "CLOSED",
 };
 
-/** Terminal per the schema — nothing follows these. */
-const TERMINAL: ComplaintStatus[] = ["REJECTED", "CLOSED", "UNRESOLVABLE"];
+/** Terminal per the schema — nothing follows these. Mirrors `app/domain/lifecycle.py`. */
+export const TERMINAL_STATUSES: ComplaintStatus[] = [
+  "REJECTED",
+  "CLOSED",
+  "UNRESOLVABLE",
+];
+
+/**
+ * Every status a complaint can still move out of.
+ *
+ * Derived from `TERMINAL_STATUSES` rather than typed out, so a new status
+ * added to the contract is open by default and cannot be silently dropped
+ * from a filter built on this list. The list exists because the API filters
+ * by inclusion — there is no "status is not one of these" query parameter, so
+ * excluding the terminal three means naming the other eight.
+ */
+export const OPEN_STATUSES: ComplaintStatus[] = (
+  [
+    "SUBMITTED",
+    "EVIDENCE_UNDER_REVIEW",
+    "NEEDS_MORE_EVIDENCE",
+    "UNDER_REVIEW",
+    "IN_PROGRESS",
+    "UNDER_RESOLUTION",
+    "RESOLVED",
+    "REOPENED",
+    "REJECTED",
+    "CLOSED",
+    "UNRESOLVABLE",
+  ] satisfies ComplaintStatus[]
+).filter((status) => !TERMINAL_STATUSES.includes(status));
+
+const TERMINAL = TERMINAL_STATUSES;
 
 /** Statuses where the complaint is parked waiting on somebody other than the officer. */
 const ATTENTION: ComplaintStatus[] = ["NEEDS_MORE_EVIDENCE", "RESOLVED", "REOPENED"];

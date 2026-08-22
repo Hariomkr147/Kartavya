@@ -795,6 +795,7 @@
     "queue": "ಕೆಲಸದ ಸರದಿ",
     "settings": "ಸೆಟ್ಟಿಂಗ್‌ಗಳು",
     "users": "ಬಳಕೆದಾರರು",
+    "zoneMap": "ವಲಯ ನಕ್ಷೆ",
     "zonesAndSlas": "ವಲಯಗಳು ಮತ್ತು SLAs"
   },
   "navSections": {
@@ -1081,6 +1082,18 @@
     "passwordRequired": "ಪಾಸ್‌ವರ್ಡ್ ಕಡ್ಡಾಯವಾಗಿದೆ",
     "passwordsMismatch": "ಪಾಸ್‌ವರ್ಡ್‌ಗಳು ಹೊಂದಾಣಿಕೆಯಾಗುತ್ತಿಲ್ಲ",
     "zoneRequired": "ನಿಮ್ಮ ವಲಯವನ್ನು ಆಯ್ಕೆಮಾಡಿ"
+  },
+  "zoneMap": {
+    "clusterMembers": "ಗುಂಪಿನ ದೂರುಗಳು",
+    "layers": "ಪದರಗಳು",
+    "memberLimitNote_one": "ಇನ್ನೂ {{count}} ಗುಂಪನ್ನು ತೆರೆದಿಲ್ಲ.",
+    "memberLimitNote_other": "ಇನ್ನೂ {{count}} ಗುಂಪುಗಳನ್ನು ತೆರೆದಿಲ್ಲ.",
+    "noZones": "ನಕ್ಷೆಗೆ ವಲಯಗಳಿಲ್ಲ",
+    "standalone": "ಪ್ರತ್ಯೇಕ ದೂರುಗಳು",
+    "tethers": "ಗುಂಪಿನ ಸಂಪರ್ಕ",
+    "title": "ವಲಯ ನಕ್ಷೆ",
+    "zoneLabels": "ವಲಯದ ಹೆಸರುಗಳು",
+    "zoneRegions": "ವಲಯ ಗಡಿಗಳು"
   },
   "zoneSummary": {
     "active": "ಸಕ್ರಿಯ",

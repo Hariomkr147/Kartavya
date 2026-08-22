@@ -56,5 +56,26 @@ export function useSortableRows<T, K extends string>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, sort]);
 
-  return { sorted, sort, toggleSort };
+  /**
+   * The three props `SortableHeaderCell` needs for one column. Every sortable
+   * table wrote this same three-line function; it belongs with the state it
+   * reads, so a header cell is spelled `{...sortableProps("severity")}`
+   * everywhere.
+   */
+  function sortableProps(key: K): SortableColumnProps {
+    return {
+      active: sort.key === key,
+      direction: sort.key === key ? sort.direction : "asc",
+      onSort: () => toggleSort(key),
+    };
+  }
+
+  return { sorted, sort, toggleSort, sortableProps };
+}
+
+/** What `SortableHeaderCell` needs to render one column's sort control. */
+export interface SortableColumnProps {
+  active: boolean;
+  direction: SortDirection;
+  onSort: () => void;
 }

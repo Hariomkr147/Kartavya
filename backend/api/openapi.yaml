@@ -2,7 +2,7 @@ openapi: 3.0.3
 
 info:
   title: Kartavya API
-  version: 3.2.0
+  version: 3.4.0
   description: >
     # Kartavya — A Gamified Civic Upkeep Platform
 
@@ -3060,7 +3060,24 @@ components:
           type: boolean
           description: Deactivated zones are hidden from new complaint filing but keep their history.
           default: true
-      required: [id, code, name, isCatchAll, isActive]
+        centerLat:
+          type: number
+          format: double
+          description: >
+            The zone's centre. Routing is nearest-centroid, so these two
+            numbers ARE the zone's geometry — the boundary between two zones is
+            the perpendicular bisector of their centres, and the full set of
+            centres tessellates the map into one Voronoi cell per zone. A
+            client cannot draw a zone, or say which zone a point falls in,
+            without them. Returned on the public reference lookup because
+            `POST /zones/suggest` already answers the same question one
+            coordinate at a time.
+          example: 12.9716
+        centerLng:
+          type: number
+          format: double
+          example: 77.5946
+      required: [id, code, name, isCatchAll, isActive, centerLat, centerLng]
 
     CreateZoneRequest:
       type: object
@@ -3228,6 +3245,22 @@ components:
             on `ComplaintDetail` — because the officer queue is exactly where
             that matters: without it every member of a cluster reads as its
             own separate job to claim and work.
+        latitude:
+          type: number
+          format: double
+          example: 12.9716
+          description: >
+            Where the issue is, captured at filing time — the same coordinate
+            `ComplaintDetail` and `FeedItem` carry, and like theirs it says
+            nothing about who reported it. On the compact shape so a list of
+            complaints can be drawn on a map: a cluster's members are several
+            reports of one physical issue spread over a street, and without a
+            coordinate per member the only thing a cluster page can plot is its
+            centroid, which renders a twelve-report cluster as a single pin.
+        longitude:
+          type: number
+          format: double
+          example: 77.5946
         createdAt:
           type: string
           format: date-time
@@ -3248,12 +3281,6 @@ components:
           properties:
             description:
               type: string
-            latitude:
-              type: number
-              format: double
-            longitude:
-              type: number
-              format: double
             severityScore:
               type: integer
               description: >

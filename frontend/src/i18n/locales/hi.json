@@ -795,6 +795,7 @@
     "queue": "कतार",
     "settings": "सेटिंग्स",
     "users": "उपयोगकर्ता",
+    "zoneMap": "क्षेत्र मानचित्र",
     "zonesAndSlas": "ज़ोन और SLAs"
   },
   "navSections": {
@@ -1081,6 +1082,18 @@
     "passwordRequired": "पासवर्ड आवश्यक है",
     "passwordsMismatch": "पासवर्ड मेल नहीं खाते",
     "zoneRequired": "अपना ज़ोन चुनें"
+  },
+  "zoneMap": {
+    "clusterMembers": "समूह की शिकायतें",
+    "layers": "परतें",
+    "memberLimitNote_one": "{{count}} और समूह नहीं खोला गया।",
+    "memberLimitNote_other": "{{count}} और समूह नहीं खोले गए।",
+    "noZones": "मानचित्र के लिए कोई क्षेत्र नहीं",
+    "standalone": "अलग शिकायतें",
+    "tethers": "समूह से जोड़",
+    "title": "क्षेत्र मानचित्र",
+    "zoneLabels": "क्षेत्र के नाम",
+    "zoneRegions": "क्षेत्र सीमाएँ"
   },
   "zoneSummary": {
     "active": "सक्रिय",

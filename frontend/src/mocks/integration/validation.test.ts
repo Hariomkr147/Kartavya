@@ -15,6 +15,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { server } from "../server";
 import { resetDatabase } from "../db/store";
 import { login, authedFetch, makePhoto } from "../test-utils";
+import { OPEN_STATUSES, TERMINAL_STATUSES } from "../../lib/lifecycle";
 
 const ZONE_WARD_12 = "2";
 const OFFICER = "officer.ward12@kartavya.gov";
@@ -204,6 +205,69 @@ describe("request enums are validated, not cast", () => {
     ]) {
       expect((await api(path)).status, path).toBe(200);
     }
+  });
+});
+
+describe("the public zone lookup carries zone geometry", () => {
+  /**
+   * Zone routing is nearest-centroid, so a zone's centre is the whole of its
+   * geometry: the admin zone map tessellates these points into the Voronoi
+   * cells it draws as zone boundaries. The mock is the development default,
+   * so a centre missing here would show an empty map locally and a full one
+   * in production — or the reverse, which is worse.
+   */
+  it("returns a real centre for every zone", async () => {
+    const res = await fetch("http://localhost/api/v1/zones");
+    expect(res.status).toBe(200);
+    const zones = (await res.json()) as {
+      centerLat: number;
+      centerLng: number;
+      isCatchAll: boolean;
+    }[];
+    expect(zones.length).toBeGreaterThan(0);
+    for (const zone of zones) {
+      expect(typeof zone.centerLat, JSON.stringify(zone)).toBe("number");
+      expect(typeof zone.centerLng, JSON.stringify(zone)).toBe("number");
+    }
+    // At least two real zones, or there is no boundary for the map to draw.
+    expect(zones.filter((z) => !z.isCatchAll).length).toBeGreaterThan(1);
+  });
+});
+
+describe("the zone map's open-complaint filter", () => {
+  /**
+   * The map draws "work that can still move". A terminal complaint must not
+   * come back on it — least of all as a *standalone* pin, which is what used
+   * to happen: going terminal calls `exitClusterIfTerminal`, which nulls
+   * `clusterId`, so a closed cluster member satisfied the map's
+   * "clusterId == null means independent" test.
+   */
+  it("excludes terminal complaints, including ones that left a cluster", async () => {
+    const admin = await login(ADMIN, PASSWORD);
+    const api = authedFetch(admin.token);
+
+    const open = OPEN_STATUSES.map((s) => `status=${s}`).join("&");
+    const res = await api(`/admin/complaints?pageSize=100&${open}`);
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as {
+      data: { status: string; clusterId: string | null }[];
+    };
+    expect(body.data.length).toBeGreaterThan(0);
+    for (const row of body.data) {
+      expect(TERMINAL_STATUSES, JSON.stringify(row)).not.toContain(row.status);
+    }
+  });
+
+  it("the terminal statuses it omits are really present in the data", async () => {
+    // Otherwise the assertion above passes for the wrong reason.
+    const admin = await login(ADMIN, PASSWORD);
+    const terminal = TERMINAL_STATUSES.map((s) => `status=${s}`).join("&");
+    const res = await authedFetch(admin.token)(
+      `/admin/complaints?pageSize=100&${terminal}`,
+    );
+    const body = (await res.json()) as { pagination: { totalItems: number } };
+    expect(body.pagination.totalItems).toBeGreaterThan(0);
   });
 });
 

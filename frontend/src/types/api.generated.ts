@@ -1358,6 +1358,17 @@ export interface components {
              * @default true
              */
             isActive: boolean;
+            /**
+             * Format: double
+             * @description The zone's centre. Routing is nearest-centroid, so these two numbers ARE the zone's geometry — the boundary between two zones is the perpendicular bisector of their centres, and the full set of centres tessellates the map into one Voronoi cell per zone. A client cannot draw a zone, or say which zone a point falls in, without them. Returned on the public reference lookup because `POST /zones/suggest` already answers the same question one coordinate at a time.
+             * @example 12.9716
+             */
+            centerLat: number;
+            /**
+             * Format: double
+             * @example 77.5946
+             */
+            centerLng: number;
         };
         CreateZoneRequest: {
             /**
@@ -1453,6 +1464,17 @@ export interface components {
             assignedOfficerId?: string | null;
             /** @description Set when this complaint is linked to nearby duplicates, so a list can show that it is one report of a shared physical issue rather than an independent one. Present on the compact shape — not just on `ComplaintDetail` — because the officer queue is exactly where that matters: without it every member of a cluster reads as its own separate job to claim and work. */
             clusterId?: string | null;
+            /**
+             * Format: double
+             * @description Where the issue is, captured at filing time — the same coordinate `ComplaintDetail` and `FeedItem` carry, and like theirs it says nothing about who reported it. On the compact shape so a list of complaints can be drawn on a map: a cluster's members are several reports of one physical issue spread over a street, and without a coordinate per member the only thing a cluster page can plot is its centroid, which renders a twelve-report cluster as a single pin.
+             * @example 12.9716
+             */
+            latitude?: number;
+            /**
+             * Format: double
+             * @example 77.5946
+             */
+            longitude?: number;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -1465,10 +1487,6 @@ export interface components {
         };
         ComplaintDetail: components["schemas"]["Complaint"] & {
             description?: string;
-            /** Format: double */
-            latitude?: number;
-            /** Format: double */
-            longitude?: number;
             /**
              * @description The raw score behind the label = (unique_reporter_count − 1) × 3 + upvote count. unique_reporter_count is the number of distinct citizens who have reported this complaint's issue (via its cluster), not the raw number of reports — so one citizen filing the same complaint repeatedly cannot inflate severity. A standalone complaint (no cluster) contributes 0 from this term, plus its own upvotes.
              * @example 17

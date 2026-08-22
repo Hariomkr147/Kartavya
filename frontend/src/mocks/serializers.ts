@@ -57,6 +57,8 @@ export function toZone(row: ZoneRow): Zone {
     name: row.zoneName,
     isCatchAll: row.isCatchAll,
     isActive: row.isActive,
+    centerLat: row.centerLat,
+    centerLng: row.centerLng,
   };
 }
 
@@ -103,6 +105,8 @@ export function toComplaintCompact(
     assignedOfficerId:
       row.assignedOfficerId != null ? toApiId(row.assignedOfficerId) : null,
     clusterId: row.clusterId != null ? toApiId(row.clusterId) : null,
+    latitude: row.latitude,
+    longitude: row.longitude,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     citizenActionNeeded: opts.forOwner ? citizenActionFor(row.status) : null,
@@ -182,8 +186,6 @@ export function toComplaintDetail(
   return {
     ...compact,
     description: row.description ?? undefined,
-    latitude: row.latitude,
-    longitude: row.longitude,
     severityScore: row.severityScore,
     slaTargetHours: row.slaTargetHours,
     clusterId: row.clusterId != null ? toApiId(row.clusterId) : null,

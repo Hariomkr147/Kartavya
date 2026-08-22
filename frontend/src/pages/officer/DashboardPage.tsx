@@ -22,6 +22,7 @@ import { ComplaintListItem } from "@/components/complaint/ComplaintListItem";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { RecentlyViewedList } from "@/components/dashboard/RecentlyViewedList";
 import { OfficerUpdatesCard } from "@/components/dashboard/OfficerUpdatesCard";
+import { ZoneMapCallout } from "@/components/map/ZoneMapCallout";
 import { HorizontalBarChart } from "@/components/charts/HorizontalBarChart";
 import { formatFullDate } from "@/lib/greeting";
 import { staggerContainer, staggerItem } from "@/lib/motionVariants";
@@ -219,6 +220,8 @@ export function OfficerDashboardPage() {
           {t("officerDashboard.periodNote")}
         </p>
       )}
+
+      <ZoneMapCallout to="/officer/map" />
 
       {!queueLoading && priorityItems.length > 0 && (
         <motion.div

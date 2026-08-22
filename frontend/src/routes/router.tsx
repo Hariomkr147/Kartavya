@@ -22,6 +22,7 @@ import { OfficerQueuePage } from "@/pages/officer/QueuePage";
 import { OfficerComplaintDetailPage } from "@/pages/officer/ComplaintDetailPage";
 import { OfficerClustersPage } from "@/pages/officer/ClustersPage";
 import { OfficerClusterDetailPage } from "@/pages/officer/ClusterDetailPage";
+import { OfficerZoneMapPage } from "@/pages/officer/ZoneMapPage";
 import { AdminDashboardPage } from "@/pages/admin/DashboardPage";
 import { AdminComplaintsPage } from "@/pages/admin/ComplaintsPage";
 import { AdminComplaintDetailPage } from "@/pages/admin/ComplaintDetailPage";
@@ -86,6 +87,7 @@ export const router = createBrowserRouter([
             path: "clusters/:clusterId",
             element: <OfficerClusterDetailPage />,
           },
+          { path: "map", element: <OfficerZoneMapPage /> },
           { path: "account", element: <AccountPage /> },
         ],
       },

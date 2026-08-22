@@ -1,69 +1,35 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Map as MapIcon } from "lucide-react";
-import { Checkbox } from "@/components/ui/Checkbox";
 import { Combobox } from "@/components/ui/Combobox";
 import { Label } from "@/components/ui/Label";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { ZoneMapLayers, type ZoneMapLayerState } from "@/components/admin/ZoneMapLayers";
+import { ZoneMapLayers } from "@/components/map/ZoneMapLayers";
+import { ZoneMapLayerToggles } from "@/components/map/ZoneMapLayerToggles";
 import { useZones } from "@/hooks/useZones";
-import { useSearchParamState, csvCodec } from "@/hooks/useSearchParamState";
+import { useZoneMapLayers } from "@/hooks/useZoneMapLayers";
+import { useSearchParamState } from "@/hooks/useSearchParamState";
 import {
   useClusterMembers,
   useMapClusters,
   useMapComplaints,
 } from "@/hooks/useZoneMapData";
-import type { TranslationKey } from "@/i18n";
 
-/**
- * Every layer key, and the i18n key naming it in the toggle panel. Layers live
- * in the URL (`?layers=…`) like the complaint filters do, so an admin can send
- * someone "the map with just clusters and zone regions" as a link.
- */
-const LAYER_LABELS: Record<keyof ZoneMapLayerState, TranslationKey> = {
-  zoneRegions: "zoneMap.zoneRegions",
-  zoneLabels: "zoneMap.zoneLabels",
-  clusters: "nav.clusters",
-  clusterMembers: "zoneMap.clusterMembers",
-  tethers: "zoneMap.tethers",
-  standalone: "zoneMap.standalone",
+/** An admin's complaint lives under `/admin/complaints`, not the officer queue. */
+const LINKS = {
+  complaint: (id: string) => `/admin/complaints/${id}`,
+  cluster: (id: string) => `/admin/clusters/${id}`,
 };
-
-const LAYER_KEYS = Object.keys(LAYER_LABELS) as (keyof ZoneMapLayerState)[];
-
-/** Cluster members are off by default — they cost one request per cluster. */
-const DEFAULT_LAYERS: (keyof ZoneMapLayerState)[] = [
-  "zoneRegions",
-  "zoneLabels",
-  "clusters",
-  "standalone",
-  // On by default, but only ever drawn alongside the members layer, which is
-  // off — so this costs nothing until an admin asks to see members.
-  "tethers",
-];
 
 export function AdminZoneMapPage() {
   const { t } = useTranslation();
   const [zoneId, setZoneId] = useSearchParamState("zone", "");
-  const [active, setActive] = useSearchParamState<string[]>(
-    "layers",
-    DEFAULT_LAYERS,
-    csvCodec,
-  );
+  const { layers, toggle } = useZoneMapLayers();
 
   const { data: zones, isLoading: zonesLoading } = useZones();
-  const { data: complaints, isLoading: complaintsLoading } = useMapComplaints();
+  const { data: complaints, isLoading: complaintsLoading } = useMapComplaints("admin");
   const { data: clusters, isLoading: clustersLoading } = useMapClusters();
-
-  const layers = useMemo(
-    () =>
-      LAYER_KEYS.reduce(
-        (state, key) => ({ ...state, [key]: active.includes(key) }),
-        {} as ZoneMapLayerState,
-      ),
-    [active],
-  );
 
   const visibleClusters = useMemo(() => {
     const all = clusters?.items ?? [];
@@ -91,10 +57,6 @@ export function AdminZoneMapPage() {
     layers.clusterMembers,
   );
 
-  function toggleLayer(key: keyof ZoneMapLayerState) {
-    setActive(active.includes(key) ? active.filter((k) => k !== key) : [...active, key]);
-  }
-
   const loading = zonesLoading || complaintsLoading || clustersLoading;
   const mappableZones = (zones ?? []).filter((z) => !z.isCatchAll && z.isActive);
 
@@ -117,23 +79,7 @@ export function AdminZoneMapPage() {
             ]}
           />
         </div>
-        <div className="flex-1">
-          <Label id="map-layers-label">{t("zoneMap.layers")}</Label>
-          <div
-            role="group"
-            aria-labelledby="map-layers-label"
-            className="flex flex-wrap gap-x-5 gap-y-2"
-          >
-            {LAYER_KEYS.map((key) => (
-              <Checkbox
-                key={key}
-                checked={layers[key]}
-                onChange={() => toggleLayer(key)}
-                label={t(LAYER_LABELS[key])}
-              />
-            ))}
-          </div>
-        </div>
+        <ZoneMapLayerToggles layers={layers} onToggle={toggle} />
       </div>
 
       {loading ? (
@@ -153,6 +99,7 @@ export function AdminZoneMapPage() {
             standalone={standalone}
             clusterDetails={clusterDetails}
             layers={layers}
+            links={LINKS}
           />
           <p className="text-ink-muted text-xs">
             {t("feed.mapNote", {

@@ -5,6 +5,7 @@ import { Combobox } from "@/components/ui/Combobox";
 import { Label } from "@/components/ui/Label";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 import { ZoneMapLayers } from "@/components/map/ZoneMapLayers";
 import { ZoneMapLayerToggles } from "@/components/map/ZoneMapLayerToggles";
 import { useZones } from "@/hooks/useZones";
@@ -28,8 +29,18 @@ export function AdminZoneMapPage() {
   const { layers, toggle } = useZoneMapLayers();
 
   const { data: zones, isLoading: zonesLoading } = useZones();
-  const { data: complaints, isLoading: complaintsLoading } = useMapComplaints("admin");
-  const { data: clusters, isLoading: clustersLoading } = useMapClusters();
+  const {
+    data: complaints,
+    isLoading: complaintsLoading,
+    isFetching: complaintsFetching,
+    refetch: refetchComplaints,
+  } = useMapComplaints("admin");
+  const {
+    data: clusters,
+    isLoading: clustersLoading,
+    isFetching: clustersFetching,
+    refetch: refetchClusters,
+  } = useMapClusters();
 
   const visibleClusters = useMemo(() => {
     const all = clusters?.items ?? [];
@@ -51,6 +62,8 @@ export function AdminZoneMapPage() {
   const {
     clusters: clusterDetails,
     isLoading: membersLoading,
+    isFetching: membersFetching,
+    refetch: refetchMembers,
     omittedCount,
   } = useClusterMembers(
     visibleClusters.map((c) => c.id),
@@ -62,9 +75,23 @@ export function AdminZoneMapPage() {
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4">
-      <h1 className="font-display text-xl font-semibold text-ink">
-        {t("zoneMap.title")}
-      </h1>
+      <div className="flex items-center justify-between gap-2">
+        <h1 className="font-display text-xl font-semibold text-ink">
+          {t("zoneMap.title")}
+        </h1>
+        {/* The map polls, but every other list in the app also offers "fetch
+            this again now" — an admin who has just changed something in
+            another tab should not have to wait out the interval. */}
+        <RefreshButton
+          onRefresh={() => {
+            void refetchComplaints();
+            void refetchClusters();
+            void refetchMembers();
+          }}
+          refreshing={complaintsFetching || clustersFetching || membersFetching}
+          what="this map"
+        />
+      </div>
 
       <div className="flex flex-wrap items-end gap-4 rounded-lg border border-line bg-surface p-4">
         <div className="min-w-[14rem]">

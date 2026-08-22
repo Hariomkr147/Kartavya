@@ -1,10 +1,23 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
+import { LIVE_REFRESH_MS } from "@/lib/queryClient";
 import { getClusters } from "@/services/shared";
 import { getAllComplaints } from "@/services/admin";
 import { getOfficerQueue } from "@/services/officer";
 import { getClusterById } from "@/services/shared";
 import { OPEN_STATUSES } from "@/lib/lifecycle";
 import type { Cluster, ClusterDetail, Complaint } from "@/types/api";
+
+/**
+ * The data behind the zone map, for both audiences.
+ *
+ * Every query in this file polls on `LIVE_REFRESH_MS` — the same clock the
+ * officer and admin analytics run on, which is what the stat tiles sitting
+ * directly above the link into this map use. Without it a map left open
+ * showed whatever was true when it was opened, for as long as it stayed
+ * open: nothing in this app pushes, and `refetchOnWindowFocus` is off
+ * globally, so a complaint filed while an officer watched the map would never
+ * have appeared.
+ */
 
 /**
  * Whose map this is.
@@ -90,6 +103,7 @@ export function useMapComplaints(audience: MapAudience) {
           ? getAllComplaints({ page, pageSize, status: OPEN_STATUSES })
           : getOfficerQueue({ page, pageSize, status: OPEN_STATUSES }),
       ),
+    refetchInterval: LIVE_REFRESH_MS,
   });
 }
 
@@ -105,6 +119,7 @@ export function useMapClusters() {
       fetchUpTo<Cluster>(MAP_CLUSTER_LIMIT, (page, pageSize) =>
         getClusters({ page, pageSize }),
       ),
+    refetchInterval: LIVE_REFRESH_MS,
   });
 }
 
@@ -119,6 +134,15 @@ export function useMapClusters() {
  * The key is `useCluster`'s own (`["clusters", id]`), so opening a cluster
  * page after switching the layer on is served from cache — and, more to the
  * point, so a cluster the officer has just acted on is invalidated here too.
+ *
+ * These refresh on the same clock as the two lists above, which is the
+ * expensive half of the interval: this is one request per cluster, so a map
+ * with the layer on and the ceiling reached costs 40 requests a tick against
+ * the lists' 9. It is still the right trade. Polling the discs but not their
+ * members would leave a member pin drawn for a complaint that has since gone
+ * terminal and left the cluster, next to a disc whose count has already
+ * dropped — a map that contradicts itself is worse than one that costs more.
+ * The layer is off by default, so nobody pays this without asking for it.
  */
 export function useClusterMembers(clusterIds: string[], enabled: boolean) {
   const ids = clusterIds.slice(0, MAP_MEMBER_CLUSTER_LIMIT);
@@ -127,6 +151,7 @@ export function useClusterMembers(clusterIds: string[], enabled: boolean) {
       queryKey: ["clusters", id],
       queryFn: () => getClusterById(id),
       enabled,
+      refetchInterval: LIVE_REFRESH_MS,
     })),
   });
 
@@ -137,6 +162,9 @@ export function useClusterMembers(clusterIds: string[], enabled: boolean) {
   return {
     clusters: loaded,
     isLoading: enabled && results.some((r) => r.isLoading),
+    isFetching: enabled && results.some((r) => r.isFetching),
+    /** So the page's manual refresh reaches the member pins too, not just the discs. */
+    refetch: () => Promise.all(results.map((r) => r.refetch())),
     /** Clusters beyond the ceiling, whose members are deliberately not drawn. */
     omittedCount: Math.max(0, clusterIds.length - ids.length),
   };

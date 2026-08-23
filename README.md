@@ -19,6 +19,8 @@ standalone against a mock layer.
   - [What's in the box](#whats-in-the-box)
   - [Tech stack](#tech-stack)
   - [Repository layout](#repository-layout)
+  - [The zone map](#the-zone-map)
+  - [Languages](#languages)
   - [Quick start](#quick-start)
     - [Option A — frontend only (mocks, no backend)](#option-a--frontend-only-mocks-no-backend)
     - [Option B — the full stack](#option-b--the-full-stack)
@@ -62,6 +64,11 @@ Core mechanics:
   and pay a one-time bonus when the cluster closes.
 - **Zones as Voronoi cells.** A zone is just a centre point; a location belongs to the zone whose
   centre is nearest. Exactly one catch-all zone absorbs everything else — no gaps, no overlaps.
+- **A live zone map.** `/admin/map` and `/officer/map` plot open complaints, clusters and the
+  zone regions themselves on an OpenStreetMap base layer, polling on one shared cadence. See
+  [The zone map](#the-zone-map).
+- **Eleven languages.** The whole interface is translated into English plus ten Indian
+  languages, each with its own script font. See [Languages](#languages).
 - **Gamification.** A points ledger, six badges, and zone/global leaderboards.
 - **Two AI features that fail soft** — photo pre-screening and zone health reports. When the model
   is unavailable they report `UNAVAILABLE` rather than erroring; AI never blocks a core flow.
@@ -74,6 +81,8 @@ Core mechanics:
 | **Frontend** | React 19, Vite, TypeScript, Tailwind CSS v4, TanStack Query, React Router 7, React Hook Form + Zod, Leaflet, Recharts, Framer Motion |
 | **Maps** | OpenStreetMap tiles, plus Nominatim for place search — both keyless. Nominatim's public instance is donation-funded and rate-limited (~1 req/sec); `useGeocodeSearch` debounces to stay inside its policy. `src/services/geocoding.ts` is the only file to change if it ever needs a self-hosted or keyed provider |
 | **Location input** | The map search box also accepts a latitude/longitude pair or a plus code. Both are resolved on the client — `open-location-code` (Google's reference implementation, Apache-2.0, no dependencies) decodes plus codes offline, because Nominatim does not resolve them |
+| **Zone map** | Leaflet + react-leaflet over OpenStreetMap tiles; `d3-delaunay` derives the zone regions client-side from the zone centres |
+| **Localization** | i18next + react-i18next + the browser language detector, with per-script Noto fonts from Fontsource. English ships in the main bundle; the other ten locales are lazy chunks |
 | **Contract** | OpenAPI 3.0.3 + DBML, with TypeScript types generated from the spec |
 | **Testing** | pytest (domain / services / api / contract / jobs), Vitest + React Testing Library, MSW |
 | **Quality** | Ruff, import-linter (layering enforced in CI), ESLint, Prettier |
@@ -102,7 +111,9 @@ MAY2026-Team-040/
 │       ├── components/           # presentational only — never calls the API
 │       ├── hooks/                # state + side effects (TanStack Query), one per endpoint
 │       ├── services/             # the only place raw fetch lives
-│       ├── lib/                  # pure client logic (category matching, SLA, geo, EXIF, CSV)
+│       ├── i18n/                 # i18next setup, language list, 11 locale bundles
+│       ├── lib/                  # pure client logic (category matching, SLA, geo, EXIF, CSV,
+│       │                         #   zone Voronoi, Indic transliteration)
 │       ├── types/api.generated.ts# generated from openapi.yaml — do not hand-edit
 │       └── mocks/                # MSW handlers + a TS port of the business rules
 ├── docs/                         # architecture, API and database references
@@ -111,6 +122,79 @@ MAY2026-Team-040/
 ├── CONTRIBUTING.md               # branching, commits, PR rules — read before your first PR
 └── CLAUDE.md                     # working notes for AI assistants
 ```
+
+## The zone map
+
+Two routes draw the same map for two audiences:
+
+| Route | Who | Scope |
+|---|---|---|
+| `/admin/map` | Admin | Every zone, with a zone picker. The per-zone analytics table links straight in, pre-filtered via `?zone=<id>`. |
+| `/officer/map` | Officer | The officer's own zone only. |
+
+The difference between them is which endpoint the complaints come from — `/admin/complaints` or
+`/officer/complaints` — so an officer's map is confined to their zone by the server's
+`visible_complaints` / `visible_clusters` scoping, not by a client-side filter that could be got
+wrong. The pages filter on `zoneId` as well, as a second lock.
+
+What it draws:
+
+- **Zone regions** — Voronoi cells derived from the zone centres on the client
+  (`src/lib/zoneVoronoi.ts`, `d3-delaunay`). No polygon is stored anywhere; the boundaries are
+  *derived*, the same way `severityLabel` and `slaLabel` are. Longitude is scaled by
+  `cos(latitude)` before tessellating so the cells agree with the server's haversine routing, and
+  a test walks a grid over the viewport asserting every cell matches `nearest_active_zone`. The
+  catch-all zone is excluded — it routes, but its centre is seeded at (0, 0).
+- **Zone labels**, placed at the centroid of the cell *clipped to the visible rectangle*, so a
+  name doesn't disappear when one cell fills the whole viewport at street zoom.
+- **Clusters** as counted discs, **cluster members** as diamonds tethered back to their disc, and
+  **independent complaints** as teardrops. Colour means severity and only severity; shape means
+  identity — so a red diamond and a red pin stay distinguishable for anyone who can't separate the
+  ramp's hues.
+
+Layers are toggled from the map and persisted in the URL (`?layers=zoneRegions,clusters,…`), so a
+view is shareable. `src/lib/zoneMapLayers.ts` is the single list both maps read. Cluster members
+are **off by default**: they cost one request per cluster.
+
+Only open complaints are fetched — the map means "work that can still move". A complaint that
+goes terminal leaves its cluster, and drawing it would put it back on the map as an independent
+pin it isn't.
+
+Everything on the map polls on `LIVE_REFRESH_MS` (`src/lib/queryClient.ts`, 45s) — the same clock
+the analytics stat tiles above the link into it use, because a tile reading "7 active" beside a
+map drawing 9 pins reads as a bug. There's a manual refresh button too. Nothing in this app
+pushes: there is no socket, and `refetchOnWindowFocus` is off globally.
+
+The map isn't paginated but the API is (`pageSize` caps at 100), so each list is fetched a page at
+a time up to a stated ceiling — 600 complaints, 300 clusters, 40 clusters' worth of members — and
+the page reports what it actually plotted rather than silently truncating.
+
+## Languages
+
+The interface ships in **eleven languages**: English plus Hindi, Bengali, Marathi, Telugu, Tamil,
+Punjabi, Gujarati, Kannada, Malayalam and Odia. The picker is in the header's settings popover and
+on the public landing, login and register pages; the choice persists in `localStorage`
+(`kartavya-language`) and otherwise falls back to the browser's language.
+
+- `src/i18n/languages.ts` — the language list. `nativeName` is the endonym, because someone
+  scanning the picker is looking for their own script.
+- `src/i18n/locales/*.json` — ~893 keys each.
+- Only English is in the main bundle. Every other locale is a lazy chunk fetched on first
+  selection; a failed chunk falls back to English rather than taking the app down.
+- Each script gets its own Noto font via an `html:lang(xx)` block in `src/index.css`, so no
+  language renders as tofu boxes.
+- `src/lib/indicTransliteration.ts` folds native-script and romanised input to a common key, so
+  the offline category matcher recognises "गड्ढा", "gaddha" and "gadda" alike without enumerating
+  every romanisation by hand.
+
+**Adding a language is four edits in three files** — the `LANGUAGES` row, the lazy loader in
+`src/i18n/index.ts`, the locale JSON, and the `html:lang()` font block. Miss one and it fails
+*silently* at runtime, so `src/i18n/locales.test.ts` checks all four: every locale covers exactly
+the English key set, keeps every `{{placeholder}}`, has a font override, and imports the font
+family that override names.
+
+Note the API is not localized — server-side strings (category names, error messages) come back in
+English. Only the UI shell is translated.
 
 ## Quick start
 
@@ -364,6 +448,7 @@ npm test                                       # Vitest + React Testing Library,
 npm run test:watch                             # watch mode (test:ui for the Vitest UI)
 npm test -- src/lib/categoryMatcher.test.ts    # a single file
 npm test -- -t "<test name substring>"         # a single test by name
+npm test -- src/i18n/locales.test.ts           # locale parity: keys, placeholders, script fonts
 npm run lint && npm run format:check
 ```
 
@@ -512,6 +597,8 @@ Two consequences of Render's free tier worth knowing before a demo:
 | Deployed frontend shows a network error, but the API works in a browser tab | Same cause: the Vercel origin isn't in `CORS_ORIGINS`. The request succeeds server-side; the browser is what rejects it. |
 | Deep link 404s on the deployed frontend, but works locally | The SPA rewrite in `frontend/vercel.json` isn't being applied — check that Vercel's **Root Directory** is set to `frontend`. |
 | TypeScript errors on API shapes after a contract change | Re-run `npm run gen:types`. |
+| A new language falls back to English, or renders as tofu boxes ▯▯▯ | One of the four edits is missing — the `LANGUAGES` row, the lazy loader in `src/i18n/index.ts`, the locale JSON, or the `html:lang()` font block in `index.css`. `npm test -- src/i18n/locales.test.ts` names which. |
+| The zone map draws no regions | Zone regions come from zone *centres*, and the catch-all is excluded. With only the seeded `UNASSIGNED` zone there is nothing to tessellate — create real zones under **Admin → Zones**. |
 
 ## Documentation
 

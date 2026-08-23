@@ -97,8 +97,8 @@ export function OfficerZoneMapPage() {
   // read answers 403 for them. Say why rather than drawing an empty city.
   if (!loading && !homeZone) {
     return (
-      <div className="mx-auto w-full max-w-6xl space-y-4">
-        <h1 className="font-display text-xl font-semibold text-ink">
+      <div className="mx-auto w-full max-w-6xl space-y-6">
+        <h1 className="font-display text-display-sm font-semibold text-ink">
           {t("zoneMap.title")}
         </h1>
         <EmptyState
@@ -112,30 +112,33 @@ export function OfficerZoneMapPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-        <div className="flex flex-wrap items-baseline gap-x-2">
-          <h1 className="font-display text-xl font-semibold text-ink">
+    <div className="mx-auto w-full max-w-6xl space-y-6">
+      <div>
+        <div className="flex items-center gap-2">
+          <h1 className="font-display text-display-sm font-semibold text-ink">
             {t("zoneMap.title")}
           </h1>
-          {homeZone && (
-            <span className="text-ink-muted text-sm">
-              {t("fields.yourZone")} · {homeZone.name}
-            </span>
-          )}
+          {/* The map polls, but every other list in the app also offers "fetch
+              this again now" — an officer who has just claimed something should
+              not have to wait out the interval to see it move. */}
+          <RefreshButton
+            onRefresh={() => {
+              void refetchComplaints();
+              void refetchClusters();
+              void refetchMembers();
+            }}
+            refreshing={complaintsFetching || clustersFetching || membersFetching}
+            what="this map"
+          />
         </div>
-        {/* The map polls, but every other list in the app also offers "fetch
-            this again now" — an officer who has just claimed something should
-            not have to wait out the interval to see it move. */}
-        <RefreshButton
-          onRefresh={() => {
-            void refetchComplaints();
-            void refetchClusters();
-            void refetchMembers();
-          }}
-          refreshing={complaintsFetching || clustersFetching || membersFetching}
-          what="this map"
-        />
+        {/* The officer's own zone is the whole scope of this map, so it reads
+            as the page's subtitle rather than as a chip beside the title —
+            the slot every other index page puts its one-line context in. */}
+        {homeZone && (
+          <p className="text-ink-muted mt-1 text-sm">
+            {t("fields.yourZone")} · {homeZone.name}
+          </p>
+        )}
       </div>
 
       <div className="flex flex-wrap items-end gap-4 rounded-lg border border-line bg-surface p-4">

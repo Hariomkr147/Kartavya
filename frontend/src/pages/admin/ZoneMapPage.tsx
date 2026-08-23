@@ -74,9 +74,9 @@ export function AdminZoneMapPage() {
   const mappableZones = (zones ?? []).filter((z) => !z.isCatchAll && z.isActive);
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <h1 className="font-display text-xl font-semibold text-ink">
+    <div className="mx-auto w-full max-w-6xl space-y-6">
+      <div className="flex items-center gap-2">
+        <h1 className="font-display text-display-sm font-semibold text-ink">
           {t("zoneMap.title")}
         </h1>
         {/* The map polls, but every other list in the app also offers "fetch

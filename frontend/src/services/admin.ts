@@ -1,5 +1,6 @@
 import { apiFetch, type QueryParams } from "./http";
 import type {
+  AdminResetPasswordRequest,
   AiZoneReport,
   AssignOfficerRequest,
   Category,
@@ -60,10 +61,29 @@ export function reviewDispute(
   });
 }
 
-export type ExportComplaintsParams = Omit<GetAdminComplaintsParams, "sort" | "page" | "pageSize">;
+export type ExportComplaintsParams = Omit<
+  GetAdminComplaintsParams,
+  "sort" | "page" | "pageSize"
+>;
 
-export function exportComplaintsCsv(params: ExportComplaintsParams = {}): Promise<string> {
-  return apiFetch<string>("/admin/export/complaints", { query: params });
+/**
+ * Sends only the six filters `exportComplaintsCsv` declares in openapi.yaml.
+ *
+ * The admin complaints page builds one filter object and feeds it to both the
+ * list and the export, and `QueryParams`' index signature means a leftover
+ * `sort` key type-checks fine here. The backend validates this query with
+ * Pydantic `extra="forbid"` and answers 400 VALIDATION_ERROR; the mock ignores
+ * unknown query params, so the export appeared to work in development and
+ * failed for every admin in production. Picking the allowed keys here fixes it
+ * once, instead of trusting each call site to strip them.
+ */
+export function exportComplaintsCsv(
+  params: ExportComplaintsParams = {},
+): Promise<string> {
+  const { zoneId, categoryId, status, slaLabel, dateFrom, dateTo } = params;
+  return apiFetch<string>("/admin/export/complaints", {
+    query: { zoneId, categoryId, status, slaLabel, dateFrom, dateTo },
+  });
 }
 
 export interface GetAllUsersParams extends QueryParams {
@@ -88,6 +108,21 @@ export function updateUser(userId: string, body: UpdateUserRequest): Promise<Use
 
 export function deleteUser(userId: string): Promise<void> {
   return apiFetch<void>(`/admin/users/${userId}`, { method: "DELETE" });
+}
+
+/**
+ * Admin-initiated password reset. There is no self-service forgot-password
+ * flow, so this is the only way back in for a locked-out account. Does not
+ * revoke sessions — see the contract note on the endpoint.
+ */
+export function resetUserPassword(
+  userId: string,
+  body: AdminResetPasswordRequest,
+): Promise<void> {
+  return apiFetch<void>(`/admin/users/${userId}/reset-password`, {
+    method: "POST",
+    body,
+  });
 }
 
 export function createZone(body: CreateZoneRequest): Promise<Zone> {

@@ -3,6 +3,7 @@ import { db } from "../db/store";
 import { requireRole, paginate, parsePagination, Errors } from "../lib/http";
 import { lifetimePoints } from "../lib/points";
 import { toApiId } from "../lib/ids";
+import { LEADERBOARD_PERIODS, checkEnumParam } from "../lib/enums";
 
 const BASE = "/api/v1";
 
@@ -62,10 +63,12 @@ export const gamificationHandlers = [
   }),
 
   http.get(`${BASE}/leaderboard`, ({ request }) => {
-    // The contract doesn't restrict this to citizens — admins use `scope=city`
-    // for cross-zone gamification oversight. `scope=zone` still only makes
-    // sense for a citizen (an admin has no zoneId), so that combination just
-    // yields an empty pool below rather than being rejected outright.
+    // Contract 3.1.0: citizens and admins may read, officers may not. Admins
+    // use `scope=city` for cross-zone gamification oversight. `scope=zone`
+    // still only makes sense for a citizen (an admin has no zoneId), so that
+    // combination just yields an empty pool below rather than a rejection.
+    // Reading is not being ranked: an admin is never a row, so `currentUser`
+    // comes back null for them.
     const auth = requireRole(request, "CITIZEN", "ADMIN");
     if (!auth.ok) return auth.response;
 
@@ -74,6 +77,10 @@ export const gamificationHandlers = [
     if (scope !== "zone" && scope !== "city") {
       return Errors.badRequest("scope must be 'zone' or 'city'.");
     }
+    // `period` defaults to monthly, but a value that is present and wrong is a
+    // 400 on the backend, not a silent fall back to the default.
+    const badPeriod = checkEnumParam(url, "period", LEADERBOARD_PERIODS);
+    if (badPeriod) return badPeriod;
     const period = url.searchParams.get("period") === "all_time" ? "all_time" : "monthly";
     const now = new Date();
 

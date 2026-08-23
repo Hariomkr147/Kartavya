@@ -271,3 +271,45 @@
     overflow-wrap: break-word;
   }
 }
+
+/*
+ * Leaflet renders tooltips into its own pane, outside the React tree, so its
+ * chrome cannot be restyled with a className on the component alone — these
+ * have to be global rules. Without them the zone map's hover cards arrive as
+ * Leaflet's default yellow-white boxes, which look like a different
+ * application from the one they float over.
+ */
+.leaflet-tooltip.kv-map-tip {
+  border: 1px solid var(--color-line);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.18);
+  padding: 0.5rem;
+  white-space: normal;
+}
+
+.leaflet-tooltip.kv-map-tip::before {
+  border-top-color: var(--color-line);
+}
+
+/*
+ * The zone name written across its cell. It labels an area, not a point, so
+ * it gets no box and no pointer — just text with a halo heavy enough to stay
+ * legible over map tiles of any colour. The marker itself is zero-sized, so
+ * the span is centred on the anchor by translating it half its own size.
+ */
+.kv-zone-label-icon > span {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  color: var(--color-ink);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-shadow:
+    0 0 3px var(--color-surface),
+    0 0 3px var(--color-surface),
+    0 0 6px var(--color-surface);
+}

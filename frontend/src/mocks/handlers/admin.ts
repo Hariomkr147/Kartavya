@@ -15,9 +15,21 @@ import { lifetimePoints } from "../lib/points";
 import { TERMINAL_STATUSES, AT_OR_PAST_UNDER_REVIEW } from "../lib/fsm";
 import { reassignComplaintCluster, exitClusterIfTerminal } from "../lib/cluster";
 import { fromApiId, toApiId } from "../lib/ids";
+import {
+  COMPLAINT_STATUSES,
+  CREATABLE_ROLES,
+  DISPUTE_VERDICTS,
+  PERFORMANCE_PERIODS,
+  SLA_LABELS,
+  USER_ROLES,
+  checkEnum,
+  checkEnumParam,
+  firstProblem,
+} from "../lib/enums";
 import { toCsv } from "../lib/csv";
 import { simulateAiZoneReportGeneration } from "../lib/ai";
 import type {
+  AdminResetPasswordRequest,
   ComplaintOverrideRequest,
   DisputeReviewRequest,
   CreateUserRequest,
@@ -51,6 +63,12 @@ export const adminHandlers = [
     if (!auth.ok) return auth.response;
 
     const url = new URL(request.url);
+    const badFilter = firstProblem(
+      checkEnumParam(url, "status", COMPLAINT_STATUSES),
+      checkEnumParam(url, "slaLabel", SLA_LABELS),
+    );
+    if (badFilter) return badFilter;
+
     const zoneId = url.searchParams.get("zoneId");
     const categoryId = url.searchParams.get("categoryId");
     const statusFilter = url.searchParams.getAll("status");
@@ -99,6 +117,12 @@ export const adminHandlers = [
     if (!complaint) return Errors.notFound();
 
     const body = (await request.json()) as ComplaintOverrideRequest;
+    // An unrecognised status used to be written straight onto the row, leaving
+    // the complaint in a state that exists nowhere in the state machine.
+    const badStatus = checkEnum("status", body.status, COMPLAINT_STATUSES, {
+      optional: true,
+    });
+    if (badStatus) return badStatus;
     const now = new Date().toISOString();
 
     let categoryOrZoneChanged = false;
@@ -173,8 +197,12 @@ export const adminHandlers = [
       }
 
       const body = (await request.json()) as DisputeReviewRequest;
-      if (!body.verdict || !body.reason?.trim()) {
-        return Errors.badRequest("verdict and reason are both required.");
+      // An unrecognised verdict used to fall through to the REJECTED branch
+      // below and close the complaint. The backend answers 400.
+      const badVerdict = checkEnum("verdict", body.verdict, DISPUTE_VERDICTS);
+      if (badVerdict) return badVerdict;
+      if (!body.reason?.trim()) {
+        return Errors.badRequest("reason is required.");
       }
 
       const now = new Date().toISOString();
@@ -223,6 +251,9 @@ export const adminHandlers = [
     if (!auth.ok) return auth.response;
 
     const url = new URL(request.url);
+    const badRoleFilter = checkEnumParam(url, "role", USER_ROLES);
+    if (badRoleFilter) return badRoleFilter;
+
     const role = url.searchParams.get("role");
     const zoneId = url.searchParams.get("zoneId");
     const active = url.searchParams.get("active");
@@ -241,7 +272,11 @@ export const adminHandlers = [
     if (!auth.ok) return auth.response;
 
     const body = (await request.json()) as CreateUserRequest;
-    if (!body.role || !body.name?.trim() || !body.email?.trim() || !body.password) {
+    // CREATABLE_ROLES, not USER_ROLES: the API deliberately cannot mint an
+    // ADMIN, and an unchecked cast used to let any string through as a role.
+    const badRole = checkEnum("role", body.role, CREATABLE_ROLES);
+    if (badRole) return badRole;
+    if (!body.name?.trim() || !body.email?.trim() || !body.password) {
       return Errors.badRequest("role, name, email, and password are all required.");
     }
     if (body.password.length < 8) {
@@ -336,6 +371,29 @@ export const adminHandlers = [
 
     persist();
     return HttpResponse.json(toUser(user));
+  }),
+
+  http.post(`${BASE}/admin/users/:userId/reset-password`, async ({ request, params }) => {
+    const auth = requireRole(request, "ADMIN");
+    if (!auth.ok) return auth.response;
+
+    const user = db.users.find((u) => u.id === fromApiId(String(params.userId)));
+    if (!user) return Errors.notFound();
+
+    const body = (await request.json()) as AdminResetPasswordRequest;
+    if (typeof body.newPassword !== "string" || body.newPassword.length < 8) {
+      return Errors.badRequest("New password must be at least 8 characters.", [
+        { field: "newPassword", issue: "must be at least 8 characters" },
+      ]);
+    }
+
+    // No current-password check: the admin does not know it, which is the
+    // whole point. Nothing else about the account changes, and already-issued
+    // tokens keep working — matching the backend, which has no way to revoke
+    // a stateless JWT. Deactivation is the tool for cutting off a live session.
+    user.password = body.newPassword;
+    persist();
+    return new HttpResponse(null, { status: 204 });
   }),
 
   http.delete(`${BASE}/admin/users/:userId`, ({ request, params }) => {
@@ -606,6 +664,9 @@ export const adminHandlers = [
     if (!officer) return Errors.notFound();
 
     const url = new URL(request.url);
+    const badPeriod = checkEnumParam(url, "period", PERFORMANCE_PERIODS);
+    if (badPeriod) return badPeriod;
+
     const period = url.searchParams.get("period") ?? "this_month";
     const dateFromParam = url.searchParams.get("dateFrom");
     const dateToParam = url.searchParams.get("dateTo");
@@ -769,6 +830,12 @@ export const adminHandlers = [
     if (!auth.ok) return auth.response;
 
     const url = new URL(request.url);
+    const badFilter = firstProblem(
+      checkEnumParam(url, "status", COMPLAINT_STATUSES),
+      checkEnumParam(url, "slaLabel", SLA_LABELS),
+    );
+    if (badFilter) return badFilter;
+
     const zoneId = url.searchParams.get("zoneId");
     const categoryId = url.searchParams.get("categoryId");
     const statusFilter = url.searchParams.getAll("status");

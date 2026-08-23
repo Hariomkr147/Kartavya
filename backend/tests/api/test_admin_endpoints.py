@@ -1402,3 +1402,186 @@ def test_officer_resolution_average_follows_latest_history_not_current_assignmen
     assert resolver_payload["avgResolutionHours"] == pytest.approx(1.0)
     assert assignee_payload["totalHandled"] == 1
     assert assignee_payload["avgResolutionHours"] is None
+
+
+# --- The admin lockout guard -------------------------------------------------
+#
+# There is no API that mints an ADMIN (`CreateUserRequest.role` is CITIZEN or
+# OFFICER only) and a deactivated account cannot log in, so leaving zero active
+# admins is unrecoverable without database surgery. These lock that shut.
+
+
+def test_admin_cannot_deactivate_their_own_account(seeded_app, client, session, auth_header):
+    admin = make_user(session, role=UserRole.ADMIN, email="self.deact@kartavya.gov")
+
+    response = client.patch(
+        f"{API}/admin/users/{admin.id}", json={"active": False}, headers=auth_header(admin)
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"]["code"] == "LAST_ADMIN"
+    session.refresh(admin)
+    assert admin.is_active is True
+
+
+def test_admin_cannot_delete_their_own_account(seeded_app, client, session, auth_header):
+    """A brand-new admin has no linked records, so HAS_LINKED_RECORDS won't save us."""
+    admin = make_user(session, role=UserRole.ADMIN, email="self.del@kartavya.gov")
+
+    response = client.delete(f"{API}/admin/users/{admin.id}", headers=auth_header(admin))
+
+    assert response.status_code == 409
+    assert response.get_json()["error"]["code"] == "LAST_ADMIN"
+    assert session.get(User, admin.id) is not None
+
+
+def test_deactivating_the_last_active_admin_is_refused_at_the_service(seeded_app, session):
+    """The count guard, exercised where it is actually reachable.
+
+    Over HTTP this branch is unreachable: the acting admin is loaded fresh on
+    every request, so an admin who is not themselves active gets 401 long
+    before the guard runs, and any *active* actor is themselves a remaining
+    admin. It stays as a safety net for non-HTTP callers (a CLI, a job, a
+    future bulk import), and this is the only honest way to prove it works.
+    """
+    from app.domain.errors import ConflictError
+    from app.services.accounts.users import update_user as update_user_service
+
+    with seeded_app.app_context():
+        seeded = session.query(User).filter(User.role == UserRole.ADMIN).one()
+        ghost_actor_id = seeded.id + 1000  # not an admin, not even a real row
+
+        with pytest.raises(ConflictError) as caught:
+            update_user_service(
+                user_id=seeded.id,
+                acting_admin_id=ghost_actor_id,
+                full_name=None,
+                email=None,
+                zone_id=None,
+                change_zone=False,
+                active=False,
+            )
+
+        assert caught.value.code == "LAST_ADMIN"
+        session.refresh(seeded)
+        assert seeded.is_active is True
+
+
+def test_admin_may_deactivate_another_admin_when_one_remains(
+    seeded_app, client, session, auth_header
+):
+    """The guard protects the last way in, not admin accounts in general."""
+    actor = make_user(session, role=UserRole.ADMIN, email="keeper@kartavya.gov")
+    spare = make_user(session, role=UserRole.ADMIN, email="spare@kartavya.gov")
+
+    response = client.patch(
+        f"{API}/admin/users/{spare.id}", json={"active": False}, headers=auth_header(actor)
+    )
+
+    assert response.status_code == 200
+    session.refresh(spare)
+    assert spare.is_active is False
+
+
+def test_deactivating_a_citizen_is_untouched_by_the_guard(seeded_app, client, session, auth_header):
+    admin = make_user(session, role=UserRole.ADMIN, email="guard.citizen@kartavya.gov")
+    citizen = make_user(session, role=UserRole.CITIZEN, email="ordinary@example.com")
+
+    response = client.patch(
+        f"{API}/admin/users/{citizen.id}", json={"active": False}, headers=auth_header(admin)
+    )
+
+    assert response.status_code == 200
+    session.refresh(citizen)
+    assert citizen.is_active is False
+
+
+# --- Admin-initiated password reset ------------------------------------------
+
+
+def test_admin_reset_password_lets_the_user_log_in_with_the_new_one(
+    seeded_app, client, session, auth_header
+):
+    admin = make_user(session, role=UserRole.ADMIN, email="resetter@kartavya.gov")
+    citizen = make_user(session, role=UserRole.CITIZEN, email="forgot@example.com")
+
+    response = client.post(
+        f"{API}/admin/users/{citizen.id}/reset-password",
+        json={"newPassword": "brand-new-password"},
+        headers=auth_header(admin),
+    )
+    assert response.status_code == 204
+
+    fresh = client.post(
+        f"{API}/auth/login",
+        json={"email": "forgot@example.com", "password": "brand-new-password"},
+    )
+    assert fresh.status_code == 200
+    stale = client.post(
+        f"{API}/auth/login", json={"email": "forgot@example.com", "password": "password123"}
+    )
+    assert stale.status_code == 401
+
+
+def test_admin_reset_password_rejects_a_short_password(seeded_app, client, session, auth_header):
+    admin = make_user(session, role=UserRole.ADMIN, email="shortpw@kartavya.gov")
+    citizen = make_user(session, role=UserRole.CITIZEN, email="shortpw@example.com")
+
+    response = client.post(
+        f"{API}/admin/users/{citizen.id}/reset-password",
+        json={"newPassword": "short"},
+        headers=auth_header(admin),
+    )
+
+    assert response.status_code == 400
+
+
+def test_admin_reset_password_changes_nothing_else(seeded_app, client, session, auth_header):
+    admin = make_user(session, role=UserRole.ADMIN, email="onlypw@kartavya.gov")
+    zone = session.query(Zone).first()
+    officer = make_user(
+        session, role=UserRole.OFFICER, email="onlypw@kartavya.gov.in", zone_id=zone.id
+    )
+
+    client.post(
+        f"{API}/admin/users/{officer.id}/reset-password",
+        json={"newPassword": "another-new-password"},
+        headers=auth_header(admin),
+    )
+
+    session.refresh(officer)
+    assert officer.role is UserRole.OFFICER
+    assert officer.zone_id == zone.id
+    assert officer.is_active is True
+
+
+def test_admin_reset_password_404s_for_an_unknown_user(seeded_app, client, session, auth_header):
+    admin = make_user(session, role=UserRole.ADMIN, email="nouser@kartavya.gov")
+
+    response = client.post(
+        f"{API}/admin/users/999999/reset-password",
+        json={"newPassword": "brand-new-password"},
+        headers=auth_header(admin),
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize("role", [UserRole.CITIZEN, UserRole.OFFICER])
+def test_reset_password_is_admin_only(seeded_app, client, session, auth_header, role):
+    zone = session.query(Zone).first()
+    caller = make_user(
+        session,
+        role=role,
+        email=f"notadmin.{role.value.lower()}@example.com",
+        zone_id=zone.id if role is UserRole.OFFICER else None,
+    )
+    victim = make_user(session, role=UserRole.CITIZEN, email=f"victim.{role.value}@example.com")
+
+    response = client.post(
+        f"{API}/admin/users/{victim.id}/reset-password",
+        json={"newPassword": "brand-new-password"},
+        headers=auth_header(caller),
+    )
+
+    assert response.status_code == 403

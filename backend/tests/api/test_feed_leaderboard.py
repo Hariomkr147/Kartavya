@@ -108,6 +108,46 @@ def test_leaderboard_sequential_ranks_and_filtering(seeded_app, client, session,
     assert data["data"][0]["points"] == 50
 
 
+def test_leaderboard_is_readable_by_an_admin_but_not_an_officer(
+    seeded_app, client, session, auth_header
+):
+    """Contract 3.1.0 widened this endpoint to admins for cross-zone oversight.
+
+    Reading the board is not the same as being on it: the admin is not a
+    CITIZEN, so no row matches them and `currentUser` must come back `null`
+    rather than inventing a rank for an account that earns no points.
+    """
+    citizen = create_user(session, role=UserRole.CITIZEN, email="board_cit@example.com")
+    admin = create_user(session, role=UserRole.ADMIN, email="board_admin@example.com")
+    officer = create_user(session, role=UserRole.OFFICER, email="board_officer@example.com")
+
+    session.add(
+        PointsLedger(
+            citizen_id=citizen.id,
+            points_change=30,
+            reason=PointsReason.COMPLAINT_CLOSED,
+            created_at=datetime.now(UTC),
+        )
+    )
+    session.commit()
+
+    res = client.get(
+        f"{API_PREFIX}/leaderboard?scope=city&period=monthly", headers=auth_header(admin)
+    )
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["currentUser"] is None
+    # The ranking itself is untouched by who is reading it.
+    assert [e["citizenId"] for e in data["data"]] == [str(citizen.id)]
+    # And the admin is never ranked, only ever a reader.
+    assert all(e["citizenId"] != str(admin.id) for e in data["data"])
+
+    res = client.get(
+        f"{API_PREFIX}/leaderboard?scope=city&period=monthly", headers=auth_header(officer)
+    )
+    assert res.status_code == 403
+
+
 def test_serialize_feed_item_privacy_and_structure(seeded_app, session):
     category = session.query(ComplaintCategory).first()
     zone = session.query(Zone).first()

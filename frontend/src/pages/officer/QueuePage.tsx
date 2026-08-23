@@ -31,14 +31,15 @@ import { useOfficerQueue } from "@/hooks/useOfficerQueue";
 import { useClaimComplaint } from "@/hooks/useClaimComplaint";
 import { useCategories } from "@/hooks/useCategories";
 import { useSearchParamState } from "@/hooks/useSearchParamState";
-import { useSortableRows, type ComparatorsByKey } from "@/hooks/useSortableRows";
+import { useSortableRows } from "@/hooks/useSortableRows";
+import { pickComparators } from "@/lib/complaintSort";
 import { iconForCategory } from "@/lib/categoryIcons";
 import { relativeTime } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 import { ApiRequestError } from "@/services/http";
 import type { GetOfficerQueueParams } from "@/services/officer";
 import type { TranslationKey } from "@/i18n";
-import type { Complaint, ComplaintStatus, SeverityLabel, SlaLabel } from "@/types/api";
+import type { ComplaintStatus, SeverityLabel } from "@/types/api";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 
 const ACTIVE_STATUSES: ComplaintStatus[] = [
@@ -66,41 +67,18 @@ function isQueueTab(value: string): value is QueueTab {
 }
 
 const SEVERITY_VALUES: SeverityLabel[] = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
-const SEVERITY_RANK: Record<SeverityLabel, number> = {
-  LOW: 0,
-  MEDIUM: 1,
-  HIGH: 2,
-  CRITICAL: 3,
-};
-const SLA_RANK: Record<SlaLabel, number> = { ON_TIME: 0, DELAYED: 1, OVERDUE: 2 };
-const STATUS_RANK: Record<ComplaintStatus, number> = {
-  SUBMITTED: 0,
-  EVIDENCE_UNDER_REVIEW: 1,
-  NEEDS_MORE_EVIDENCE: 2,
-  UNDER_REVIEW: 3,
-  IN_PROGRESS: 4,
-  UNDER_RESOLUTION: 5,
-  RESOLVED: 6,
-  REOPENED: 7,
-  CLOSED: 8,
-  REJECTED: 9,
-  UNRESOLVABLE: 10,
-};
 
-type QueueSortKey = "category" | "status" | "severity" | "sla" | "upvotes" | "createdAt";
-
-// Mirrors the field names the mock's `sort` query param recognizes
-// (createdAt/updatedAt/severity/sla/upvotes, see mocks/lib/sort.ts) even
-// though this sort runs entirely client-side over the rows already loaded
-// below — see the FETCH_SIZE note.
-const QUEUE_COMPARATORS: ComparatorsByKey<Complaint, QueueSortKey> = {
-  category: (row) => row.category.name,
-  status: (row) => STATUS_RANK[row.status],
-  severity: (row) => (row.severityLabel ? SEVERITY_RANK[row.severityLabel] : -1),
-  sla: (row) => (row.slaLabel ? SLA_RANK[row.slaLabel] : -1),
-  upvotes: (row) => row.upvoteCount ?? 0,
-  createdAt: (row) => new Date(row.createdAt).getTime(),
-};
+// Column semantics are shared with the cluster member tables (lib/complaintSort)
+// so "sorted by severity" means one thing across the app. This sort runs
+// client-side over the rows already loaded below — see the FETCH_SIZE note.
+const QUEUE_COMPARATORS = pickComparators(
+  "category",
+  "status",
+  "severity",
+  "sla",
+  "upvotes",
+  "createdAt",
+);
 
 const PAGE_SIZE = 10;
 // The API has no free-text search or "assigned to me" filter, so those two
@@ -206,7 +184,7 @@ export function OfficerQueuePage() {
     [clusterSizes],
   );
 
-  const { sorted, sort, toggleSort } = useSortableRows(rows, QUEUE_COMPARATORS);
+  const { sorted, sortableProps } = useSortableRows(rows, QUEUE_COMPARATORS);
 
   const selectedRows = useMemo(
     () => rows.filter((c) => selected.has(c.id)),
@@ -229,14 +207,6 @@ export function OfficerQueuePage() {
     selectablePageIds.length > 0 && selectablePageIds.every((id) => selected.has(id));
   const someSelectedOnPage =
     !allSelectedOnPage && selectablePageIds.some((id) => selected.has(id));
-
-  function sortableProps(key: QueueSortKey) {
-    return {
-      active: sort.key === key,
-      direction: sort.key === key ? sort.direction : ("asc" as const),
-      onSort: () => toggleSort(key),
-    };
-  }
 
   function resetForFilterChange() {
     setPage(1);

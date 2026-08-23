@@ -55,6 +55,12 @@ def serialize_complaint(complaint: Complaint, ctx: SerializationContext) -> dict
         # On the compact shape too, not only ComplaintDetail: the officer
         # queue has to be able to show that a row belongs to a cluster.
         "clusterId": str(complaint.cluster_id) if complaint.cluster_id else None,
+        # Also on the compact shape, for the same reason as clusterId: a
+        # cluster page can only plot its members if each member carries a
+        # coordinate. Not reporter identity — the anonymised public feed has
+        # exposed the same two numbers per complaint all along.
+        "latitude": complaint.latitude,
+        "longitude": complaint.longitude,
         "createdAt": _iso(complaint.created_at),
         "updatedAt": _iso(complaint.updated_at),
     }
@@ -92,8 +98,6 @@ def serialize_complaint_detail(
     payload.update(
         {
             "description": complaint.description,
-            "latitude": complaint.latitude,
-            "longitude": complaint.longitude,
             "severityScore": complaint.severity_score,
             "slaTargetHours": complaint.sla_target_hours,
             "clusterId": str(complaint.cluster_id) if complaint.cluster_id else None,
@@ -122,6 +126,11 @@ def serialize_zone(zone: Zone) -> dict[str, Any]:
         "name": zone.zone_name,
         "isCatchAll": zone.is_catch_all,
         "isActive": zone.is_active,
+        # Nearest-centroid routing means the centre is the whole of a zone's
+        # geometry: without it a client can neither draw the zone nor tell
+        # which zone a point belongs to. Both columns are NOT NULL.
+        "centerLat": zone.center_lat,
+        "centerLng": zone.center_lng,
     }
 
 

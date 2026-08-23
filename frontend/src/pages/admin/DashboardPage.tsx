@@ -69,7 +69,8 @@ function citizenLabel(
   t: TFunction,
 ): string {
   return (
-    citizen.displayName ?? t("gamification.citizenNumber", { citizenId: citizen.citizenId })
+    citizen.displayName ??
+    t("gamification.citizenNumber", { citizenId: citizen.citizenId })
   );
 }
 
@@ -120,11 +121,10 @@ export function AdminDashboardPage() {
     ...zones.flatMap((z) => SEVERITY_ORDER.map((s) => z.severityHeat?.[s] ?? 0)),
   );
 
-  const {
-    sorted: sortedZones,
-    sort,
-    toggleSort,
-  } = useSortableRows<ZoneMetrics, ZoneSortKey>(zones, {
+  const { sorted: sortedZones, sortableProps } = useSortableRows<
+    ZoneMetrics,
+    ZoneSortKey
+  >(zones, {
     zoneName: (z) => zoneLabel(z, t),
     pending: (z) => z.pending ?? 0,
     overdue: (z) => z.overdue ?? 0,
@@ -150,7 +150,9 @@ export function AdminDashboardPage() {
         accessor: (z: ZoneMetrics) => z.avgResolutionHours ?? "",
       },
       ...SEVERITY_ORDER.map((severity) => ({
-        header: t("adminDashboard.severityColumn", { severity: t(`severity.${severity}`) }),
+        header: t("adminDashboard.severityColumn", {
+          severity: t(`severity.${severity}`),
+        }),
         accessor: (z: ZoneMetrics) => z.severityHeat?.[severity] ?? 0,
       })),
     ]);
@@ -197,7 +199,11 @@ export function AdminDashboardPage() {
           animate="show"
           className="grid gap-4 sm:grid-cols-5"
         >
-          <StatCard icon={MapPinned} label={t("adminDashboard.zones")} value={zones.length} />
+          <StatCard
+            icon={MapPinned}
+            label={t("adminDashboard.zones")}
+            value={zones.length}
+          />
           <StatCard
             icon={Building2}
             label={t("adminDashboard.pendingComplaints")}
@@ -235,7 +241,10 @@ export function AdminDashboardPage() {
           className="border-sla-overdue/30 bg-sla-overdue-subtle flex flex-wrap items-center justify-between gap-4 rounded-lg border p-4"
         >
           <div className="flex items-center gap-3">
-            <AlertTriangle className="text-sla-overdue size-5 shrink-0" aria-hidden="true" />
+            <AlertTriangle
+              className="text-sla-overdue size-5 shrink-0"
+              aria-hidden="true"
+            />
             <p className="text-sm text-ink">
               {t("adminDashboard.catchAllWarning", {
                 count: catchAllMetrics?.pending ?? 0,
@@ -339,46 +348,24 @@ export function AdminDashboardPage() {
               {t("adminDashboard.exportTable")}
             </Button>
           </div>
-          <p className="text-ink-faint -mt-1 text-xs">
-            {t("adminDashboard.exportNote")}
-          </p>
+          <p className="text-ink-faint -mt-1 text-xs">{t("adminDashboard.exportNote")}</p>
           <Table>
             <TableHead>
               <TableRow>
                 <TableHeaderCell className="w-8" />
-                <SortableHeaderCell
-                  active={sort.key === "zoneName"}
-                  direction={sort.direction}
-                  onSort={() => toggleSort("zoneName")}
-                >
+                <SortableHeaderCell {...sortableProps("zoneName")}>
                   {t("filters.zone")}
                 </SortableHeaderCell>
-                <SortableHeaderCell
-                  active={sort.key === "pending"}
-                  direction={sort.direction}
-                  onSort={() => toggleSort("pending")}
-                >
+                <SortableHeaderCell {...sortableProps("pending")}>
                   {pendingLabel}
                 </SortableHeaderCell>
-                <SortableHeaderCell
-                  active={sort.key === "overdue"}
-                  direction={sort.direction}
-                  onSort={() => toggleSort("overdue")}
-                >
+                <SortableHeaderCell {...sortableProps("overdue")}>
                   {overdueLabel}
                 </SortableHeaderCell>
-                <SortableHeaderCell
-                  active={sort.key === "resolvedThisMonth"}
-                  direction={sort.direction}
-                  onSort={() => toggleSort("resolvedThisMonth")}
-                >
+                <SortableHeaderCell {...sortableProps("resolvedThisMonth")}>
                   {t("adminDashboard.resolvedMonth")}
                 </SortableHeaderCell>
-                <SortableHeaderCell
-                  active={sort.key === "avgResolutionHours"}
-                  direction={sort.direction}
-                  onSort={() => toggleSort("avgResolutionHours")}
-                >
+                <SortableHeaderCell {...sortableProps("avgResolutionHours")}>
                   {t("adminDashboard.avgResolution")}
                 </SortableHeaderCell>
                 <TableHeaderCell>{t("adminDashboard.severityHeat")}</TableHeaderCell>
@@ -448,7 +435,10 @@ export function AdminDashboardPage() {
                             )}
                           >
                             {zone.isHighestOverdue && (
-                              <AlertTriangle className="size-3.5 shrink-0" aria-hidden="true" />
+                              <AlertTriangle
+                                className="size-3.5 shrink-0"
+                                aria-hidden="true"
+                              />
                             )}
                             {zone.overdue ?? 0}
                           </Link>
@@ -462,7 +452,10 @@ export function AdminDashboardPage() {
                             to={`/admin/complaints?zone=${zone.zoneId}&status=RESOLVED,CLOSED`}
                             className="text-status-resolved flex items-center gap-1.5 hover:underline"
                           >
-                            <CheckCircle2 className="size-3.5 shrink-0" aria-hidden="true" />
+                            <CheckCircle2
+                              className="size-3.5 shrink-0"
+                              aria-hidden="true"
+                            />
                             {zone.resolvedThisMonth ?? 0}
                           </Link>
                         ) : (

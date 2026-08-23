@@ -9,6 +9,7 @@ import {
   Gavel,
   UserCog,
   Boxes,
+  Map,
   Settings,
 } from "lucide-react";
 import type { NavItem } from "@/components/layout/AppShell";
@@ -71,6 +72,12 @@ export const officerNavItems: NavItem[] = [
     to: "/officer/clusters",
     icon: Boxes,
   },
+  {
+    labelKey: "nav.zoneMap",
+    sectionKey: "navSections.casework",
+    to: "/officer/map",
+    icon: Map,
+  },
 ];
 
 export const adminNavItems: NavItem[] = [
@@ -104,6 +111,12 @@ export const adminNavItems: NavItem[] = [
     sectionKey: "navSections.operations",
     to: "/admin/clusters",
     icon: Boxes,
+  },
+  {
+    labelKey: "nav.zoneMap",
+    sectionKey: "navSections.operations",
+    to: "/admin/map",
+    icon: Map,
   },
   {
     labelKey: "nav.officers",

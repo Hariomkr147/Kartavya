@@ -37,6 +37,7 @@ export type UpdateZoneRequest = Schemas["UpdateZoneRequest"];
 export type ZoneSuggestionRequest = Schemas["ZoneSuggestionRequest"];
 export type ZoneSuggestionResponse = Schemas["ZoneSuggestionResponse"];
 export type AssignOfficerRequest = Schemas["AssignOfficerRequest"];
+export type AdminResetPasswordRequest = Schemas["AdminResetPasswordRequest"];
 export type SlaUpdateRequest = Schemas["SlaUpdateRequest"];
 export type Settings = Schemas["Settings"];
 

@@ -5,9 +5,14 @@ import { requireRole, requireAuth, paginate, parsePagination, Errors } from "../
 import { sortComplaints } from "../lib/sort";
 import { validateAndStorePhoto } from "../lib/upload";
 import { simulateEvidenceScreening } from "../lib/ai";
-import { linkComplaintToCluster, recomputeSeverity, exitClusterIfTerminal } from "../lib/cluster";
+import {
+  linkComplaintToCluster,
+  recomputeSeverity,
+  exitClusterIfTerminal,
+} from "../lib/cluster";
 import { awardPoints, checkAndAwardBadges } from "../lib/points";
 import { slaLabel } from "../lib/sla";
+import { COMPLAINT_STATUSES, checkEnumParam } from "../lib/enums";
 import { severityLabel } from "../lib/severity";
 import { generateComplaintCode, fromApiId } from "../lib/ids";
 import type { ComplaintStatus } from "../db/types";
@@ -125,7 +130,9 @@ export const complaintsHandlers = [
 
     persist();
     const categoryName = db.categories.find((c) => c.id === categoryId)!.categoryName;
-    evidenceIds.forEach((evidenceId) => simulateEvidenceScreening(evidenceId, categoryName));
+    evidenceIds.forEach((evidenceId) =>
+      simulateEvidenceScreening(evidenceId, categoryName),
+    );
 
     return HttpResponse.json(toComplaintDetail(complaint, "CITIZEN", auth.user.id), {
       status: 201,
@@ -137,6 +144,9 @@ export const complaintsHandlers = [
     if (!auth.ok) return auth.response;
 
     const url = new URL(request.url);
+    const badFilter = checkEnumParam(url, "status", COMPLAINT_STATUSES);
+    if (badFilter) return badFilter;
+
     const statusFilter = url.searchParams.getAll("status");
     const categoryId = url.searchParams.get("categoryId");
 

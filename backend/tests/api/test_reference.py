@@ -61,8 +61,24 @@ class TestZoneContract:
         res = client.get(self.URL)
         assert res.status_code == 200
         zone = res.get_json()[0]
-        for field in ("id", "code", "name", "isCatchAll", "isActive"):
+        for field in ("id", "code", "name", "isCatchAll", "isActive", "centerLat", "centerLng"):
             assert field in zone, f"Zone missing required field: {field}"
+
+    def test_zone_centre_is_a_usable_coordinate(self, client, seeded_app):
+        """The centre IS the zone's geometry under nearest-centroid routing.
+
+        A client draws zone boundaries by tessellating these points, so a
+        missing or stringified centre is not a cosmetic gap — it makes the
+        boundary between two zones underivable. Both columns are NOT NULL in
+        schema.dbml, so every zone must carry real numbers.
+        """
+        zones = client.get(self.URL).get_json()
+        assert zones, "no zones seeded"
+        for zone in zones:
+            assert isinstance(zone["centerLat"], (int, float)), zone
+            assert isinstance(zone["centerLng"], (int, float)), zone
+            assert -90 <= zone["centerLat"] <= 90, zone
+            assert -180 <= zone["centerLng"] <= 180, zone
 
 
 class TestSuggestZoneContract:

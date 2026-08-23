@@ -22,10 +22,12 @@ import { OfficerQueuePage } from "@/pages/officer/QueuePage";
 import { OfficerComplaintDetailPage } from "@/pages/officer/ComplaintDetailPage";
 import { OfficerClustersPage } from "@/pages/officer/ClustersPage";
 import { OfficerClusterDetailPage } from "@/pages/officer/ClusterDetailPage";
+import { OfficerZoneMapPage } from "@/pages/officer/ZoneMapPage";
 import { AdminDashboardPage } from "@/pages/admin/DashboardPage";
 import { AdminComplaintsPage } from "@/pages/admin/ComplaintsPage";
 import { AdminComplaintDetailPage } from "@/pages/admin/ComplaintDetailPage";
 import { AdminClustersPage } from "@/pages/admin/ClustersPage";
+import { AdminZoneMapPage } from "@/pages/admin/ZoneMapPage";
 import { AdminClusterDetailPage } from "@/pages/admin/ClusterDetailPage";
 import { AdminDisputesPage } from "@/pages/admin/DisputesPage";
 import { AdminUsersPage } from "@/pages/admin/UsersPage";
@@ -85,6 +87,7 @@ export const router = createBrowserRouter([
             path: "clusters/:clusterId",
             element: <OfficerClusterDetailPage />,
           },
+          { path: "map", element: <OfficerZoneMapPage /> },
           { path: "account", element: <AccountPage /> },
         ],
       },
@@ -118,6 +121,7 @@ export const router = createBrowserRouter([
           { path: "disputes", element: <AdminDisputesPage /> },
           { path: "users", element: <AdminUsersPage /> },
           { path: "zones", element: <AdminZonesPage /> },
+          { path: "map", element: <AdminZoneMapPage /> },
           { path: "officers", element: <AdminOfficersPage /> },
           { path: "leaderboard", element: <AdminLeaderboardPage /> },
           { path: "settings", element: <AdminSettingsPage /> },

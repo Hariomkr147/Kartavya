@@ -2,7 +2,7 @@ openapi: 3.0.3
 
 info:
   title: Kartavya API
-  version: 3.0.0
+  version: 3.4.0
   description: >
     # Kartavya — A Gamified Civic Upkeep Platform
 
@@ -1798,6 +1798,16 @@ paths:
         complaints become unassigned and available to whichever officer now
         covers that zone, rather than staying stuck with someone who can no
         longer see them.
+
+
+        **An admin may not deactivate the last way back in.** Setting
+        `active: false` is refused with `409 LAST_ADMIN` when the target is the
+        caller's own account, or when it is the only remaining active admin.
+        Admins cannot be created through this API (`CreateUserRequest.role` is
+        `CITIZEN` or `OFFICER` only), and a deactivated account cannot log in,
+        so without this guard one `PATCH` would strand the whole admin surface
+        with no route back short of database surgery. Deactivating a *different*
+        admin while another active one remains is still allowed.
       parameters:
         - $ref: "#/components/parameters/UserId"
       requestBody:
@@ -1822,7 +1832,10 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: The new email is already taken by another account.
+          description: >
+            The new email is already taken by another account
+            (`EMAIL_TAKEN`), or deactivating this account would leave no way
+            back into the admin surface (`LAST_ADMIN`).
           content:
             application/json:
               schema:
@@ -1837,6 +1850,12 @@ paths:
         points, evidence reviews, progress notes, or status changes on record
         will be refused. This endpoint is intended only for truly empty/test
         accounts.
+
+
+        The same `LAST_ADMIN` guard as `PATCH` applies: an admin may never
+        delete their own account, nor the only remaining active admin. A fresh
+        admin has no linked records, so without this the linked-records check
+        would not stop the platform's last way in from being deleted outright.
       parameters:
         - $ref: "#/components/parameters/UserId"
       responses:
@@ -1849,11 +1868,65 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: This account has linked records and cannot be hard-deleted. Deactivate it instead.
+          description: >
+            This account has linked records and cannot be hard-deleted
+            (`HAS_LINKED_RECORDS`) — deactivate it instead; or deleting it
+            would leave no way back into the admin surface (`LAST_ADMIN`).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+
+  /admin/users/{userId}/reset-password:
+    post:
+      tags: [Admin]
+      operationId: resetUserPassword
+      summary: Set a new password for a user
+      description: >
+        Admin-initiated password reset, for the everyday case of a citizen or
+        officer who has locked themselves out. There is no self-service
+        forgot-password flow in this system, so without this an account with a
+        forgotten password is unrecoverable.
+
+
+        Unlike `POST /users/me/change-password`, this does **not** require the
+        account's current password — that is the entire point, and it is why
+        the endpoint is admin-only. The admin is expected to hand the new
+        password to its owner out of band; nothing is emailed, and the account
+        holder is not notified.
+
+
+        The new password is subject to the same minimum length as registration.
+        Nothing else about the account changes: role, zone, active flag,
+        complaints, points, and history are all untouched.
+
+
+        **Existing sessions are not revoked.** JWTs in this system are stateless
+        and carry no password generation, so any token already issued for the
+        account stays valid until it expires (`JWT_TTL_HOURS`, 24h by default).
+        This endpoint restores access; it is not a way to evict an intruder. To
+        cut off a live session now, deactivate the account
+        (`PATCH /admin/users/{userId}` with `active: false`), which every
+        request re-checks against the database.
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminResetPasswordRequest"
+      responses:
+        "204":
+          description: Password set (no content).
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # ---------------------------------------------------------------------------
   # ADMIN — zones, SLAs, settings
@@ -2160,6 +2233,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OfficerPerformance"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2346,11 +2421,16 @@ paths:
 
         **Who is on the board, and who may read it.** Active citizens only:
         `role = CITIZEN` and `is_active = true`. Officers and admins never
-        appear — they earn no points — and the board is **citizen-only to
-        read** as well: an officer or admin calling this gets `403`, the same
-        as every other endpoint in this group (`/complaints/my`,
-        `/gamification/points`, `/gamification/badges`). A deactivated
-        citizen is dropped from the rankings entirely
+        appear — they earn no points — but **an admin may read** the board,
+        for cross-zone gamification oversight; an officer calling this still
+        gets `403`, as with every other endpoint in this group
+        (`/complaints/my`, `/gamification/points`, `/gamification/badges`).
+        Reading is not the same as being ranked: an admin caller sees the
+        citizen ranking unchanged and gets `currentUser: null`, because they
+        are not on the board they are reading. An admin has no `zoneId`, so
+        `scope=city` is the only meaningful scope for them — `scope=zone`
+        is accepted but returns the zone-less pool, not an error. A
+        deactivated citizen is dropped from the rankings entirely
         and everyone below them moves up; the account keeps its
         `points_ledger` history, so reactivating restores its place. Citizens
         with a zero (or negative) total for the period **do** appear, at the
@@ -2371,15 +2451,12 @@ paths:
 
         **`currentUser`.** The caller's own row, computed against the full
         ranking rather than the returned page, so it is correct no matter
-        which page was requested. Given the `403` above, every caller who
-        reaches a `200` is an active citizen, and every active citizen is
-        ranked — including at zero, and including one with no `zoneId` under
-        `scope=zone`, who ranks among the other zone-less citizens. So no
-        current path returns `null` here. The field stays nullable rather
-        than required because that is a property of who may call the
-        endpoint, not of the ranking itself: widening access later (to let
-        an officer see their ward's board, say) would reintroduce the case
-        without touching this schema. Clients should keep handling `null`.
+        which page was requested. Every active citizen is ranked — including
+        at zero, and including one with no `zoneId` under `scope=zone`, who
+        ranks among the other zone-less citizens — so a citizen caller
+        always finds themselves here. An admin caller never does, and gets
+        `null`: the field is nullable precisely because who may *read* the
+        board is a wider set than who is *on* it. Clients must handle `null`.
       parameters:
         - name: scope
           in: query
@@ -2414,7 +2491,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: Only citizens can read the leaderboard.
+          description: Only citizens and admins can read the leaderboard.
           content:
             application/json:
               schema:
@@ -2921,6 +2998,19 @@ components:
           format: password
           minLength: 8
 
+    AdminResetPasswordRequest:
+      type: object
+      description: >
+        An admin setting a password on someone else's behalf. Deliberately has
+        no `currentPassword`: the admin does not know it, and requiring it would
+        defeat the purpose of a reset.
+      required: [newPassword]
+      properties:
+        newPassword:
+          type: string
+          format: password
+          minLength: 8
+
     # ---- Reference ----
 
     Category:
@@ -2970,7 +3060,24 @@ components:
           type: boolean
           description: Deactivated zones are hidden from new complaint filing but keep their history.
           default: true
-      required: [id, code, name, isCatchAll, isActive]
+        centerLat:
+          type: number
+          format: double
+          description: >
+            The zone's centre. Routing is nearest-centroid, so these two
+            numbers ARE the zone's geometry — the boundary between two zones is
+            the perpendicular bisector of their centres, and the full set of
+            centres tessellates the map into one Voronoi cell per zone. A
+            client cannot draw a zone, or say which zone a point falls in,
+            without them. Returned on the public reference lookup because
+            `POST /zones/suggest` already answers the same question one
+            coordinate at a time.
+          example: 12.9716
+        centerLng:
+          type: number
+          format: double
+          example: 77.5946
+      required: [id, code, name, isCatchAll, isActive, centerLat, centerLng]
 
     CreateZoneRequest:
       type: object
@@ -3138,6 +3245,22 @@ components:
             on `ComplaintDetail` — because the officer queue is exactly where
             that matters: without it every member of a cluster reads as its
             own separate job to claim and work.
+        latitude:
+          type: number
+          format: double
+          example: 12.9716
+          description: >
+            Where the issue is, captured at filing time — the same coordinate
+            `ComplaintDetail` and `FeedItem` carry, and like theirs it says
+            nothing about who reported it. On the compact shape so a list of
+            complaints can be drawn on a map: a cluster's members are several
+            reports of one physical issue spread over a street, and without a
+            coordinate per member the only thing a cluster page can plot is its
+            centroid, which renders a twelve-report cluster as a single pin.
+        longitude:
+          type: number
+          format: double
+          example: 77.5946
         createdAt:
           type: string
           format: date-time
@@ -3158,12 +3281,6 @@ components:
           properties:
             description:
               type: string
-            latitude:
-              type: number
-              format: double
-            longitude:
-              type: number
-              format: double
             severityScore:
               type: integer
               description: >

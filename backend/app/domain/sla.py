@@ -138,11 +138,6 @@ def resolution_hours(
 
     None when the complaint is not in the sample at all: never resolved, or
     resolved without the clock ever starting.
-
-    NOTE: the frontend mock computes this three other ways
-    (`closedAt - createdAt`, `resolvedAt - createdAt`). The contract's
-    `AvgResolutionHours` schema wins; the mock is the one place in the project
-    that is not a usable reference implementation.
     """
     if resolved_at is None or started_at is None:
         return None

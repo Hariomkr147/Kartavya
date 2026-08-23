@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Map as MapIcon } from "lucide-react";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 import { ZoneMapLayers } from "@/components/map/ZoneMapLayers";
 import { ZoneMapLayerToggles } from "@/components/map/ZoneMapLayerToggles";
 import { useAuth } from "@/contexts/AuthContext";
@@ -40,8 +41,18 @@ export function OfficerZoneMapPage() {
   const { layers, toggle } = useZoneMapLayers();
 
   const { data: zones, isLoading: zonesLoading } = useZones();
-  const { data: complaints, isLoading: complaintsLoading } = useMapComplaints("officer");
-  const { data: clusters, isLoading: clustersLoading } = useMapClusters();
+  const {
+    data: complaints,
+    isLoading: complaintsLoading,
+    isFetching: complaintsFetching,
+    refetch: refetchComplaints,
+  } = useMapComplaints("officer");
+  const {
+    data: clusters,
+    isLoading: clustersLoading,
+    isFetching: clustersFetching,
+    refetch: refetchClusters,
+  } = useMapClusters();
 
   // Both lists arrive already narrowed to this officer's zone —
   // `visible_complaints` and `visible_clusters` do it in the query, not after
@@ -71,6 +82,8 @@ export function OfficerZoneMapPage() {
   const {
     clusters: clusterDetails,
     isLoading: membersLoading,
+    isFetching: membersFetching,
+    refetch: refetchMembers,
     omittedCount,
   } = useClusterMembers(
     visibleClusters.map((c) => c.id),
@@ -84,8 +97,8 @@ export function OfficerZoneMapPage() {
   // read answers 403 for them. Say why rather than drawing an empty city.
   if (!loading && !homeZone) {
     return (
-      <div className="mx-auto w-full max-w-6xl space-y-4">
-        <h1 className="font-display text-xl font-semibold text-ink">
+      <div className="mx-auto w-full max-w-6xl space-y-6">
+        <h1 className="font-display text-display-sm font-semibold text-ink">
           {t("zoneMap.title")}
         </h1>
         <EmptyState
@@ -99,15 +112,32 @@ export function OfficerZoneMapPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-4">
-      <div className="flex flex-wrap items-baseline gap-x-2">
-        <h1 className="font-display text-xl font-semibold text-ink">
-          {t("zoneMap.title")}
-        </h1>
+    <div className="mx-auto w-full max-w-6xl space-y-6">
+      <div>
+        <div className="flex items-center gap-2">
+          <h1 className="font-display text-display-sm font-semibold text-ink">
+            {t("zoneMap.title")}
+          </h1>
+          {/* The map polls, but every other list in the app also offers "fetch
+              this again now" — an officer who has just claimed something should
+              not have to wait out the interval to see it move. */}
+          <RefreshButton
+            onRefresh={() => {
+              void refetchComplaints();
+              void refetchClusters();
+              void refetchMembers();
+            }}
+            refreshing={complaintsFetching || clustersFetching || membersFetching}
+            what="this map"
+          />
+        </div>
+        {/* The officer's own zone is the whole scope of this map, so it reads
+            as the page's subtitle rather than as a chip beside the title —
+            the slot every other index page puts its one-line context in. */}
         {homeZone && (
-          <span className="text-ink-muted text-sm">
+          <p className="text-ink-muted mt-1 text-sm">
             {t("fields.yourZone")} · {homeZone.name}
-          </span>
+          </p>
         )}
       </div>
 

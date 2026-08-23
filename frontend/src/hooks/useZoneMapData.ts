@@ -163,8 +163,22 @@ export function useClusterMembers(clusterIds: string[], enabled: boolean) {
     clusters: loaded,
     isLoading: enabled && results.some((r) => r.isLoading),
     isFetching: enabled && results.some((r) => r.isFetching),
-    /** So the page's manual refresh reaches the member pins too, not just the discs. */
-    refetch: () => Promise.all(results.map((r) => r.refetch())),
+    /**
+     * So the page's manual refresh reaches the member pins too, not just the
+     * discs — but only when they are actually on screen.
+     *
+     * The `enabled` guard is not redundant with the one on the queries above.
+     * `enabled` suppresses *automatic* fetches only: react-query clears the
+     * poll interval when it is false, but `refetch()` goes straight to
+     * `query.fetch()` with no `enabled` check on the path. Without this,
+     * clicking refresh on the default view — the members layer is off unless
+     * asked for — fired one request per visible cluster, up to
+     * `MAP_MEMBER_CLUSTER_LIMIT`, for pins `ZoneMapLayers` then declines to
+     * draw. Invisibly, too: `isFetching` above is false while disabled, so the
+     * button neither spun nor disabled itself, and a second click re-fired it.
+     */
+    refetch: () =>
+      enabled ? Promise.all(results.map((r) => r.refetch())) : Promise.resolve([]),
     /** Clusters beyond the ceiling, whose members are deliberately not drawn. */
     omittedCount: Math.max(0, clusterIds.length - ids.length),
   };

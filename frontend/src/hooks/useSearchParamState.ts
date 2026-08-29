@@ -69,8 +69,10 @@ export function useSearchParamsWriter(): (
  * `serialize`/`deserialize` default to identity for plain strings; pass them
  * to store arrays (e.g. comma-joined status filters) or other shapes.
  *
- * Setters from several `useSearchParamState` calls compose within one event
- * handler — see `useSearchParamsWriter`.
+ * The setter also takes an updater function, `setValue(prev => next)`, for
+ * state derived from what is already there (a toggle). Setters from several
+ * `useSearchParamState` calls compose within one event handler — see
+ * `useSearchParamsWriter`.
  */
 export function useSearchParamState<T = string>(
   key: string,
@@ -79,7 +81,7 @@ export function useSearchParamState<T = string>(
     serialize?: (value: T) => string | undefined;
     deserialize?: (raw: string) => T;
   },
-): [T, (value: T) => void] {
+): [T, (value: T | ((prev: T) => T)) => void] {
   const [searchParams] = useSearchParams();
   const write = useSearchParamsWriter();
   const deserialize = options?.deserialize ?? defaultDeserialize<T>;
@@ -88,29 +90,53 @@ export function useSearchParamState<T = string>(
   const value = useMemo(() => (raw == null ? defaultValue : deserialize(raw)), [raw]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setValue = useCallback(
-    (next: T) => {
+    (next: T | ((prev: T) => T)) => {
       const serialize = options?.serialize ?? defaultSerialize<T>;
       write((params) => {
-        const serialized = serialize(next);
-        if (
-          serialized === undefined ||
-          serialized === "" ||
-          serialized === String(defaultValue)
-        ) {
+        // An updater reads its `prev` back out of the params being composed,
+        // not out of this render's closure, so two writes to the *same* key
+        // in one handler build on each other the way two writes to different
+        // keys already do. `toggle(a); toggle(b)` otherwise both started from
+        // the last render's value and the second one won.
+        const prevRaw = params.get(key);
+        const value =
+          typeof next === "function"
+            ? (next as (prev: T) => T)(
+                prevRaw == null ? defaultValue : deserialize(prevRaw),
+              )
+            : next;
+        const serialized = serialize(value);
+        // Only `undefined` and the serialized default drop the key, because
+        // dropping it means "read back as the default". An empty string is a
+        // value, not an absence: `?layers=` is how "every layer switched off"
+        // is held for a param whose default is a non-empty list, and deleting
+        // it there put every checkbox back on the moment the last one came
+        // off. Comparing against `serialize(defaultValue)` rather than
+        // `String(defaultValue)` is the same rule stated in the codec's own
+        // terms, so array and date defaults are recognised too.
+        if (serialized === undefined || serialized === serialize(defaultValue)) {
           params.delete(key);
         } else {
           params.set(key, serialized);
         }
       });
     },
-    [key, write, options, defaultValue],
+    [key, write, options, defaultValue, deserialize],
   );
 
   return [value, setValue];
 }
 
-/** Comma-separated string[] codec for `useSearchParamState`. */
+/**
+ * Comma-separated string[] codec for `useSearchParamState`.
+ *
+ * The empty list serializes to "", not `undefined` — "none of them" is a
+ * choice a user can make, and only the setter's default-comparison decides
+ * whether it is worth a query param. For a filter defaulting to `[]` it still
+ * drops the key; for the map's layers, whose default is a non-empty list, it
+ * writes `?layers=` and the choice survives a reload.
+ */
 export const csvCodec = {
-  serialize: (value: string[]) => (value.length ? value.join(",") : undefined),
+  serialize: (value: string[]) => value.join(","),
   deserialize: (raw: string) => (raw ? raw.split(",").filter(Boolean) : []),
 };

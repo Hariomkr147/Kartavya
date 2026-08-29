@@ -26,10 +26,10 @@ export function useZoneMapLayers(): {
 
   const toggle = useCallback(
     (key: ZoneMapLayerKey) =>
-      setActive(
-        active.includes(key) ? active.filter((k) => k !== key) : [...active, key],
+      setActive((prev) =>
+        prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
       ),
-    [active, setActive],
+    [setActive],
   );
 
   return { layers, toggle };

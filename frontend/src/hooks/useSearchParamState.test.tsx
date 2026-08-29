@@ -18,6 +18,13 @@ function useFilters() {
     serialize: String,
     deserialize: (raw) => Number.parseInt(raw, 10) || 1,
   });
+  // The zone map's shape: a list whose default is not empty, so "none of
+  // them" and "the default" are different states.
+  const [layers, setLayers] = useSearchParamState<string[]>(
+    "layers",
+    ["a", "b"],
+    csvCodec,
+  );
   return {
     zone,
     setZone,
@@ -25,6 +32,8 @@ function useFilters() {
     setStatus,
     page,
     setPage,
+    layers,
+    setLayers,
     search: useLocation().search,
   };
 }
@@ -74,6 +83,48 @@ describe("useSearchParamState", () => {
     expect(result.current.zone).toBe("z-1");
     expect(result.current.status).toEqual(["SUBMITTED", "RESOLVED"]);
     expect(result.current.page).toBe(1);
+  });
+
+  it("drops the key for an empty list whose default is empty", () => {
+    const { result } = renderHook(() => useFilters(), {
+      wrapper: wrapper("/?status=CLOSED"),
+    });
+    act(() => result.current.setStatus([]));
+    expect(result.current.search).not.toContain("status");
+    expect(result.current.status).toEqual([]);
+  });
+
+  // Deleting the key means "read back as the default", so a value that is
+  // merely empty — not the default — has to stay written. The zone map's
+  // layer toggles are the case: unticking the last box used to drop the key
+  // and put all of the default layers back on.
+  it("keeps an empty list whose default is not empty", () => {
+    const { result } = renderHook(() => useFilters(), { wrapper: wrapper("/") });
+
+    act(() => result.current.setLayers([]));
+
+    expect(result.current.search).toBe("?layers=");
+    expect(result.current.layers).toEqual([]);
+  });
+
+  it("drops the key when a list is set back to its non-empty default", () => {
+    const { result } = renderHook(() => useFilters(), { wrapper: wrapper("/?layers=a") });
+    act(() => result.current.setLayers(["a", "b"]));
+    expect(result.current.search).not.toContain("layers");
+    expect(result.current.layers).toEqual(["a", "b"]);
+  });
+
+  // Composing across keys was already handled; two writes to the *same* key
+  // in one handler both read the last render's value, so the second won.
+  it("composes two updater writes to the same key", () => {
+    const { result } = renderHook(() => useFilters(), { wrapper: wrapper("/") });
+
+    act(() => {
+      result.current.setStatus((prev) => [...prev, "SUBMITTED"]);
+      result.current.setStatus((prev) => [...prev, "RESOLVED"]);
+    });
+
+    expect(result.current.status).toEqual(["SUBMITTED", "RESOLVED"]);
   });
 
   it("does not carry a stale snapshot across separate handlers", () => {

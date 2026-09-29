@@ -6,6 +6,7 @@
  */
 
 export type UserRole = "CITIZEN" | "OFFICER" | "ADMIN";
+export type MfaMethod = "TOTP";
 
 export type ComplaintStatus =
   | "SUBMITTED"

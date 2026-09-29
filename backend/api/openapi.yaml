@@ -2,7 +2,7 @@ openapi: 3.0.3
 
 info:
   title: Kartavya API
-  version: 3.4.0
+  version: 3.5.0
   description: >
     # Kartavya — A Gamified Civic Upkeep Platform
 
@@ -168,6 +168,13 @@ paths:
         Authenticates a citizen, officer, or admin by email and password and
         returns a JWT plus the basic profile needed to route them to the right
         dashboard. Deactivated accounts are rejected here with a 401.
+
+
+        If the account has two-step verification turned on, the password is
+        only the first step: the response is `202` with an `MfaChallenge`
+        instead of a session, and the client finishes the login at
+        `POST /auth/mfa/verify`. Accounts without two-step verification get
+        the `200` below, exactly as before.
       security: []
       requestBody:
         required: true
@@ -182,6 +189,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthResponse"
+        "202":
+          description: >
+            The password was right but the account has two-step verification
+            on. No session is issued yet — send the code to `POST /auth/mfa/verify`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MfaChallenge"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -190,6 +205,143 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+
+  /auth/google:
+    post:
+      tags: [Authentication]
+      operationId: signInWithGoogle
+      summary: Sign in (or sign up) with a Google account
+      description: >
+        The browser gets a Google-signed ID token from the "Sign in with
+        Google" button and sends it here. The server verifies the token's
+        signature and its `aud`, `iss`, `exp` and `email_verified` claims —
+        it never trusts the client's word for who the user is — then issues
+        Kartavya's own session, exactly like `POST /auth/login`. Two-step
+        verification still applies: a user with it on gets `202` and an
+        `MfaChallenge`.
+
+
+        What happens depends on the verified email and the `sub` claim:
+
+
+        - **A user already has this Google account linked** → logged in
+          (`200`).
+
+        - **The email belongs to a citizen with no Google link** → the account
+          is linked and logged in (`200`). Google has proved the address.
+
+        - **The email belongs to an officer or admin with no Google link** →
+          `403 GOOGLE_LINK_REQUIRED`. Staff addresses are typed in by an admin,
+          and a typo pointing at a stranger's Gmail must not hand that person
+          the account. Staff log in with their password, then link Google from
+          their account page (`POST /users/me/google`).
+
+        - **A new email** → a citizen is created (`201`). `zoneId` is required
+          for that, as at `POST /auth/register`; without it the response is
+          `409 ZONE_REQUIRED` and the client asks for a zone and resends the
+          same token.
+
+
+        Deactivated accounts get the same `401` as a password login. A Google
+        account that has no password can never log in at `/auth/login`.
+
+
+        If the server has no `GOOGLE_CLIENT_ID` configured this answers `503
+        GOOGLE_NOT_CONFIGURED` and nothing else in the API is affected.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleSignInRequest"
+      responses:
+        "200":
+          description: Logged in to an existing (or just-linked) account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "201":
+          description: A new citizen account was created and logged in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "202":
+          description: The account has two-step verification on — finish at `POST /auth/mfa/verify`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MfaChallenge"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          description: The Google token is invalid, expired, for another app, or its email is unverified; or the account is deactivated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: >
+            `GOOGLE_LINK_REQUIRED` — this email belongs to an officer or admin
+            who has not linked Google yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: >
+            `ZONE_REQUIRED` — a new account needs a home zone. Resend the same
+            token with `zoneId`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /auth/mfa/verify:
+    post:
+      tags: [Authentication]
+      operationId: verifyMfaLogin
+      summary: Finish a login with a two-step verification code
+      description: >
+        Exchanges the `mfaTicket` from an `MfaChallenge` plus the user's
+        current code for a normal session. The ticket is a 5-minute token that
+        is good for this endpoint only; it cannot be used as a bearer token
+        anywhere else.
+
+
+        Five wrong codes in a row lock two-step verification for that account
+        for 15 minutes (`429 MFA_LOCKED`). A code that has already been used
+        is rejected, so an intercepted code cannot be replayed.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaVerifyRequest"
+      responses:
+        "200":
+          description: Login complete.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          description: >
+            The ticket is expired or invalid, the account is deactivated, or
+            the code is wrong (`INVALID_CODE`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
   # ---------------------------------------------------------------------------
   # ACCOUNT (self-service, any authenticated role)
@@ -294,6 +446,183 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           description: No valid token, or currentPassword is wrong.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /users/me/mfa:
+    post:
+      tags: [Account]
+      operationId: startMfaSetup
+      summary: Start turning on two-step verification
+      description: >
+        Available to every role. Generates a fresh secret and stores it as a
+        **pending** setup — two-step verification is not on yet, and login
+        ignores it — then returns what the client needs to show a QR code.
+        The secret appears in this response and nowhere else, ever. Calling
+        this again before confirming replaces the pending secret.
+
+
+        Finish with `POST /users/me/mfa/confirm`. If two-step verification is
+        already on, turn it off first (`409 MFA_ALREADY_ENABLED`).
+
+
+        `503 MFA_NOT_CONFIGURED` when the server has no `MFA_ENCRYPTION_KEY`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaSetupRequest"
+      responses:
+        "201":
+          description: Setup started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MfaSetupResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Two-step verification is already on (`MFA_ALREADY_ENABLED`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /users/me/mfa/confirm:
+    post:
+      tags: [Account]
+      operationId: confirmMfaSetup
+      summary: Confirm two-step verification with the first code
+      description: >
+        Proves the authenticator app really has the secret. A right code turns
+        two-step verification on. A wrong code is `400 INVALID_CODE` (not 401 —
+        the session is fine). With no pending setup this is `409
+        NO_PENDING_SETUP`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaCodeRequest"
+      responses:
+        "200":
+          description: Two-step verification is on. Returns the updated profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: Malformed body, or the code is wrong (`INVALID_CODE`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: There is no pending setup to confirm (`NO_PENDING_SETUP`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /users/me/mfa/disable:
+    post:
+      tags: [Account]
+      operationId: disableMfa
+      summary: Turn two-step verification off
+      description: >
+        Needs a current valid code, so a stolen session alone cannot remove the
+        second step. (A lost device is recovered by an admin —
+        `POST /admin/users/{userId}/mfa-reset`.) A wrong code is `400
+        INVALID_CODE`. If it is not on, `409 MFA_NOT_ENABLED`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaCodeRequest"
+      responses:
+        "204":
+          description: Two-step verification is off.
+        "400":
+          description: Malformed body, or the code is wrong (`INVALID_CODE`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Two-step verification is not on (`MFA_NOT_ENABLED`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /users/me/google:
+    post:
+      tags: [Account]
+      operationId: linkGoogleAccount
+      summary: Link a Google account to my account
+      description: >
+        Available to every role — and the only way an officer or admin can
+        start using Google, because it needs the password login they already
+        passed. Verifies the ID token the same way `POST /auth/google` does and
+        stores its `sub`. `409 GOOGLE_ALREADY_LINKED` if that Google account
+        belongs to a different user, or this user already has one linked.
+        `503 GOOGLE_NOT_CONFIGURED` when the server has no `GOOGLE_CLIENT_ID`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LinkGoogleRequest"
+      responses:
+        "200":
+          description: Linked. Returns the updated profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: The Google account is already linked (`GOOGLE_ALREADY_LINKED`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    delete:
+      tags: [Account]
+      operationId: unlinkGoogleAccount
+      summary: Unlink my Google account
+      description: >
+        Only allowed when the account has a password of its own; otherwise
+        `409 NO_OTHER_LOGIN`, so nobody strands themselves. `409
+        GOOGLE_NOT_LINKED` when nothing is linked.
+      responses:
+        "204":
+          description: Unlinked.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Nothing to unlink (`GOOGLE_NOT_LINKED`) or no other way to log in (`NO_OTHER_LOGIN`).
           content:
             application/json:
               schema:
@@ -1928,6 +2257,37 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /admin/users/{userId}/mfa-reset:
+    post:
+      tags: [Admin]
+      operationId: resetUserMfa
+      summary: Clear a user's two-step verification
+      description: >
+        For the user who has lost their authenticator device. Sets the account
+        back to "two-step verification off" and discards its secret; the user
+        logs in with their password (or Google) and can set it up again.
+        Nothing else about the account changes.
+
+
+        This works on any account, including the caller's own. If the only
+        administrator loses their device, the server-side command
+        `flask --app app reset-mfa <email>` is the way back in — there must
+        always be one, the same reason `LAST_ADMIN` exists.
+
+
+        Existing sessions are not revoked, as with `reset-password`.
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "204":
+          description: Two-step verification cleared (also returned when it was already off).
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   # ---------------------------------------------------------------------------
   # ADMIN — zones, SLAs, settings
   # ---------------------------------------------------------------------------
@@ -2631,6 +2991,22 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: >
+        Too many wrong codes in a row. Two-step verification for this account
+        is locked for 15 minutes (`MFA_LOCKED`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ServiceUnavailable:
+      description: >
+        This feature is not configured on the server (`MFA_NOT_CONFIGURED` or
+        `GOOGLE_NOT_CONFIGURED`). The rest of the API is unaffected.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
 
   # ---------------------------------------------------------------------------
   # Schemas
@@ -2642,6 +3018,14 @@ components:
       type: string
       description: The kind of account. SYSTEM is never a valid account role — see StatusActor for automated status changes.
       enum: [CITIZEN, OFFICER, ADMIN]
+
+    MfaMethod:
+      type: string
+      description: >
+        A two-step verification method. Only `TOTP` (an authenticator app)
+        exists today; the set is designed to grow — email, SMS or WhatsApp
+        codes would be added here.
+      enum: [TOTP]
 
     StatusActor:
       type: string
@@ -2883,6 +3267,87 @@ components:
           $ref: "#/components/schemas/User"
       required: [token, tokenType, expiresAt, user]
 
+    MfaChallenge:
+      type: object
+      description: >
+        Returned with `202` instead of a session when the password (or Google)
+        step succeeded but the account has two-step verification on.
+      properties:
+        mfaRequired:
+          type: boolean
+          enum: [true]
+        mfaTicket:
+          type: string
+          description: A short-lived token, good only for `POST /auth/mfa/verify`. Never a bearer token.
+        method:
+          $ref: "#/components/schemas/MfaMethod"
+        expiresAt:
+          type: string
+          format: date-time
+          description: When the ticket stops being accepted (5 minutes after issue).
+      required: [mfaRequired, mfaTicket, method, expiresAt]
+
+    MfaVerifyRequest:
+      type: object
+      properties:
+        mfaTicket:
+          type: string
+        code:
+          type: string
+          pattern: "^[0-9]{6}$"
+          description: The 6-digit code from the authenticator app.
+          example: "492039"
+      required: [mfaTicket, code]
+
+    MfaSetupRequest:
+      type: object
+      properties:
+        method:
+          $ref: "#/components/schemas/MfaMethod"
+      required: [method]
+
+    MfaSetupResponse:
+      type: object
+      properties:
+        method:
+          $ref: "#/components/schemas/MfaMethod"
+        otpauthUri:
+          type: string
+          description: An `otpauth://` URI to render as a QR code for the authenticator app.
+          example: "otpauth://totp/Kartavya:asha%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=Kartavya"
+        secret:
+          type: string
+          description: The same secret as text, for manual entry. Returned here once and never again.
+      required: [method, otpauthUri, secret]
+
+    MfaCodeRequest:
+      type: object
+      properties:
+        code:
+          type: string
+          pattern: "^[0-9]{6}$"
+          example: "492039"
+      required: [code]
+
+    GoogleSignInRequest:
+      type: object
+      properties:
+        idToken:
+          type: string
+          description: The ID token (`credential`) from Google Identity Services.
+        zoneId:
+          type: string
+          description: Required only when this creates a new account (see `409 ZONE_REQUIRED`).
+      required: [idToken]
+
+    LinkGoogleRequest:
+      type: object
+      properties:
+        idToken:
+          type: string
+          description: The ID token (`credential`) from Google Identity Services.
+      required: [idToken]
+
     # ---- User ----
 
     User:
@@ -2919,6 +3384,28 @@ components:
         createdAt:
           type: string
           format: date-time
+        mfaEnabled:
+          type: boolean
+          description: Two-step verification is on. Derived, never stored.
+        mfaMethod:
+          allOf:
+            - $ref: "#/components/schemas/MfaMethod"
+          nullable: true
+          description: The active method, or null when off.
+        mfaRecommended:
+          type: boolean
+          description: >
+            True for a role that should be nudged to turn two-step verification
+            on (officers and admins) while it is still off. Only drives a
+            banner; nothing is ever blocked.
+        hasPassword:
+          type: boolean
+          description: >
+            False for an account that only signs in with Google. Such an
+            account cannot use `/auth/login` or change a password.
+        googleLinked:
+          type: boolean
+          description: A Google account is linked to this user.
       required: [id, role, name, active]
 
     CreateUserRequest:

@@ -44,6 +44,10 @@ Enum user_role {
   ADMIN
 }
 
+Enum mfa_method {
+  TOTP
+}
+
 Enum complaint_status {
   SUBMITTED              // just filed, waiting for an officer to open it
   EVIDENCE_UNDER_REVIEW  // officer is judging the photo
@@ -135,10 +139,13 @@ Table users {
   full_name     varchar(120)   [not null, note: 'Real name. Never shown to other citizens or to officers.']
   display_name  varchar(60)    [note: 'Public handle for leaderboards. App falls back to a masked value if null.']
   email         varchar(255)   [unique, not null, note: 'Unique across ALL roles — this is what stops officers self-registering.']
-  password_hash varchar(255)   [not null]
+  password_hash varchar(255)   [not null, note: 'scrypt hash. A Google-only account stores an unusable marker instead — the string "!" followed by random text — which no password can ever match; hasPassword in the API is derived as "does not start with !".']
   role          user_role      [not null]
   zone_id       int            [note: 'Officer: assigned zone (exactly one). Citizen: home zone. Admin: null.']
   is_active     boolean        [not null, default: true, note: 'Soft-deactivate flag. Inactive users cannot log in. Preferred over deletion. A deactivated CITIZEN also drops out of the leaderboard (everyone below moves up), while keeping every points_ledger row — so reactivating restores their exact standing. Their existing complaints are untouched: history is never rewritten by a deactivation.']
+  mfa_method     mfa_method    [note: 'Two-step verification method. Null = off. One active method per user. A user whose setup is pending has mfa_secret_enc set and this null; login ignores that state.']
+  mfa_secret_enc text          [note: 'Fernet-encrypted JSON owned by the active (or pending) method — e.g. for TOTP: secret, last accepted step, failure counter, lockout time. Never serialized in any API response.']
+  google_sub     varchar(255)  [unique, note: 'Google account id (ID token sub claim). Null = no Google account linked. Unique across all users.']
   created_at    datetime       [not null, default: `now()`]
 
   indexes {

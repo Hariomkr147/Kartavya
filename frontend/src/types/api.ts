@@ -30,6 +30,15 @@ export type CreateUserRequest = Schemas["CreateUserRequest"];
 export type UpdateUserRequest = Schemas["UpdateUserRequest"];
 export type UserListResponse = Schemas["UserListResponse"];
 
+export type MfaMethod = Schemas["MfaMethod"];
+export type MfaChallenge = Schemas["MfaChallenge"];
+export type MfaVerifyRequest = Schemas["MfaVerifyRequest"];
+export type MfaSetupRequest = Schemas["MfaSetupRequest"];
+export type MfaSetupResponse = Schemas["MfaSetupResponse"];
+export type MfaCodeRequest = Schemas["MfaCodeRequest"];
+export type GoogleSignInRequest = Schemas["GoogleSignInRequest"];
+export type LinkGoogleRequest = Schemas["LinkGoogleRequest"];
+
 export type Category = Schemas["Category"];
 export type Zone = Schemas["Zone"];
 export type CreateZoneRequest = Schemas["CreateZoneRequest"];

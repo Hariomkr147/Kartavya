@@ -19,8 +19,12 @@ import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { Combobox } from "@/components/ui/Combobox";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { GoogleButton } from "@/components/ui/GoogleButton";
 import { useAuth } from "@/contexts/AuthContext";
+import { MfaRequiredError } from "@/lib/mfaRequiredError";
 import { useZones } from "@/hooks/useZones";
+import { isGoogleConfigured } from "@/lib/googleIdentity";
+import { roleHomePath } from "@/routes/roleHome";
 import { ApiRequestError } from "@/services/http";
 import { cn } from "@/lib/utils";
 import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
@@ -47,17 +51,21 @@ type RegisterFormValues = z.infer<ReturnType<typeof buildRegisterSchema>>;
 
 export function RegisterPage() {
   const { t } = useTranslation();
-  const { register: registerCitizen } = useAuth();
+  const { register: registerCitizen, googleSignIn } = useAuth();
   const navigate = useNavigate();
   const { data: zones, isLoading: zonesLoading } = useZones();
   const [formError, setFormError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [capsLockOn, setCapsLockOn] = useState(false);
+  // A Google ID token waiting for a home zone. It stays valid for about an hour,
+  // so the citizen can pick a zone and finish without going back to Google.
+  const [pendingGoogleToken, setPendingGoogleToken] = useState<string | null>(null);
 
   const {
     register,
     control,
     handleSubmit,
+    getValues,
     setError,
     formState: { errors, isSubmitting },
   } = useForm<RegisterFormValues>({
@@ -84,6 +92,28 @@ export function RegisterPage() {
       }
       if (error instanceof ApiRequestError) setFormError(error.message);
       else setFormError(t("errors.generic"));
+    }
+  }
+
+  async function signInWithGoogle(idToken: string) {
+    setFormError(null);
+    const zoneId = getValues("zoneId");
+    try {
+      const user = await googleSignIn({ idToken, zoneId: zoneId || undefined });
+      navigate(roleHomePath(user.role), { replace: true });
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.code === "ZONE_REQUIRED") {
+        setPendingGoogleToken(idToken);
+        setError("zoneId", { message: t("google.chooseZone") });
+      } else if (error instanceof MfaRequiredError) {
+        // Already has an account with two-step verification: the login page finishes it.
+        setPendingGoogleToken(null);
+        setFormError(t("google.useLogin"));
+      } else if (error instanceof ApiRequestError) {
+        setFormError(error.message);
+      } else {
+        setFormError(t("errors.generic"));
+      }
     }
   }
 
@@ -230,6 +260,34 @@ export function RegisterPage() {
               {t("register.submit")}
             </Button>
           </form>
+
+          {isGoogleConfigured() && (
+            <div className="mt-6 space-y-4">
+              <div className="flex items-center gap-3" aria-hidden="true">
+                <span className="h-px flex-1 bg-line" />
+                <span className="text-ink-faint text-xs">{t("google.or")}</span>
+                <span className="h-px flex-1 bg-line" />
+              </div>
+              {pendingGoogleToken ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full"
+                  onClick={() => {
+                    if (!getValues("zoneId")) {
+                      setError("zoneId", { message: t("google.chooseZone") });
+                      return;
+                    }
+                    void signInWithGoogle(pendingGoogleToken);
+                  }}
+                >
+                  {t("google.finish")}
+                </Button>
+              ) : (
+                <GoogleButton onCredential={signInWithGoogle} text="signup_with" />
+              )}
+            </div>
+          )}
         </div>
 
         <p className="text-ink-muted mt-6 text-center text-sm">

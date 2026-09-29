@@ -125,6 +125,15 @@ export function resetUserPassword(
   });
 }
 
+/**
+ * Clears a user's two-step verification (lost authenticator). Sets the account
+ * back to "off" and discards its secret; the user logs in with their password
+ * or Google and can set it up again. Existing sessions are not revoked.
+ */
+export function resetUserMfa(userId: string): Promise<void> {
+  return apiFetch<void>(`/admin/users/${userId}/mfa-reset`, { method: "POST" });
+}
+
 export function createZone(body: CreateZoneRequest): Promise<Zone> {
   return apiFetch<Zone>("/admin/zones", { method: "POST", body });
 }

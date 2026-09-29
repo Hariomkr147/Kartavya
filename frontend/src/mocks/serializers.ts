@@ -40,6 +40,29 @@ export function toUser(row: UserRow): User {
   };
 }
 
+/**
+ * `toUser` plus the derived sign-in flags. Used wherever the backend uses
+ * `serialize_user` / `serialize_managed_user` (auth, /users/me, admin user
+ * views). Deliberately NOT folded into `toUser`, which also builds a
+ * complaint's `reporter` block — that must stay exactly as it was.
+ */
+export function toSessionUser(row: UserRow): User {
+  const mfaOn = !!row.mfa && !row.mfa.pending;
+  return {
+    ...toUser(row),
+    mfaEnabled: mfaOn,
+    mfaMethod: mfaOn ? row.mfa!.method : null,
+    mfaRecommended: !mfaOn && (row.role === "ADMIN" || row.role === "OFFICER"),
+    hasPassword: hasPassword(row),
+    googleLinked: !!row.googleSub,
+  };
+}
+
+/** A Google-only account holds an unusable marker, like the backend's `!` + random text. */
+export function hasPassword(row: { password: string }): boolean {
+  return !row.password.startsWith("!");
+}
+
 export function toCategory(row: CategoryRow): Category {
   return {
     id: toApiId(row.id),

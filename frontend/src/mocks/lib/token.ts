@@ -64,3 +64,35 @@ export function bearerTokenFrom(request: Request): string | null {
   if (!header?.startsWith("Bearer ")) return null;
   return header.slice("Bearer ".length);
 }
+
+// --- MFA ticket ---------------------------------------------------------------
+// A half-finished login. Its prefix differs from `mock-token.`, so `decodeToken`
+// rejects it outright — the mock equivalent of the backend refusing `typ: mfa`
+// as a bearer token.
+
+const TICKET_PREFIX = "mock-mfa.";
+const TICKET_TTL_MS = 5 * 60_000;
+
+export function issueMfaTicket(user: { id: number }): {
+  ticket: string;
+  expiresAt: string;
+} {
+  const expiresAtMs = Date.now() + TICKET_TTL_MS;
+  return {
+    ticket: TICKET_PREFIX + btoa(JSON.stringify({ userId: user.id, exp: expiresAtMs })),
+    expiresAt: new Date(expiresAtMs).toISOString(),
+  };
+}
+
+/** The user id a live ticket names, or null for anything else (expired, malformed, a session). */
+export function decodeMfaTicket(ticket: string): number | null {
+  if (!ticket.startsWith(TICKET_PREFIX)) return null;
+  try {
+    const payload = JSON.parse(atob(ticket.slice(TICKET_PREFIX.length)));
+    if (typeof payload?.userId !== "number" || typeof payload?.exp !== "number")
+      return null;
+    return payload.exp > Date.now() ? payload.userId : null;
+  } catch {
+    return null;
+  }
+}

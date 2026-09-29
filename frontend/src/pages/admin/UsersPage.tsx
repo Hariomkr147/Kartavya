@@ -41,6 +41,7 @@ import { useAdminUsers } from "@/hooks/useAdminUsers";
 import { useCreateUser } from "@/hooks/useCreateUser";
 import { useUpdateUser } from "@/hooks/useUpdateUser";
 import { useResetUserPassword } from "@/hooks/useResetUserPassword";
+import { useResetUserMfa } from "@/hooks/useResetUserMfa";
 import { useDeleteUser } from "@/hooks/useDeleteUser";
 import { useZones } from "@/hooks/useZones";
 import { useSortableRows } from "@/hooks/useSortableRows";
@@ -292,6 +293,7 @@ export function AdminUsersPage() {
                 </SortableHeaderCell>
                 <TableHeaderCell>{t("adminUsers.role")}</TableHeaderCell>
                 <TableHeaderCell>{t("filters.zone")}</TableHeaderCell>
+                <TableHeaderCell>{t("mfa.columnTitle")}</TableHeaderCell>
                 <SortableHeaderCell {...sortableProps("createdAt")}>
                   {t("adminUsers.memberSince")}
                 </SortableHeaderCell>
@@ -303,7 +305,7 @@ export function AdminUsersPage() {
             </TableHead>
             <TableBody>
               {rows.length === 0 ? (
-                <DataTableEmpty colSpan={8}>—</DataTableEmpty>
+                <DataTableEmpty colSpan={9}>—</DataTableEmpty>
               ) : (
                 rows.map((u) => (
                   <TableRow key={u.id}>
@@ -317,6 +319,9 @@ export function AdminUsersPage() {
                     </TableCell>
                     <TableCell className="text-ink-muted text-sm">
                       {zoneName(u.zoneId)}
+                    </TableCell>
+                    <TableCell className="text-ink-muted text-sm">
+                      {u.mfaEnabled ? t("mfa.on") : t("mfa.off")}
                     </TableCell>
                     <TableCell className="text-ink-muted text-sm">
                       {memberSince(u.createdAt, i18n.resolvedLanguage ?? "en")}
@@ -649,6 +654,7 @@ function EditUserModal({
           )}
         </div>
         <ResetPasswordSection user={user} />
+        {user.mfaEnabled && <ResetMfaSection user={user} />}
       </div>
     </Modal>
   );
@@ -754,6 +760,63 @@ function ResetPasswordSection({ user }: { user: User }) {
       ) : (
         <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
           {t("adminUsers.resetPassword")}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Clears a user's two-step verification, for someone who lost their
+ * authenticator. Like the password reset it posts the moment it is confirmed,
+ * so it sits apart from Save. Needs no code: the point is recovering an account
+ * whose device is gone.
+ */
+function ResetMfaSection({ user }: { user: User }) {
+  const { t } = useTranslation();
+  const { toast } = useToast();
+  const reset = useResetUserMfa(user.id);
+  const [confirming, setConfirming] = useState(false);
+
+  async function handleReset() {
+    try {
+      await reset.mutateAsync();
+      toast({ title: t("mfa.resetDone"), variant: "success" });
+      setConfirming(false);
+    } catch (err) {
+      toast({
+        title: t("mfa.resetFailed"),
+        description: err instanceof ApiRequestError ? err.message : undefined,
+        variant: "error",
+      });
+    }
+  }
+
+  return (
+    <div className="border-edge border-t pt-4">
+      {confirming ? (
+        <div className="space-y-3">
+          <p className="text-ink-faint text-xs">
+            {t("mfa.resetBody", { name: user.name })}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="danger"
+              onClick={handleReset}
+              loading={reset.isPending}
+              disabled={reset.isPending}
+            >
+              {t("mfa.resetConfirm")}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+              {t("common.cancel")}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button size="sm" variant="outline" onClick={() => setConfirming(true)}>
+          {t("mfa.resetAction")}
         </Button>
       )}
     </div>

@@ -3,7 +3,7 @@ import { db, persist, nextId } from "../db/store";
 import {
   toComplaintDetail,
   toComplaintCompact,
-  toUser,
+  toSessionUser,
   toCategory,
   toZone,
 } from "../serializers";
@@ -264,7 +264,7 @@ export const adminHandlers = [
     if (active !== null) rows = rows.filter((u) => u.isActive === (active === "true"));
 
     const { data, pagination } = paginate(rows, parsePagination(url));
-    return HttpResponse.json({ data: data.map(toUser), pagination });
+    return HttpResponse.json({ data: data.map(toSessionUser), pagination });
   }),
 
   http.post(`${BASE}/admin/users`, async ({ request }) => {
@@ -319,7 +319,7 @@ export const adminHandlers = [
     };
     db.users.push(user);
     persist();
-    return HttpResponse.json(toUser(user), { status: 201 });
+    return HttpResponse.json(toSessionUser(user), { status: 201 });
   }),
 
   http.get(`${BASE}/admin/users/:userId`, ({ request, params }) => {
@@ -327,7 +327,7 @@ export const adminHandlers = [
     if (!auth.ok) return auth.response;
     const user = db.users.find((u) => u.id === fromApiId(String(params.userId)));
     if (!user) return Errors.notFound();
-    return HttpResponse.json(toUser(user));
+    return HttpResponse.json(toSessionUser(user));
   }),
 
   http.patch(`${BASE}/admin/users/:userId`, async ({ request, params }) => {
@@ -370,7 +370,7 @@ export const adminHandlers = [
     }
 
     persist();
-    return HttpResponse.json(toUser(user));
+    return HttpResponse.json(toSessionUser(user));
   }),
 
   http.post(`${BASE}/admin/users/:userId/reset-password`, async ({ request, params }) => {
@@ -392,6 +392,20 @@ export const adminHandlers = [
     // tokens keep working — matching the backend, which has no way to revoke
     // a stateless JWT. Deactivation is the tool for cutting off a live session.
     user.password = body.newPassword;
+    persist();
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post(`${BASE}/admin/users/:userId/mfa-reset`, ({ request, params }) => {
+    const auth = requireRole(request, "ADMIN");
+    if (!auth.ok) return auth.response;
+
+    const user = db.users.find((u) => u.id === fromApiId(String(params.userId)));
+    if (!user) return Errors.notFound();
+
+    // Clears an active or half-finished setup. Idempotent, needs no code: the
+    // point is recovering an account whose authenticator is gone.
+    user.mfa = null;
     persist();
     return new HttpResponse(null, { status: 204 });
   }),
@@ -527,7 +541,7 @@ export const adminHandlers = [
     }
     officer.zoneId = zone.id;
     persist();
-    return HttpResponse.json(toUser(officer));
+    return HttpResponse.json(toSessionUser(officer));
   }),
 
   // --- SLAs & settings ---

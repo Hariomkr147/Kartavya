@@ -3,16 +3,28 @@ import * as authService from "@/services/auth";
 import * as accountService from "@/services/account";
 import { ApiRequestError, getStoredToken, setStoredToken } from "@/services/http";
 import { queryClient } from "@/lib/queryClient";
+import { MfaRequiredError } from "@/lib/mfaRequiredError";
 import { useToast } from "@/components/ui/Toast";
-import type { LoginRequest, RegisterRequest, User } from "@/types/api";
+import type {
+  AuthResponse,
+  GoogleSignInRequest,
+  LoginRequest,
+  RegisterRequest,
+  User,
+} from "@/types/api";
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 
 interface AuthContextValue {
   user: User | null;
   status: AuthStatus;
+  /** Resolves to the user; rejects with `MfaRequiredError` when a code is needed next. */
   login: (body: LoginRequest) => Promise<User>;
   register: (body: RegisterRequest) => Promise<User>;
+  /** Same contract as `login`, for a Google ID token. */
+  googleSignIn: (body: GoogleSignInRequest) => Promise<User>;
+  /** Second step: exchange an `MfaRequiredError`'s ticket plus a code for a session. */
+  verifyMfa: (ticket: string, code: string) => Promise<User>;
   logout: () => void;
   /** Re-fetches /users/me — call after a profile edit so the rest of the app sees the change. */
   refreshUser: () => Promise<void>;
@@ -55,20 +67,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  async function login(body: LoginRequest) {
-    const response = await authService.login(body);
+  function startSession(response: AuthResponse) {
     setStoredToken(response.token);
     setUser(response.user);
     setStatus("authenticated");
     return response.user;
   }
 
+  /** A first-step response is a session, or a challenge that must be finished. */
+  function settle(result: authService.LoginResult) {
+    if (authService.isMfaChallenge(result)) throw new MfaRequiredError(result);
+    return startSession(result);
+  }
+
+  async function login(body: LoginRequest) {
+    return settle(await authService.login(body));
+  }
+
+  async function googleSignIn(body: GoogleSignInRequest) {
+    return settle(await authService.googleSignIn(body));
+  }
+
+  async function verifyMfa(ticket: string, code: string) {
+    return startSession(await authService.verifyMfaLogin({ mfaTicket: ticket, code }));
+  }
+
   async function register(body: RegisterRequest) {
-    const response = await authService.register(body);
-    setStoredToken(response.token);
-    setUser(response.user);
-    setStatus("authenticated");
-    return response.user;
+    return startSession(await authService.register(body));
   }
 
   function logout() {
@@ -94,7 +119,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, status, login, register, logout, refreshUser }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        status,
+        login,
+        register,
+        googleSignIn,
+        verifyMfa,
+        logout,
+        refreshUser,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

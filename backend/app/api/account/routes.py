@@ -6,6 +6,7 @@ from flask import Blueprint
 
 from app.api.account.schemas import (
     ChangePasswordRequest,
+    LinkGoogleRequest,
     MfaCodeRequest,
     MfaSetupRequest,
     UpdateProfileRequest,
@@ -115,4 +116,28 @@ def disable_mfa(body: MfaCodeRequest):
     from app.services.accounts.mfa import service as mfa
 
     mfa.disable(current_user(), body.code, datetime.now(UTC))
+    return "", 204
+
+
+@bp.post("/users/me/google")
+@require_auth
+@validate_body(LinkGoogleRequest)
+def link_google_account(body: LinkGoogleRequest):
+    """200 User. Any role — the only way an officer or admin starts using Google."""
+    from app.core import google
+    from app.core.auth import current_user
+    from app.services.accounts import auth
+
+    identity = google.verify_google_id_token(body.idToken)
+    return serialize_user(auth.link_google(current_user(), identity))
+
+
+@bp.delete("/users/me/google")
+@require_auth
+def unlink_google_account():
+    """204. Refused unless the account has a password of its own."""
+    from app.core.auth import current_user
+    from app.services.accounts import auth
+
+    auth.unlink_google(current_user())
     return "", 204

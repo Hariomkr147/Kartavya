@@ -49,3 +49,12 @@ class MfaVerifyRequest(BaseModel):
 
     mfaTicket: str = Field(min_length=1)
     code: str = Field(pattern=r"^[0-9]{6}$")
+
+
+class GoogleSignInRequest(BaseModel):
+    """openapi.yaml: GoogleSignInRequest. `zoneId` matters only for a brand-new account."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    idToken: str = Field(min_length=1)
+    zoneId: str | None = None

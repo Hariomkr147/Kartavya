@@ -77,4 +77,4 @@ def test_every_contract_path_is_routed(app):
     a new endpoint arrived or one was dropped.
     """
     api_rules = {rule.rule for rule in app.url_map.iter_rules() if rule.rule.startswith(API_PREFIX)}
-    assert len(api_rules) == 46, sorted(api_rules)
+    assert len(api_rules) == 51, sorted(api_rules)

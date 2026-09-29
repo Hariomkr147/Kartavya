@@ -40,3 +40,12 @@ class LoginRequest(BaseModel):
 
     email: EmailStr
     password: str
+
+
+class MfaVerifyRequest(BaseModel):
+    """openapi.yaml: MfaVerifyRequest."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mfaTicket: str = Field(min_length=1)
+    code: str = Field(pattern=r"^[0-9]{6}$")

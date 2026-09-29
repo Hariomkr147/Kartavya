@@ -18,6 +18,9 @@ API_PREFIX = "/api/v1"
 #: Values here are only acceptable while KARTAVYA_ENV=development.
 _DEV_JWT_SECRET = "dev-only-jwt-secret-change-me"
 _DEV_PHOTO_KEY = "dev-only-photo-signing-key-change-me"
+#: A valid Fernet key, public on purpose. Development and tests only — production
+#: never falls back to it: with MFA_ENCRYPTION_KEY unset, 2FA setup answers 503.
+_DEV_MFA_KEY = "vZLZRJ_dGGRgKia-3tVR4tSJzL6YUEXxXnxOmWktLRo="
 
 
 def normalize_database_url(url: str) -> str:
@@ -103,6 +106,14 @@ class BaseConfig:
         self.JWT_TTL_HOURS = _env_int("JWT_TTL_HOURS", 24)
         self.PHOTO_SIGNING_KEY = os.environ.get("PHOTO_SIGNING_KEY", _DEV_PHOTO_KEY)
         self.PHOTO_URL_TTL_SECONDS = _env_int("PHOTO_URL_TTL_SECONDS", 86_400)
+        # --- Two-step verification and Google Sign-In ---
+        # Both features are OFF until configured, and being off is not an
+        # error: the app starts, existing logins work, and only the feature's
+        # own endpoints answer 503. `MFA_ENCRYPTION_KEY` is one or more Fernet
+        # keys, comma-separated: the first encrypts, any of them decrypts,
+        # which is how a key is rotated without locking anyone out.
+        self.MFA_ENCRYPTION_KEY = os.environ.get("MFA_ENCRYPTION_KEY", "").strip()
+        self.GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
         # Flask's own session signing key. Unused today (the API is stateless
         # and token-based) but Flask wants one present.
         self.SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", self.JWT_SECRET)
@@ -214,6 +225,25 @@ class BaseConfig:
             )
         if self.JWT_SECRET == self.PHOTO_SIGNING_KEY:
             raise RuntimeError("JWT_SECRET and PHOTO_SIGNING_KEY must be different secrets.")
+        # Unset is fine (2FA stays off). Set-but-wrong is not: it would only
+        # surface later, as 500s the first time somebody turned 2FA on.
+        if self.MFA_ENCRYPTION_KEY:
+            from cryptography.fernet import Fernet
+
+            keys = [k.strip() for k in self.MFA_ENCRYPTION_KEY.split(",") if k.strip()]
+            for key in keys:
+                try:
+                    Fernet(key)
+                except (ValueError, TypeError) as exc:
+                    raise RuntimeError(
+                        "MFA_ENCRYPTION_KEY holds an invalid Fernet key. Generate one with: "
+                        'python -c "from cryptography.fernet import Fernet; '
+                        'print(Fernet.generate_key().decode())"'
+                    ) from exc
+                if key in {self.JWT_SECRET, self.PHOTO_SIGNING_KEY}:
+                    raise RuntimeError(
+                        "MFA_ENCRYPTION_KEY must not reuse JWT_SECRET or PHOTO_SIGNING_KEY."
+                    )
         if self.STORAGE_PROVIDER not in {"local", "supabase"}:
             raise RuntimeError(
                 f"Unknown STORAGE_PROVIDER={self.STORAGE_PROVIDER!r}. "
@@ -232,6 +262,10 @@ class DevelopmentConfig(BaseConfig):
     ENV_NAME = "development"
     DEBUG = True
 
+    def __init__(self) -> None:
+        super().__init__()
+        self.MFA_ENCRYPTION_KEY = self.MFA_ENCRYPTION_KEY or _DEV_MFA_KEY
+
     def validate(self) -> None:
         """Dev is allowed to run on the checked-in defaults. Nothing else is."""
         return
@@ -245,6 +279,7 @@ class TestingConfig(BaseConfig):
         super().__init__()
         self.SQLALCHEMY_DATABASE_URI = os.environ.get("TEST_DATABASE_URL", "sqlite://")
         self.AI_PROVIDER = "stub"
+        self.MFA_ENCRYPTION_KEY = self.MFA_ENCRYPTION_KEY or _DEV_MFA_KEY
         # A background scheduler inside a test suite is a source of flakes and
         # cross-test state. Jobs are called directly in tests/services/ instead.
         self.SCHEDULER_ENABLED = False

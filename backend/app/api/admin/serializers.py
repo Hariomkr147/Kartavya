@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.api.account.schemas import security_fields
 from app.api.shared.serializers import serialize_complaint_detail
 from app.core.context import SerializationContext
 from app.core.serialization import iso_utc
@@ -39,6 +40,15 @@ def serialize_user(user: User) -> dict[str, Any]:
         "active": user.is_active,
         "createdAt": iso_utc(user.created_at),
     }
+
+
+def serialize_managed_user(user: User) -> dict[str, Any]:
+    """`serialize_user` plus the sign-in flags an admin needs to manage the account.
+
+    Deliberately NOT folded into `serialize_user`: that one also builds the
+    `reporter` block on complaints, which must stay exactly as it was.
+    """
+    return {**serialize_user(user), **security_fields(user)}
 
 
 def serialize_complaint_for_admin(

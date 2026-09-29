@@ -7,10 +7,13 @@ into the database and there is deliberately no API that creates one.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from app.domain.credentials import has_usable_password
+from app.domain.enums import MfaMethodType
 from app.models import User
 
 # A pre-hashed dummy used by ``authenticate`` so that a lookup miss still runs
@@ -25,6 +28,12 @@ def hash_password(raw: str) -> str:
 
 
 def verify_password(user: User, raw: str) -> bool:
+    if not has_usable_password(user.password_hash):
+        # A Google-only account. Werkzeug would reject the marker instantly, and
+        # that speed alone would tell a caller "this email exists and has no
+        # password". Spend the same scrypt work as a real check instead.
+        check_password_hash(_DUMMY_HASH, raw)
+        return False
     return check_password_hash(user.password_hash, raw)
 
 
@@ -110,3 +119,53 @@ def change_password(*, user: User, current_password: str, new_password: str) -> 
 
     user.password_hash = hash_password(new_password)
     db.session.commit()
+
+
+# --- The one funnel after ANY first login step --------------------------------
+#
+# Password login and Google sign-in both end here, the same way every status
+# change ends in `apply_transition()`: no login path can skip the second step,
+# because there is only one place a session is minted from a login.
+
+
+@dataclass(frozen=True)
+class SessionGrant:
+    """A logged-in session: the caller serializes it as `AuthResponse`."""
+
+    user: User
+    token: str
+    expires_at: datetime
+
+
+@dataclass(frozen=True)
+class MfaChallengeGrant:
+    """The first step passed but two-step verification is on: `MfaChallenge`."""
+
+    ticket: str
+    method: MfaMethodType
+    expires_at: datetime
+
+
+def grant_session(user: User) -> SessionGrant:
+    from app.core.auth import issue_token
+
+    token, expires_at = issue_token(user)
+    return SessionGrant(user=user, token=token, expires_at=expires_at)
+
+
+def complete_primary_auth(user: User, now: datetime) -> SessionGrant | MfaChallengeGrant:
+    """Turn a successful first login step into a session, or into a challenge.
+
+    `user.mfa_method is None` covers every existing account and everyone who has
+    not turned two-step verification on, so for them this returns exactly what
+    login returned before.
+    """
+    if user.mfa_method is None:
+        return grant_session(user)
+
+    from app.core.auth import issue_mfa_ticket
+    from app.services.accounts.mfa import service as mfa
+
+    mfa.prepare_challenge(user, now)
+    ticket, expires_at = issue_mfa_ticket(user)
+    return MfaChallengeGrant(ticket=ticket, method=user.mfa_method, expires_at=expires_at)

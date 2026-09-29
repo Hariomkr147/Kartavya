@@ -12,6 +12,9 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.core.serialization import iso_utc
+from app.domain.credentials import has_usable_password
+from app.domain.enums import MfaMethodType, MfaPolicy, UserRole
+from app.domain.mfa_policy import mfa_policy
 from app.models import User
 
 
@@ -40,6 +43,21 @@ class ChangePasswordRequest(BaseModel):
     newPassword: str = Field(min_length=8)
 
 
+def security_fields(user: User) -> dict[str, Any]:
+    """The derived sign-in flags on `User`. Nothing here is stored, and never
+    included: mfa_secret_enc, google_sub."""
+    return {
+        "mfaEnabled": user.mfa_method is not None,
+        "mfaMethod": user.mfa_method.value if user.mfa_method is not None else None,
+        "mfaRecommended": user.mfa_method is None
+        and mfa_policy(UserRole(user.role)) is MfaPolicy.RECOMMENDED,
+        # `or ""`: password_hash is NOT NULL in the database, but tests build
+        # transient User objects without one, and "no marker" means "has one".
+        "hasPassword": has_usable_password(user.password_hash or ""),
+        "googleLinked": user.google_sub is not None,
+    }
+
+
 def serialize_user(user: User) -> dict[str, Any]:
     """Canonical User → JSON dict  (openapi.yaml ``User``).
 
@@ -66,4 +84,21 @@ def serialize_user(user: User) -> dict[str, Any]:
         "zoneId": str(user.zone_id) if user.zone_id is not None else None,
         "active": user.is_active,
         "createdAt": iso_utc(user.created_at),
+        **security_fields(user),
     }
+
+
+class MfaSetupRequest(BaseModel):
+    """openapi.yaml: MfaSetupRequest."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    method: MfaMethodType
+
+
+class MfaCodeRequest(BaseModel):
+    """openapi.yaml: MfaCodeRequest."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(pattern=r"^[0-9]{6}$")

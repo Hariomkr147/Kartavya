@@ -6,7 +6,7 @@ work them through an audited lifecycle under an SLA clock, and admins run the sy
 earn Community Service Points and badges for reports that turn into real fixes.
 
 The repository is a monorepo with a **contract-first** design: `backend/api/openapi.yaml`
-(OpenAPI 3.0.3, 45 paths) and `backend/database/schema.dbml` are the single source of truth for
+(OpenAPI 3.0.3, 53 paths) and `backend/database/schema.dbml` are the single source of truth for
 both halves. Both halves are implemented — a Flask API and a React SPA that also runs
 standalone against a mock layer.
 
@@ -20,6 +20,7 @@ standalone against a mock layer.
   - [Tech stack](#tech-stack)
   - [Repository layout](#repository-layout)
   - [The zone map](#the-zone-map)
+  - [Signing in: two-step verification and Google](#signing-in-two-step-verification-and-google)
   - [Languages](#languages)
   - [Quick start](#quick-start)
     - [Option A — frontend only (mocks, no backend)](#option-a--frontend-only-mocks-no-backend)
@@ -69,6 +70,10 @@ Core mechanics:
   [The zone map](#the-zone-map).
 - **Eleven languages.** The whole interface is translated into English plus ten Indian
   languages, each with its own script font. See [Languages](#languages).
+- **Two-step verification and Google sign-in.** Every role can turn on an authenticator-app
+  code (TOTP); officers and admins are nudged to, nobody is forced. "Sign in with Google" works
+  for every role, and always passes through the same second step. Both are off until configured.
+  See [Signing in](#signing-in-two-step-verification-and-google).
 - **Gamification.** A points ledger, six badges, and zone/global leaderboards.
 - **Two AI features that fail soft** — photo pre-screening and zone health reports. When the model
   is unavailable they report `UNAVAILABLE` rather than erroring; AI never blocks a core flow.
@@ -92,7 +97,7 @@ Core mechanics:
 ```text
 MAY2026-Team-040/
 ├── backend/
-│   ├── api/openapi.yaml          # ← source of truth: the API contract (45 paths)
+│   ├── api/openapi.yaml          # ← source of truth: the API contract (53 paths)
 │   ├── database/schema.dbml      # ← source of truth: 14 tables, 11 enums
 │   ├── app/
 │   │   ├── domain/               # pure rules — FSM, SLA, severity, points, badges, geo (no I/O)
@@ -168,6 +173,52 @@ pushes: there is no socket, and `refetchOnWindowFocus` is off globally.
 The map isn't paginated but the API is (`pageSize` caps at 100), so each list is fetched a page at
 a time up to a stated ceiling — 600 complaints, 300 clusters, 40 clusters' worth of members — and
 the page reports what it actually plotted rather than silently truncating.
+
+## Signing in: two-step verification and Google
+
+Three ways in, one funnel. Password login and Google sign-in both end in
+`complete_primary_auth()` (`app/services/accounts/auth.py`), the only place a login becomes a
+session — so no path can skip the second step.
+
+| | Citizen | Officer / admin |
+|---|---|---|
+| Password | yes | yes |
+| Two-step verification (authenticator app) | optional | **recommended** — a banner until it is on; never enforced |
+| Sign in with Google | sign up, or link by email automatically | log in with the password first, then **link** Google from the account page |
+
+Why staff are never linked by email: staff addresses are typed in by an admin, and a typo that
+points at a stranger's Gmail must not hand that stranger the account.
+
+**Two-step verification.** `users.mfa_method` (null = off) and `users.mfa_secret_enc` (a Fernet-
+encrypted JSON blob owned by the method) hold everything; `mfaEnabled` is derived. Login answers
+`202 MfaChallenge` instead of a session when it is on, and the client finishes at
+`POST /auth/mfa/verify` with a 5-minute ticket (a token carrying `typ: mfa`, which
+`load_current_user()` refuses everywhere else) and the 6-digit code. Five wrong codes lock the
+account's 2FA for 15 minutes; a used code can never be replayed. Setup is
+`POST /users/me/mfa` → scan the QR → `POST /users/me/mfa/confirm`; turning it off needs a current
+code. **Lost device:** an admin clears it (`POST /admin/users/{id}/mfa-reset`), or, for the last
+admin, `flask --app app reset-mfa <email>` on the server.
+
+**Adding email, SMS or WhatsApp codes later** is a new class in `app/services/accounts/mfa/`
+implementing `MfaMethod` (`begin_setup`, `send_code`, `check`), one line in `registry.py`, a
+value in the `mfa_method` enum (a small migration widens its CHECK), and a delivery adapter in
+`app/infra/`. The login funnel, tickets, lockout, encryption and admin reset do not change.
+
+**Setup for Google:**
+
+1. In Google Cloud Console create an OAuth client of type **Web application**. Authorized
+   JavaScript origins: your Vercel domain(s), plus `http://localhost` and `http://localhost:5173`.
+   The default `openid email profile` scopes need no review.
+2. Set the client id as `GOOGLE_CLIENT_ID` (backend) and `VITE_GOOGLE_CLIENT_ID` (frontend). It is
+   public, not a secret.
+
+**Setup for 2FA:** generate a key with
+`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` and set it
+as `MFA_ENCRYPTION_KEY`. Keep a copy: losing it makes every stored secret unreadable. Development
+and tests use a public dev key, so 2FA works locally with nothing set.
+
+Leaving either setting unset is safe: that feature is simply off (its endpoints answer `503`), the
+app starts, and every existing login is unaffected.
 
 ## Languages
 
@@ -399,6 +450,8 @@ These exist only in the browser's mock database and mean nothing to the real API
 | `AI_SCREENING_RETRY_WINDOW_HOURS` | `6` | How long a row stays eligible for retry. Past this it is abandoned |
 | `AI_SCREENING_RETRY_BATCH` | `25` | Caps what one sweep can cost against a rate-limited provider |
 | `AI_SCREENING_STALE_PENDING_MINUTES` | `60` | How long a row may sit `PENDING` before its task is assumed dead |
+| `MFA_ENCRYPTION_KEY` | dev key in development/tests only | One or more Fernet keys, comma-separated (first encrypts, any decrypts — that is how you rotate). Unset in production = 2FA setup answers `503`, the app still starts. Set-but-invalid, or equal to `JWT_SECRET`/`PHOTO_SIGNING_KEY`, fails startup. A dashboard-only secret on Render (`sync: false`) |
+| `GOOGLE_CLIENT_ID` | — | The public OAuth client id. Unset = Google sign-in is off (`503`) |
 | `CLUSTER_RADIUS_METERS` | `100` | |
 | `AUTO_CLOSE_SWEEP_MINUTES` | `15` | How often the auto-close sweeper runs |
 | `CORS_ORIGINS` | `http://localhost:5173` | The Vite dev server |
@@ -409,6 +462,7 @@ These exist only in the browser's mock database and mean nothing to the real API
 |---|---|---|
 | `VITE_USE_MOCKS` | `true` | Set to `false` in `.env.local` to talk to a real backend |
 | `VITE_API_BASE_URL` | `/api/v1` | Use an absolute URL when mocks are off |
+| `VITE_GOOGLE_CLIENT_ID` | — | Same value as the backend's `GOOGLE_CLIENT_ID`. Unset = no Google button and no Google script is ever loaded (mock mode and tests leave it unset). Set it in Vercel's project settings for deploys |
 
 ## Tests and checks
 

@@ -1040,6 +1040,38 @@ Terminal: `REJECTED`, `CLOSED`, `UNRESOLVABLE`.
 
 ---
 
+## Part 17 — Two-step verification and Google sign-in
+
+Added in contract 3.5.0. Everything is additive: three nullable columns on `users`, new endpoints,
+new optional fields, and features that stay off until their settings exist.
+
+**One funnel.** `complete_primary_auth(user, now)` in `services/accounts/auth.py` is the single place
+a successful first login step becomes a session (`SessionGrant`) or a challenge
+(`MfaChallengeGrant`). Password login and Google sign-in both call it. It is to login what
+`apply_transition()` is to status: because there is only one place, no path can forget the
+second step.
+
+**Tokens.** A session token is what `issue_token()` has always minted and carries no `typ`. The MFA
+ticket (`issue_mfa_ticket`, 5 minutes) carries `typ: mfa` and is good only at `POST /auth/mfa/verify`;
+`load_current_user()` accepts `typ` of `None` or `access` and refuses everything else.
+
+**Strategy + registry.** `MfaMethod` (`begin_setup`, `send_code`, `check`) is the interface;
+`registry.METHODS` maps `MfaMethodType` to an instance. A method owns its own JSON state; the service
+adds `failed` and `locked_until`. `mfa/service.py` owns everything shared: the encrypted round trip
+(`core/secretbox.py`, `MultiFernet` for rotation), the lockout, and the guarded write.
+
+**The guarded write** is `UPDATE users SET ... WHERE id = :id AND mfa_secret_enc = :blob_we_read`;
+`rowcount` decides. On a lost race the service re-reads and retries; after five losses it refuses
+with `429 MFA_BUSY` rather than accept an outcome it could not record.
+
+**Layering.** `domain/totp.py`, `domain/mfa_policy.py` and `domain/credentials.py` are pure (time and
+randomness are passed in). `core/secretbox.py` and `core/google.py` hold the crypto and the Google key
+lookup. Serializers only *report* sign-in flags (`security_fields`), and admin user views use
+`serialize_managed_user` so the complaint `reporter` block is untouched.
+
+**Recovery.** `POST /admin/users/{id}/mfa-reset` clears 2FA; `flask --app app reset-mfa <email>` does the
+same from the server, needing no session, code or key.
+
 ## Appendix — Suggested build order
 
 Each phase leaves the app runnable and unblocks a slice of the (already complete) frontend.

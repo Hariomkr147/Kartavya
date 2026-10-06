@@ -27,7 +27,7 @@ import {
 import { CommandPalette } from "@/components/ui/CommandPalette";
 import { NotificationCenter } from "@/components/ui/NotificationCenter";
 import { OfflineBanner } from "@/components/ui/OfflineBanner";
-import { MfaRecommendedBanner } from "@/components/layout/MfaRecommendedBanner";
+// import { MfaRecommendedBanner } from "@/components/layout/MfaRecommendedBanner";
 import { AnimatedOutlet } from "@/components/layout/AnimatedOutlet";
 import { cn } from "@/lib/utils";
 
@@ -390,7 +390,7 @@ export function AppShell({ roleLabelKey, accountPath, navItems }: AppShellProps)
           `min-h-full` keeps a short page filling the viewport, which is what
           the old `flex-1` on <main> was doing.
         */}
-        <MfaRecommendedBanner accountPath={accountPath} />
+        {/* <MfaRecommendedBanner accountPath={accountPath} /> */}
         <main className="flex-1 overflow-y-auto">
           <div className="flex min-h-full flex-col p-4 md:p-6">
             <AnimatedOutlet />

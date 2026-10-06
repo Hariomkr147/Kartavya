@@ -293,7 +293,7 @@ export function AdminUsersPage() {
                 </SortableHeaderCell>
                 <TableHeaderCell>{t("adminUsers.role")}</TableHeaderCell>
                 <TableHeaderCell>{t("filters.zone")}</TableHeaderCell>
-                <TableHeaderCell>{t("mfa.columnTitle")}</TableHeaderCell>
+                {/* <TableHeaderCell>{t("mfa.columnTitle")}</TableHeaderCell> */}
                 <SortableHeaderCell {...sortableProps("createdAt")}>
                   {t("adminUsers.memberSince")}
                 </SortableHeaderCell>
@@ -320,9 +320,9 @@ export function AdminUsersPage() {
                     <TableCell className="text-ink-muted text-sm">
                       {zoneName(u.zoneId)}
                     </TableCell>
-                    <TableCell className="text-ink-muted text-sm">
+                    {/* <TableCell className="text-ink-muted text-sm">
                       {u.mfaEnabled ? t("mfa.on") : t("mfa.off")}
-                    </TableCell>
+                    </TableCell> */}
                     <TableCell className="text-ink-muted text-sm">
                       {memberSince(u.createdAt, i18n.resolvedLanguage ?? "en")}
                     </TableCell>

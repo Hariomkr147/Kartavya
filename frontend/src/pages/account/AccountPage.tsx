@@ -24,7 +24,7 @@ import { useUpdateProfile } from "@/hooks/useUpdateProfile";
 import { useChangePassword } from "@/hooks/useChangePassword";
 import { useDirtyFormGuard } from "@/hooks/useDirtyFormGuard";
 import { useToast } from "@/components/ui/Toast";
-import { TwoStepSection } from "@/pages/account/TwoStepSection";
+// import { TwoStepSection } from "@/pages/account/TwoStepSection";
 import { GoogleSection } from "@/pages/account/GoogleSection";
 import { ApiRequestError } from "@/services/http";
 import { absoluteDateTime } from "@/lib/datetime";
@@ -307,7 +307,7 @@ export function AccountPage() {
         </form>
       </section>
 
-      <TwoStepSection />
+      {/* <TwoStepSection /> */}
       <GoogleSection />
 
       {/* A Google-only account has no password to change (`hasPassword: false`). */}

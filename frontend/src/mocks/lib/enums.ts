@@ -19,6 +19,7 @@ import type {
   ComplaintStatus,
   DisputeVerdict,
   EvidenceVerdict,
+  MfaMethod,
   SeverityLabel,
   SlaLabel,
   UserRole,
@@ -68,6 +69,9 @@ export const USER_ROLES = [
   "OFFICER",
   "ADMIN",
 ] as const satisfies readonly UserRole[];
+
+/** `MfaMethod` in openapi.yaml — widen together with the backend's `mfa_method` enum. */
+export const MFA_METHODS = ["TOTP"] as const satisfies readonly MfaMethod[];
 
 /** `CreateUserRequest.role` — the API deliberately cannot mint an ADMIN. */
 export const CREATABLE_ROLES = ["CITIZEN", "OFFICER"] as const;

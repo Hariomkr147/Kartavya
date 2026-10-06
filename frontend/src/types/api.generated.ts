@@ -38,8 +38,76 @@ export interface paths {
         /**
          * Log in (any role)
          * @description Authenticates a citizen, officer, or admin by email and password and returns a JWT plus the basic profile needed to route them to the right dashboard. Deactivated accounts are rejected here with a 401.
+         *
+         *     If the account has two-step verification turned on, the password is only the first step: the response is `202` with an `MfaChallenge` instead of a session, and the client finishes the login at `POST /auth/mfa/verify`. Accounts without two-step verification get the `200` below, exactly as before.
          */
         post: operations["loginUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/google": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign in (or sign up) with a Google account
+         * @description The browser gets a Google-signed ID token from the "Sign in with Google" button and sends it here. The server verifies the token's signature and its `aud`, `iss`, `exp` and `email_verified` claims — it never trusts the client's word for who the user is — then issues Kartavya's own session, exactly like `POST /auth/login`. Two-step verification still applies: a user with it on gets `202` and an `MfaChallenge`.
+         *
+         *     What happens depends on the verified email and the `sub` claim:
+         *
+         *     - **A user already has this Google account linked** → logged in
+         *       (`200`).
+         *
+         *     - **The email belongs to a citizen with no Google link** → the account
+         *       is linked and logged in (`200`). Google has proved the address.
+         *
+         *     - **The email belongs to an officer or admin with no Google link** →
+         *       `403 GOOGLE_LINK_REQUIRED`. Staff addresses are typed in by an admin,
+         *       and a typo pointing at a stranger's Gmail must not hand that person
+         *       the account. Staff log in with their password, then link Google from
+         *       their account page (`POST /users/me/google`).
+         *
+         *     - **A new email** → a citizen is created (`201`). `zoneId` is required
+         *       for that, as at `POST /auth/register`; without it the response is
+         *       `409 ZONE_REQUIRED` and the client asks for a zone and resends the
+         *       same token.
+         *
+         *
+         *     Deactivated accounts get the same `401` as a password login. A Google account that has no password can never log in at `/auth/login`.
+         *
+         *     If the server has no `GOOGLE_CLIENT_ID` configured this answers `503 GOOGLE_NOT_CONFIGURED` and nothing else in the API is affected.
+         */
+        post: operations["signInWithGoogle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/mfa/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish a login with a two-step verification code
+         * @description Exchanges the `mfaTicket` from an `MfaChallenge` plus the user's current code for a normal session. The ticket is a 5-minute token that is good for this endpoint only; it cannot be used as a bearer token anywhere else.
+         *
+         *     Five wrong codes in a row lock two-step verification for that account for 15 minutes (`429 MFA_LOCKED`). A code that has already been used is rejected, so an intercepted code cannot be replayed.
+         */
+        post: operations["verifyMfaLogin"];
         delete?: never;
         options?: never;
         head?: never;
@@ -89,6 +157,94 @@ export interface paths {
          */
         post: operations["changeMyPassword"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/me/mfa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start turning on two-step verification
+         * @description Available to every role. Generates a fresh secret and stores it as a **pending** setup — two-step verification is not on yet, and login ignores it — then returns what the client needs to show a QR code. The secret appears in this response and nowhere else, ever. Calling this again before confirming replaces the pending secret.
+         *
+         *     Finish with `POST /users/me/mfa/confirm`. If two-step verification is already on, turn it off first (`409 MFA_ALREADY_ENABLED`).
+         *
+         *     `503 MFA_NOT_CONFIGURED` when the server has no `MFA_ENCRYPTION_KEY`.
+         */
+        post: operations["startMfaSetup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/me/mfa/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm two-step verification with the first code
+         * @description Proves the authenticator app really has the secret. A right code turns two-step verification on. A wrong code is `400 INVALID_CODE` (not 401 — the session is fine). With no pending setup this is `409 NO_PENDING_SETUP`.
+         */
+        post: operations["confirmMfaSetup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/me/mfa/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn two-step verification off
+         * @description Needs a current valid code, so a stolen session alone cannot remove the second step. (A lost device is recovered by an admin — `POST /admin/users/{userId}/mfa-reset`.) A wrong code is `400 INVALID_CODE`. If it is not on, `409 MFA_NOT_ENABLED`.
+         */
+        post: operations["disableMfa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/me/google": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Link a Google account to my account
+         * @description Available to every role — and the only way an officer or admin can start using Google, because it needs the password login they already passed. Verifies the ID token the same way `POST /auth/google` does and stores its `sub`. `409 GOOGLE_ALREADY_LINKED` if that Google account belongs to a different user, or this user already has one linked. `503 GOOGLE_NOT_CONFIGURED` when the server has no `GOOGLE_CLIENT_ID`.
+         */
+        post: operations["linkGoogleAccount"];
+        /**
+         * Unlink my Google account
+         * @description Only allowed when the account has a password of its own; otherwise `409 NO_OTHER_LOGIN`, so nobody strands themselves. `409 GOOGLE_NOT_LINKED` when nothing is linked.
+         */
+        delete: operations["unlinkGoogleAccount"];
         options?: never;
         head?: never;
         patch?: never;
@@ -844,6 +1000,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/users/{userId}/mfa-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clear a user's two-step verification
+         * @description For the user who has lost their authenticator device. Sets the account back to "two-step verification off" and discards its secret; the user logs in with their password (or Google) and can set it up again. Nothing else about the account changes.
+         *
+         *     This works on any account, including the caller's own. If the only administrator loses their device, the server-side command `flask --app app reset-mfa <email>` is the way back in — there must always be one, the same reason `LAST_ADMIN` exists.
+         *
+         *     Existing sessions are not revoked, as with `reset-password`.
+         */
+        post: operations["resetUserMfa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/zones": {
         parameters: {
             query?: never;
@@ -1118,6 +1298,11 @@ export interface components {
          */
         Role: "CITIZEN" | "OFFICER" | "ADMIN";
         /**
+         * @description A two-step verification method. Only `TOTP` (an authenticator app) exists today; the set is designed to grow — email, SMS or WhatsApp codes would be added here.
+         * @enum {string}
+         */
+        MfaMethod: "TOTP";
+        /**
          * @description Who or what caused a status_history entry. Distinct from Role because SYSTEM changes exist — e.g. auto-closing a RESOLVED complaint after the configured timeout, or cascading all members of a cluster to RESOLVED together when the officer resolves the shared issue.
          * @enum {string}
          */
@@ -1251,6 +1436,54 @@ export interface components {
             expiresAt: string;
             user: components["schemas"]["User"];
         };
+        /** @description Returned with `202` instead of a session when the password (or Google) step succeeded but the account has two-step verification on. */
+        MfaChallenge: {
+            /** @enum {boolean} */
+            mfaRequired: true;
+            /** @description A short-lived token, good only for `POST /auth/mfa/verify`. Never a bearer token. */
+            mfaTicket: string;
+            method: components["schemas"]["MfaMethod"];
+            /**
+             * Format: date-time
+             * @description When the ticket stops being accepted (5 minutes after issue).
+             */
+            expiresAt: string;
+        };
+        MfaVerifyRequest: {
+            mfaTicket: string;
+            /**
+             * @description The 6-digit code from the authenticator app.
+             * @example 492039
+             */
+            code: string;
+        };
+        MfaSetupRequest: {
+            method: components["schemas"]["MfaMethod"];
+        };
+        MfaSetupResponse: {
+            method: components["schemas"]["MfaMethod"];
+            /**
+             * @description An `otpauth://` URI to render as a QR code for the authenticator app.
+             * @example otpauth://totp/Kartavya:asha%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=Kartavya
+             */
+            otpauthUri: string;
+            /** @description The same secret as text, for manual entry. Returned here once and never again. */
+            secret: string;
+        };
+        MfaCodeRequest: {
+            /** @example 492039 */
+            code: string;
+        };
+        GoogleSignInRequest: {
+            /** @description The ID token (`credential`) from Google Identity Services. */
+            idToken: string;
+            /** @description Required only when this creates a new account (see `409 ZONE_REQUIRED`). */
+            zoneId?: string;
+        };
+        LinkGoogleRequest: {
+            /** @description The ID token (`credential`) from Google Identity Services. */
+            idToken: string;
+        };
         /** @description An account. Password is never returned. */
         User: {
             /** @example user_1001 */
@@ -1271,6 +1504,16 @@ export interface components {
             active: boolean;
             /** Format: date-time */
             createdAt?: string;
+            /** @description Two-step verification is on. Derived, never stored. */
+            mfaEnabled?: boolean;
+            /** @description The active method, or null when off. */
+            mfaMethod?: components["schemas"]["MfaMethod"] | null;
+            /** @description True for a role that should be nudged to turn two-step verification on (officers and admins) while it is still off. Only drives a banner; nothing is ever blocked. */
+            mfaRecommended?: boolean;
+            /** @description False for an account that only signs in with Google. Such an account cannot use `/auth/login` or change a password. */
+            hasPassword?: boolean;
+            /** @description A Google account is linked to this user. */
+            googleLinked?: boolean;
         };
         CreateUserRequest: {
             /**
@@ -1936,6 +2179,24 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description Too many wrong codes in a row. Two-step verification for this account is locked for 15 minutes (`MFA_LOCKED`). */
+        TooManyRequests: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description This feature is not configured on the server (`MFA_NOT_CONFIGURED` or `GOOGLE_NOT_CONFIGURED`). The rest of the API is unaffected. */
+        ServiceUnavailable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
     };
     parameters: {
         /** @description 1-based page number for paged lists. */
@@ -2018,6 +2279,15 @@ export interface operations {
                     "application/json": components["schemas"]["AuthResponse"];
                 };
             };
+            /** @description The password was right but the account has two-step verification on. No session is issued yet — send the code to `POST /auth/mfa/verify`. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MfaChallenge"];
+                };
+            };
             400: components["responses"]["BadRequest"];
             /** @description Wrong email/password, or the account is deactivated. */
             401: {
@@ -2028,6 +2298,112 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+        };
+    };
+    signInWithGoogle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GoogleSignInRequest"];
+            };
+        };
+        responses: {
+            /** @description Logged in to an existing (or just-linked) account. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
+            };
+            /** @description A new citizen account was created and logged in. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
+            };
+            /** @description The account has two-step verification on — finish at `POST /auth/mfa/verify`. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MfaChallenge"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description The Google token is invalid, expired, for another app, or its email is unverified; or the account is deactivated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `GOOGLE_LINK_REQUIRED` — this email belongs to an officer or admin who has not linked Google yet. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `ZONE_REQUIRED` — a new account needs a home zone. Resend the same token with `zoneId`. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    verifyMfaLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaVerifyRequest"];
+            };
+        };
+        responses: {
+            /** @description Login complete. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description The ticket is expired or invalid, the account is deactivated, or the code is wrong (`INVALID_CODE`). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getMyProfile: {
@@ -2118,6 +2494,192 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             /** @description No valid token, or currentPassword is wrong. */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    startMfaSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaSetupRequest"];
+            };
+        };
+        responses: {
+            /** @description Setup started. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MfaSetupResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description Two-step verification is already on (`MFA_ALREADY_ENABLED`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    confirmMfaSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description Two-step verification is on. Returns the updated profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description Malformed body, or the code is wrong (`INVALID_CODE`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description There is no pending setup to confirm (`NO_PENDING_SETUP`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    disableMfa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description Two-step verification is off. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed body, or the code is wrong (`INVALID_CODE`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Two-step verification is not on (`MFA_NOT_ENABLED`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    linkGoogleAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkGoogleRequest"];
+            };
+        };
+        responses: {
+            /** @description Linked. Returns the updated profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description The Google account is already linked (`GOOGLE_ALREADY_LINKED`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    unlinkGoogleAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unlinked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Nothing to unlink (`GOOGLE_NOT_LINKED`) or no other way to log in (`NO_OTHER_LOGIN`). */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3275,6 +3837,29 @@ export interface operations {
                 content?: never;
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    resetUserMfa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Two-step verification cleared (also returned when it was already off). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];

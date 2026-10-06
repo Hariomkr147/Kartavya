@@ -19,6 +19,28 @@ class UserRole(StrEnum):
     ADMIN = "ADMIN"
 
 
+class MfaMethodType(StrEnum):
+    """schema.dbml: mfa_method. One value per two-step method the registry can run.
+
+    Adding a method means adding a member here, a class in
+    `app/services/accounts/mfa/`, and a registry entry — see architecture notes
+    in the 2FA plan. Widening this also widens the CHECK on `users.mfa_method`,
+    which needs a migration.
+    """
+
+    TOTP = "TOTP"
+
+
+class MfaPolicy(StrEnum):
+    """How strongly a role is nudged to enable two-step verification.
+
+    Never enforced today: RECOMMENDED only drives a banner in the client.
+    """
+
+    RECOMMENDED = "RECOMMENDED"
+    OPTIONAL = "OPTIONAL"
+
+
 class ComplaintStatus(StrEnum):
     """schema.dbml: complaint_status. The transition map lives in lifecycle.py."""
 

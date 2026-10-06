@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.domain.enums import UserRole
+from app.domain.enums import MfaMethodType, UserRole
 from app.models.base import TimestampMixin, db, enum_column
 
 
@@ -36,11 +36,26 @@ class User(TimestampMixin, db.Model):
     #: reactivating restores their exact standing.
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
+    #: Two-step verification. Null = off. One active method per user; the
+    #: method's own state (TOTP secret, replay guard, lockout, ...) lives in
+    #: `mfa_secret_enc`. A pending setup has `mfa_secret_enc` set and this null,
+    #: so login ignores it until the first code is confirmed.
+    mfa_method: Mapped[MfaMethodType | None] = mapped_column(
+        enum_column(MfaMethodType, name="mfa_method"), nullable=True
+    )
+
+    #: Fernet-encrypted JSON owned by the active method. Never serialized.
+    mfa_secret_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    #: Google account id (the `sub` claim of a verified ID token). Null = not linked.
+    google_sub: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     zone: Mapped[Zone | None] = relationship(back_populates="users", foreign_keys=[zone_id])
 
     __table_args__ = (
         Index("ix_users_role", "role"),
         Index("ix_users_zone_id", "zone_id"),
+        Index("ux_users_google_sub", "google_sub", unique=True),
     )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid

@@ -105,6 +105,28 @@ services:
       # future, since build_provider passes this value to both.
       - key: AI_TIMEOUT_SECONDS
         value: "45"
+      # --- Two-step verification and Google Sign-In ---------------------------
+      # Both are OFF until configured, and being off is not an error: the app
+      # starts and every existing login works. Only the feature's own endpoints
+      # answer 503. So leaving these unset is a safe way to deploy the code first
+      # and switch the features on afterwards.
+      #
+      # ⚠ SECRET. One or more Fernet keys, comma-separated (the first encrypts,
+      # any of them decrypts - that is how a key is rotated). Generate one with:
+      #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      # Deliberately NOT `generateValue`: a Fernet key must be a 32-byte key
+      # encoded as URL-safe base64, which a generated value is not guaranteed to
+      # be. Keep a copy in a password manager - losing it makes every stored 2FA
+      # secret unreadable (an admin reset, or `flask --app app reset-mfa`,
+      # clears them). Must differ from JWT_SECRET and PHOTO_SIGNING_KEY.
+      - key: MFA_ENCRYPTION_KEY
+        sync: false
+      # The OAuth "Web application" client id from Google Cloud Console
+      # (APIs & Services -> Credentials). Public, not a secret - it is also baked
+      # into the frontend as VITE_GOOGLE_CLIENT_ID. The three Vercel origins
+      # below must be listed as Authorized JavaScript origins on that client.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
       # app/settings.py matches each origin EXACTLY: no wildcards, no subdomain
       # matching, and the scheme and any port count. Vercel gives the project
       # three stable production aliases and any of them can be the link someone

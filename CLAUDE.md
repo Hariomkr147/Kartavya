@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-Kartavya is a gamified civic grievance platform (citizens report infrastructure problems, officers resolve them, admins run the system, points/badges reward participation). It is a monorepo with a **contract-first** design: `backend/api/openapi.yaml` (OpenAPI 3.0.3, `info.version` 3.0.0, 45 paths) and `backend/database/schema.dbml` are the single source of truth for the whole system.
+Kartavya is a gamified civic grievance platform (citizens report infrastructure problems, officers resolve them, admins run the system, points/badges reward participation). It is a monorepo with a **contract-first** design: `backend/api/openapi.yaml` (OpenAPI 3.0.3, `info.version` 3.5.0, 53 paths) and `backend/database/schema.dbml` are the single source of truth for the whole system.
 
 Both halves are now implemented:
 
-- **`backend/`** — Flask + SQLAlchemy + SQLite, fully built out through all 8 phases (auth, complaint core, officer flow, clusters, gamification, admin, AI + jobs). All 45 contract paths have real handlers; no route returns `501` any more. `app/api/shared/responses.py` still defines the `NotImplementedYet` / `todo()` helper but nothing calls it — it is dead scaffolding.
+- **`backend/`** — Flask + SQLAlchemy + SQLite, fully built out through all 8 phases (auth, complaint core, officer flow, clusters, gamification, admin, AI + jobs). Every contract path has a real handler; no route returns `501` any more. `app/api/shared/responses.py` still defines the `NotImplementedYet` / `todo()` helper but nothing calls it — it is dead scaffolding.
 - **`frontend/`** — React 19 + Vite + TypeScript + Tailwind CSS v4, no UI component library (all interactive components are bespoke, under `frontend/src/components/ui/`). ~52 hooks, each exercising a real endpoint. Ships with an MSW mock layer (`frontend/src/mocks/`) that is still the **default** (`VITE_USE_MOCKS=true` in `.env.development`).
 
 **Before writing any implementation code, read `backend/api/openapi.yaml` and `backend/database/schema.dbml`.** If a field, endpoint, or behavior isn't in one of these two files, do not invent it — raise it instead of guessing.
@@ -112,7 +112,7 @@ Package roles:
 - `app/infra/` — photo storage and the AI provider adapter (`local` / `stub` / `remote` / `null`, behind a circuit breaker).
 - `app/jobs/` — AI screening, zone reports, the auto-close sweeper, and an APScheduler-based scheduler.
 
-There is no `app/api/ai/` package — contract 3.0.0 has no `/ai/*` paths. The zone report lives at `/admin/zones/{id}/ai-report`, and the AI *adapter* is in `app/infra/ai/`.
+There is no `app/api/ai/` package — the contract has no `/ai/*` paths. The zone report lives at `/admin/zones/{id}/ai-report`, and the AI *adapter* is in `app/infra/ai/`.
 
 ### Roles
 
@@ -122,7 +122,18 @@ Three roles with strictly separated views — enforced in both backend authoriza
 - **Officer** — scoped to exactly one assigned zone (`users.zone_id`). Reviews evidence, drives the lifecycle, posts progress notes. Never sees who filed a complaint, never sees other zones or admin data.
 - **Admin** — full cross-zone access: user/zone/SLA management, analytics, CSV export, AI zone reports. Invisible to citizens/officers.
 
-Auth is JWT bearer on every endpoint except `/auth/register`, `/auth/login`, and the public reference lookups (`/categories`, `/zones`) needed by the registration form.
+Auth is JWT bearer on every endpoint except `/auth/register`, `/auth/login`, `/auth/google`, `/auth/mfa/verify`, and the public reference lookups (`/categories`, `/zones`) needed by the registration form. (The last two authenticate by their body: a Google ID token, and a 5-minute MFA ticket.)
+
+### Two-step verification and Google sign-in
+
+Open to every role, forced on none (`domain/mfa_policy.py` only decides who sees a "recommended" banner: officers and admins). Both features are **off until configured** — `MFA_ENCRYPTION_KEY` / `GOOGLE_CLIENT_ID` unset means their endpoints answer `503` and nothing else changes; never turn a missing setting into a startup failure.
+
+- **One funnel.** Password login and Google both end in `services/accounts/auth.py::complete_primary_auth()`, the only place a login becomes a session (or, with 2FA on, a `202 MfaChallenge`). Never mint a session anywhere else.
+- **Storage** is three nullable columns on `users`: `mfa_method` (null = off), `mfa_secret_enc` (Fernet-encrypted JSON owned by the method, via `core/secretbox.py`), `google_sub`. `mfaEnabled`, `mfaRecommended`, `hasPassword`, `googleLinked` are derived on read. Never serialize `mfa_secret_enc` or `google_sub`.
+- **Methods are strategies** (`services/accounts/mfa/base.py::MfaMethod`, registered in `registry.py`). Shared behaviour — encryption, the 5-wrong→15-minute lockout, the guarded write — lives once in `mfa/service.py`. Adding email/SMS/WhatsApp codes is a new class + a registry line + an enum value (widen the CHECK with a migration) + a delivery adapter in `app/infra/`.
+- **Google-only accounts** store an unusable `password_hash` (`!` + random text, `domain/credentials.py`) — the column stays NOT NULL. `verify_password` spends a dummy scrypt check on it so speed cannot reveal "this email has no password".
+- **Staff are never auto-linked to Google by email** (`403 GOOGLE_LINK_REQUIRED`); they link from their account page while logged in.
+- Lost device: `POST /admin/users/{id}/mfa-reset`, or `flask --app app reset-mfa <email>` for a lone admin.
 
 ### Complaint lifecycle (server-enforced state machine)
 
@@ -178,10 +189,16 @@ The full list of fourteen is in `docs/backend/architecture.md` §16.4. These cau
 9. `avgResolutionHours` is `resolved_at − sla_started_at − sla_paused_seconds` in all three dashboards — never `closed_at − created_at`. The wait between "officer fixed it" and "citizen confirmed it" is not the officer's to answer for.
 10. **The SLA clock starts once.** `review_evidence()` may only call `sla.start()` when `sla_started_at IS NULL` — a `VALID` verdict is also how a complaint returns from an officer's post-acceptance recall, and restarting there both hands back a fresh deadline and double-discounts the paused span.
 11. **An admin may not deactivate or delete the last way back in.** `PATCH`/`DELETE /admin/users/{id}` answer `409 LAST_ADMIN` when the target is the caller's own admin account, or the only remaining active one. There is no API that mints an ADMIN (`CreateUserRequest.role` is `CITIZEN`/`OFFICER`), and a deactivated account cannot log in, so one unguarded `PATCH` strands the whole admin surface with no recovery short of database surgery.
+12. **`load_current_user()` accepts only session tokens.** Tokens with no `typ` (every pre-2FA token) or `typ: access` are sessions; the MFA ticket (`typ: mfa`) and anything unknown are refused on every route. Don't loosen it, and don't start putting `typ` on session tokens — that would log everyone out.
+13. **MFA state is written with a guarded `UPDATE ... WHERE mfa_secret_enc = :blob_we_read`** (`mfa/service.py::_guarded_update`), and a write that cannot land is refused, not waved through — otherwise two requests replay one code, or a burst of parallel guesses dodges the lockout.
+14. **Never fold sign-in flags into the complaint `reporter` block.** Admin user views use `serialize_managed_user`; `serialize_user` (also used for `reporter`) must stay exactly as it was. The mock mirrors this: `toSessionUser` vs `toUser`.
+15. **Migrations on `users` must not use a batch rebuild.** Most tables reference `users`; a SQLite table rebuild copies and drops it under live foreign keys. Use plain `ADD COLUMN` (see `20260929_1500_…`).
 
 ### Where the mock and the contract can drift
 
 The mock (`frontend/src/mocks/`) is the default in development (`VITE_USE_MOCKS=true`), so anywhere it is *more permissive* than the backend is a bug a client can only discover in production. Two real ones shipped this way: it let admins read `/leaderboard` when the contract said citizens-only, and it accepted unrecognised request enums — an unknown evidence verdict drove a complaint to terminal REJECTED with a 200 in reply.
+
+The 2FA mock is a real RFC 6238 implementation (`mocks/lib/totp.ts`, WebCrypto) with the same 5-wrong→15-minute lockout and replay guard as the backend, so an actual authenticator app works against it; Google in mock mode uses `mock-google.<base64 JSON>` tokens (`mocks/lib/google.ts`). Keep both as strict as `app/`.
 
 `mocks/lib/enums.ts` now guards every enum-valued body field and query parameter; keep its lists identical to `openapi.yaml`. Two known, deliberate gaps remain, both in the same permissive direction:
 
@@ -194,7 +211,7 @@ The mock (`frontend/src/mocks/`) is the default in development (`VITE_USE_MOCKS=
 - `tests/services/` — in-memory SQLite, aggregate behavior and regression locks.
 - `tests/api/` — Flask test client, including explicit privacy assertions (`test_privacy.py`) and JWT security (`test_jwt_security.py`).
 - `tests/contract/` — validates live responses against `openapi.yaml` itself rather than hand-copied expectations. This layer exists because three contract violations shipped while it was optional; it is now in the default dev install.
-- `tests/unit/`, `tests/jobs/` — AI providers and background jobs.
+- `tests/unit/`, `tests/jobs/` — AI providers, background jobs, `secretbox`, and the Google ID-token verifier (tests sign tokens with a local RSA key and swap only `core/google._signing_key`, so the real verifier runs and nothing ever calls Google). Shared helpers: `tests/mfa_support.py`, `tests/google_support.py`.
 - `tests/integration/` — end-to-end journeys (marker: `integration`). Distinct from `tests/api/` in one rule: **nothing sets a scenario up through the database.** Every actor logs in and every row is produced by the same requests a browser sends — admin creates the zones and officers, citizens register and file, officers drive the lifecycle. That is what makes states reachable only through six earlier calls (a resumed SLA clock, a cluster's second confirm, an upheld dispute) testable at all. Runs on file-backed SQLite, and honours `TEST_DATABASE_URL` so the same journeys can be pointed at Postgres (that hook exists but has not been exercised against a live Postgres yet). The two sanctioned back doors are `Platform.db_shift()` (moves stored timestamps backwards — the SLA clock and the auto-close timeout are otherwise unreachable) and `Platform.rows()` (reads only).
 
 A cheap, high-value test for any officer route: `assert "reporter" not in response.get_json()`.

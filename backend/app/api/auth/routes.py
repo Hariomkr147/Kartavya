@@ -9,7 +9,12 @@ from __future__ import annotations
 from flask import Blueprint
 
 from app.api.account.schemas import serialize_user
-from app.api.auth.schemas import LoginRequest, MfaVerifyRequest, RegisterRequest
+from app.api.auth.schemas import (
+    GoogleSignInRequest,
+    LoginRequest,
+    MfaVerifyRequest,
+    RegisterRequest,
+)
 from app.api.shared.responses import todo  # noqa: F401 — used by other stubs
 from app.core.validation import validate_body
 
@@ -91,3 +96,19 @@ def verify_mfa_login(body: MfaVerifyRequest):
     user_id = decode_mfa_ticket(body.mfaTicket)
     user = mfa.complete_login(user_id, body.code, datetime.now(UTC))
     return render_grant(auth.grant_session(user))
+
+
+@bp.post("/auth/google")
+@validate_body(GoogleSignInRequest)
+def sign_in_with_google(body: GoogleSignInRequest):
+    """200 / 201 AuthResponse, or 202 MfaChallenge. Public: the ID token is the credential."""
+    from datetime import UTC, datetime
+
+    from app.core import google
+    from app.services.accounts import auth
+
+    identity = google.verify_google_id_token(body.idToken)
+    grant, created = auth.sign_in_with_google(
+        identity=identity, zone_id=body.zoneId, now=datetime.now(UTC)
+    )
+    return render_grant(grant, session_status=201 if created else 200)

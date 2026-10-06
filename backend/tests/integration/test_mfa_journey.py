@@ -101,3 +101,72 @@ def test_the_reporter_block_on_admin_complaints_did_not_grow(platform):
     assert set(detail["reporter"]) == {
         "id", "role", "name", "email", "displayName", "zoneId", "active", "createdAt",
     }  # fmt: skip
+
+
+# --- Google Sign-In, in the same journeys --------------------------------------
+
+
+def _google_on(platform, monkeypatch):
+    from tests import google_support
+
+    google_support.install(platform.app, monkeypatch)
+    return google_support
+
+
+def test_a_new_citizen_signs_up_with_google_and_files_a_complaint(platform, monkeypatch):
+    gs = _google_on(platform, monkeypatch)
+    res = platform.client.post(
+        f"{API}/auth/google",
+        json={"idToken": gs.id_token(email="new@example.com"), "zoneId": platform.zone_id("north")},
+    )
+    assert res.status_code == 201
+    body = res.get_json()
+    from tests.integration.conftest import Actor
+
+    citizen = Actor("google-citizen", platform.client, body["token"], body["user"])
+    complaint = platform.file_complaint(citizen)  # a Google account is a full citizen
+    assert citizen.status_of(complaint["id"]) == "SUBMITTED"
+
+
+def test_staff_link_google_then_sign_in_and_2fa_still_applies(platform, monkeypatch):
+    gs = _google_on(platform, monkeypatch)
+    officer = platform.officer("north")
+    email = officer.user["email"]
+
+    refused = platform.client.post(
+        f"{API}/auth/google", json={"idToken": gs.id_token(sub="g-officer", email=email)}
+    )
+    assert refused.status_code == 403  # an email match is never enough for staff
+
+    officer.post("/users/me/google", json={"idToken": gs.id_token(sub="g-officer", email=email)})
+    signed_in = platform.client.post(
+        f"{API}/auth/google", json={"idToken": gs.id_token(sub="g-officer", email=email)}
+    )
+    assert signed_in.status_code == 200 and signed_in.get_json()["user"]["role"] == "OFFICER"
+
+    secret = _enrol(officer)  # now turn 2FA on: Google must not bypass it
+    challenged = platform.client.post(
+        f"{API}/auth/google", json={"idToken": gs.id_token(sub="g-officer", email=email)}
+    )
+    assert challenged.status_code == 202
+    done = platform.client.post(
+        f"{API}/auth/mfa/verify",
+        json={"mfaTicket": challenged.get_json()["mfaTicket"], "code": code_at(secret, _now(), 1)},
+    )
+    assert done.status_code == 200 and done.get_json()["user"]["role"] == "OFFICER"
+
+
+def test_a_citizen_can_add_google_to_a_password_account_and_use_either(platform, monkeypatch):
+    gs = _google_on(platform, monkeypatch)
+    citizen = platform.register_citizen(email="both@example.com")
+    citizen.post("/users/me/google", json={"idToken": gs.id_token(email="both@example.com")})
+    assert citizen.get("/users/me").get_json()["googleLinked"] is True
+    platform.login("both@example.com")  # the password still works
+    assert (
+        platform.client.post(
+            f"{API}/auth/google", json={"idToken": gs.id_token(email="both@example.com")}
+        ).status_code
+        == 200
+    )
+    citizen.delete("/users/me/google")  # has a password, so unlinking is allowed
+    assert citizen.get("/users/me").get_json()["googleLinked"] is False

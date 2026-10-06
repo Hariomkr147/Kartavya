@@ -102,3 +102,11 @@ class MfaCodeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     code: str = Field(pattern=r"^[0-9]{6}$")
+
+
+class LinkGoogleRequest(BaseModel):
+    """openapi.yaml: LinkGoogleRequest."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    idToken: str = Field(min_length=1)

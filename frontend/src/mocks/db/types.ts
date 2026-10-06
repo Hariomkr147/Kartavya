@@ -53,6 +53,19 @@ export type BadgeCriteriaType =
 
 export type AiReportStatus = "PENDING" | "READY" | "FAILED";
 
+/** The mock's stand-in for `users.mfa_method` + `users.mfa_secret_enc`. Plain, unencrypted. */
+export interface MockMfaState {
+  method: MfaMethod;
+  secret: string;
+  /** Newest accepted 30-second step; anything at or before it is a replay. */
+  lastStep: number;
+  failed: number;
+  /** ISO time until which codes are refused, or null. */
+  lockedUntil: string | null;
+  /** Set up but the first code not confirmed yet — login ignores it. */
+  pending: boolean;
+}
+
 export interface UserRow {
   id: number;
   fullName: string;
@@ -64,6 +77,10 @@ export interface UserRow {
   zoneId: number | null;
   isActive: boolean;
   createdAt: string;
+  /** Absent on rows persisted before two-step verification existed: means off. */
+  mfa?: MockMfaState | null;
+  /** Google account id. Absent/null = not linked. */
+  googleSub?: string | null;
 }
 
 export interface ZoneRow {

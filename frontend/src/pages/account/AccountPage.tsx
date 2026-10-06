@@ -24,6 +24,8 @@ import { useUpdateProfile } from "@/hooks/useUpdateProfile";
 import { useChangePassword } from "@/hooks/useChangePassword";
 import { useDirtyFormGuard } from "@/hooks/useDirtyFormGuard";
 import { useToast } from "@/components/ui/Toast";
+import { TwoStepSection } from "@/pages/account/TwoStepSection";
+import { GoogleSection } from "@/pages/account/GoogleSection";
 import { ApiRequestError } from "@/services/http";
 import { absoluteDateTime } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
@@ -305,87 +307,95 @@ export function AccountPage() {
         </form>
       </section>
 
-      <section className="rounded-lg border border-line bg-surface p-6">
-        <div className="mb-4 flex items-center gap-2">
-          <KeyRound className="text-brand size-5" aria-hidden="true" />
-          <h2 className="font-display text-lg font-semibold text-ink">
-            {t("account.changePassword")}
-          </h2>
-        </div>
-        <form
-          className="space-y-4"
-          onSubmit={handlePasswordSubmit(onPasswordSubmit)}
-          noValidate
-        >
-          <div>
-            <Label htmlFor="currentPassword" required>
-              {t("fields.currentPassword")}
-            </Label>
-            <Input
-              id="currentPassword"
-              type="password"
-              autoComplete="current-password"
-              error={passwordErrors.currentPassword?.message}
-              {...registerPassword("currentPassword")}
-            />
+      <TwoStepSection />
+      <GoogleSection />
+
+      {/* A Google-only account has no password to change (`hasPassword: false`). */}
+      {user.hasPassword !== false && (
+        <section className="rounded-lg border border-line bg-surface p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <KeyRound className="text-brand size-5" aria-hidden="true" />
+            <h2 className="font-display text-lg font-semibold text-ink">
+              {t("account.changePassword")}
+            </h2>
           </div>
-          <div>
-            <Label htmlFor="newPassword" required>
-              {t("fields.newPassword")}
-            </Label>
-            <Input
-              id="newPassword"
-              type={showNewPassword ? "text" : "password"}
-              autoComplete="new-password"
-              hint={
-                !passwordErrors.newPassword ? t("register.passwordHint") : undefined
-              }
-              error={passwordErrors.newPassword?.message}
-              rightIcon={
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  onClick={() => setShowNewPassword((v) => !v)}
-                  aria-label={
-                    showNewPassword ? t("fields.hidePassword") : t("fields.showPassword")
-                  }
-                  className="text-ink-faint hover:text-ink pointer-events-auto"
-                >
-                  {showNewPassword ? (
-                    <EyeOff className="size-4" aria-hidden="true" />
-                  ) : (
-                    <Eye className="size-4" aria-hidden="true" />
-                  )}
-                </button>
-              }
-              onKeyUp={(e) => setNewPasswordCapsLock(e.getModifierState("CapsLock"))}
-              {...registerPassword("newPassword")}
-            />
-            {newPasswordCapsLock && (
-              <p className="text-status-needs_more_evidence mt-1.5 flex items-center gap-1 text-xs">
-                <ShieldAlert className="size-3.5" aria-hidden="true" />
-                {t("login.capsLock")}
-              </p>
-            )}
-            <PasswordStrengthMeter password={newPasswordValue} />
-          </div>
-          <div>
-            <Label htmlFor="confirmNewPassword" required>
-              {t("fields.confirmNewPassword")}
-            </Label>
-            <Input
-              id="confirmNewPassword"
-              type="password"
-              autoComplete="new-password"
-              error={passwordErrors.confirmNewPassword?.message}
-              {...registerPassword("confirmNewPassword")}
-            />
-          </div>
-          <Button type="submit" variant="secondary" loading={passwordSubmitting}>
-            {t("account.updatePassword")}
-          </Button>
-        </form>
-      </section>
+          <form
+            className="space-y-4"
+            onSubmit={handlePasswordSubmit(onPasswordSubmit)}
+            noValidate
+          >
+            <div>
+              <Label htmlFor="currentPassword" required>
+                {t("fields.currentPassword")}
+              </Label>
+              <Input
+                id="currentPassword"
+                type="password"
+                autoComplete="current-password"
+                error={passwordErrors.currentPassword?.message}
+                {...registerPassword("currentPassword")}
+              />
+            </div>
+            <div>
+              <Label htmlFor="newPassword" required>
+                {t("fields.newPassword")}
+              </Label>
+              <Input
+                id="newPassword"
+                type={showNewPassword ? "text" : "password"}
+                autoComplete="new-password"
+                hint={
+                  !passwordErrors.newPassword ? t("register.passwordHint") : undefined
+                }
+                error={passwordErrors.newPassword?.message}
+                rightIcon={
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setShowNewPassword((v) => !v)}
+                    aria-label={
+                      showNewPassword
+                        ? t("fields.hidePassword")
+                        : t("fields.showPassword")
+                    }
+                    className="text-ink-faint hover:text-ink pointer-events-auto"
+                  >
+                    {showNewPassword ? (
+                      <EyeOff className="size-4" aria-hidden="true" />
+                    ) : (
+                      <Eye className="size-4" aria-hidden="true" />
+                    )}
+                  </button>
+                }
+                onKeyUp={(e) => setNewPasswordCapsLock(e.getModifierState("CapsLock"))}
+                {...registerPassword("newPassword")}
+              />
+              {newPasswordCapsLock && (
+                <p className="text-status-needs_more_evidence mt-1.5 flex items-center gap-1 text-xs">
+                  <ShieldAlert className="size-3.5" aria-hidden="true" />
+                  {t("login.capsLock")}
+                </p>
+              )}
+              <PasswordStrengthMeter password={newPasswordValue} />
+            </div>
+            <div>
+              <Label htmlFor="confirmNewPassword" required>
+                {t("fields.confirmNewPassword")}
+              </Label>
+              <Input
+                id="confirmNewPassword"
+                type="password"
+                autoComplete="new-password"
+                error={passwordErrors.confirmNewPassword?.message}
+                {...registerPassword("confirmNewPassword")}
+              />
+            </div>
+            <Button type="submit" variant="secondary" loading={passwordSubmitting}>
+              {t("account.updatePassword")}
+            </Button>
+          </form>
+        </section>
+      )}
     </div>
   );
 }

@@ -22,7 +22,10 @@ from app.api.admin.schemas import (
     UpdateZoneRequest,
     UserQuery,
 )
-from app.api.admin.serializers import serialize_complaint_for_admin, serialize_user
+from app.api.admin.serializers import (
+    serialize_complaint_for_admin,
+    serialize_managed_user,
+)
 from app.api.shared.serializers import (
     SerializationContext,
     serialize_category,
@@ -188,7 +191,10 @@ def get_all_users(query: UserQuery):
         page_size=query.pageSize,
     )
     return jsonify(
-        {"data": [serialize_user(user) for user in users], "pagination": pagination.to_dict()}
+        {
+            "data": [serialize_managed_user(user) for user in users],
+            "pagination": pagination.to_dict(),
+        }
     )
 
 
@@ -203,13 +209,13 @@ def create_user(body: CreateUserRequest):
         role=UserRole(body.role.value),
         zone_id=body.zoneId,
     )
-    return jsonify(serialize_user(user)), 201
+    return jsonify(serialize_managed_user(user)), 201
 
 
 @bp.get("/admin/users/<int:user_id>")
 @require_role(ADMIN)
 def get_user_by_id(user_id: int):
-    return jsonify(serialize_user(get_user_service(user_id=user_id)))
+    return jsonify(serialize_managed_user(get_user_service(user_id=user_id)))
 
 
 @bp.patch("/admin/users/<int:user_id>")
@@ -225,7 +231,7 @@ def update_user(user_id: int, body: UpdateUserRequest):
         change_zone="zoneId" in body.model_fields_set,
         active=body.active,
     )
-    return jsonify(serialize_user(user))
+    return jsonify(serialize_managed_user(user))
 
 
 @bp.delete("/admin/users/<int:user_id>")
@@ -241,6 +247,16 @@ def delete_user(user_id: int):
 def reset_user_password(user_id: int, body: AdminResetPasswordRequest):
     """204. Admin sets a password directly — no current-password check."""
     reset_password_service(user_id=user_id, new_password=body.newPassword)
+    return Response(status=204)
+
+
+@bp.post("/admin/users/<int:user_id>/mfa-reset")
+@require_role(ADMIN)
+def reset_user_mfa(user_id: int):
+    """204. Clears a user's two-step verification (lost device). Idempotent."""
+    from app.services.accounts.mfa import service as mfa
+
+    mfa.admin_reset(user_id)
     return Response(status=204)
 
 
@@ -283,7 +299,7 @@ def delete_zone(zone_id: int):
 @validate_body(AssignOfficerRequest)
 def assign_officer_to_zone(zone_id: int, body: AssignOfficerRequest):
     return jsonify(
-        serialize_user(reassign_officer_zone(officer_id=body.officerId, zone_id=zone_id))
+        serialize_managed_user(reassign_officer_zone(officer_id=body.officerId, zone_id=zone_id))
     )
 
 

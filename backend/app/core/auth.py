@@ -71,6 +71,50 @@ def decode_token(token: str) -> dict[str, Any]:
         raise AuthError("Invalid authentication token.") from exc
 
 
+#: How long a half-finished login (password right, code not yet given) stays open.
+MFA_TICKET_TTL = timedelta(minutes=5)
+
+#: Only these `typ` values are sessions. Today's tokens carry none (None), which
+#: is why nobody is logged out by this release; anything else — the MFA ticket
+#: today, whatever comes later — is refused as a bearer token.
+_SESSION_TYP = (None, "access")
+
+
+def issue_mfa_ticket(user: User) -> tuple[str, datetime]:
+    """A 5-minute token that proves the FIRST step of a login and nothing more.
+
+    It names only the user. `load_current_user()` refuses it (see `typ`), so a
+    half-finished login can never read a single row; its one use is
+    `POST /auth/mfa/verify`.
+    """
+    now = datetime.now(UTC)
+    expires_at = now + MFA_TICKET_TTL
+    payload = {
+        "sub": str(user.id),
+        "typ": "mfa",
+        "iat": int(now.timestamp()),
+        "exp": int(expires_at.timestamp()),
+    }
+    token = jwt.encode(
+        payload,
+        current_app.config["JWT_SECRET"],
+        algorithm=current_app.config["JWT_ALGORITHM"],
+    )
+    return token, expires_at
+
+
+def decode_mfa_ticket(token: str) -> int:
+    """The user id a valid MFA ticket names. Anything else is a 401."""
+    claims = decode_token(token)
+    if claims.get("typ") != "mfa":
+        # A session token must not double as a ticket either.
+        raise AuthError("Invalid or expired sign-in session. Please log in again.")
+    try:
+        return int(claims.get("sub", ""))
+    except (TypeError, ValueError) as exc:
+        raise AuthError("Invalid or expired sign-in session. Please log in again.") from exc
+
+
 def _bearer_token() -> str:
     header = request.headers.get("Authorization", "")
     scheme, _, token = header.partition(" ")
@@ -103,6 +147,8 @@ def load_current_user() -> User:
         return cast(User, cached)
 
     claims = decode_token(_bearer_token())
+    if claims.get("typ") not in _SESSION_TYP:
+        raise AuthError("Invalid authentication token.")
     try:
         user_id = int(claims.get("sub", ""))
     except (TypeError, ValueError) as exc:

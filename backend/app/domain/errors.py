@@ -96,6 +96,25 @@ class ConflictError(DomainError):
         super().__init__(message, code=code, details=details)
 
 
+class TooManyRequestsError(DomainError):
+    """429 — a rate limit or lockout. Carries its own code (MFA_LOCKED, ...)."""
+
+    http_status = 429
+    code = "TOO_MANY_REQUESTS"
+
+
+class ServiceUnavailableError(DomainError):
+    """503 — an optional feature is switched off or cannot run right now.
+
+    Used when a setting the feature needs is absent (MFA_NOT_CONFIGURED,
+    GOOGLE_NOT_CONFIGURED). The rest of the API is unaffected — that is the
+    whole reason these are 503s and not startup failures.
+    """
+
+    http_status = 503
+    code = "SERVICE_UNAVAILABLE"
+
+
 @dataclass(frozen=True)
 class Ok:
     """A rule check that passed."""

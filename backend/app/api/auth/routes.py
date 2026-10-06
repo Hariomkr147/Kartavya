@@ -9,7 +9,7 @@ from __future__ import annotations
 from flask import Blueprint
 
 from app.api.account.schemas import serialize_user
-from app.api.auth.schemas import LoginRequest, RegisterRequest
+from app.api.auth.schemas import LoginRequest, MfaVerifyRequest, RegisterRequest
 from app.api.shared.responses import todo  # noqa: F401 — used by other stubs
 from app.core.validation import validate_body
 
@@ -43,19 +43,51 @@ def register_citizen(body: RegisterRequest):
     }, 201
 
 
+def render_grant(grant, *, session_status: int = 200):
+    """`AuthResponse` for a session, `202 MfaChallenge` for a half-finished login.
+
+    Shared by every route that ends a first login step, so the two shapes are
+    built in exactly one place.
+    """
+    from app.services.accounts.auth import MfaChallengeGrant
+
+    if isinstance(grant, MfaChallengeGrant):
+        return {
+            "mfaRequired": True,
+            "mfaTicket": grant.ticket,
+            "method": grant.method.value,
+            "expiresAt": grant.expires_at.isoformat(),
+        }, 202
+    return {
+        "token": grant.token,
+        "tokenType": "Bearer",
+        "expiresAt": grant.expires_at.isoformat(),
+        "user": serialize_user(grant.user),
+    }, session_status
+
+
 @bp.post("/auth/login")
 @validate_body(LoginRequest)
 def login_user(body: LoginRequest):
-    """200 AuthResponse {token, tokenType, expiresAt, user}. Public (``security: []``)."""
-    from app.core.auth import issue_token
+    """200 AuthResponse, or 202 MfaChallenge when the account has 2FA on. Public."""
+    from datetime import UTC, datetime
+
     from app.services.accounts import auth
 
     user = auth.authenticate(email=body.email, password=body.password)
-    token, expires_at = issue_token(user)
+    return render_grant(auth.complete_primary_auth(user, datetime.now(UTC)))
 
-    return {
-        "token": token,
-        "tokenType": "Bearer",
-        "expiresAt": expires_at.isoformat(),
-        "user": serialize_user(user),
-    }
+
+@bp.post("/auth/mfa/verify")
+@validate_body(MfaVerifyRequest)
+def verify_mfa_login(body: MfaVerifyRequest):
+    """200 AuthResponse. Public: the mfaTicket in the body is the credential."""
+    from datetime import UTC, datetime
+
+    from app.core.auth import decode_mfa_ticket
+    from app.services.accounts import auth
+    from app.services.accounts.mfa import service as mfa
+
+    user_id = decode_mfa_ticket(body.mfaTicket)
+    user = mfa.complete_login(user_id, body.code, datetime.now(UTC))
+    return render_grant(auth.grant_session(user))

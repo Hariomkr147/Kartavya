@@ -349,3 +349,24 @@ def verify_clusters_command(repair: bool) -> None:
         click.echo(click.style(f"Repaired {len(report.repaired)} row(s).", fg="green"))
     elif any(f.kind in {"terminal_member", "stale_aggregates"} for f in report.findings):
         click.echo(click.style("Re-run with --repair to fix the repairable findings.", fg="yellow"))
+
+
+@click.command("reset-mfa")
+@click.argument("email")
+@with_appcontext
+def reset_mfa_command(email: str) -> None:
+    """Clear two-step verification for EMAIL. The way back in for a lone admin.
+
+    Runs on the server, so it needs no session, no code and no encryption key —
+    exactly the situation it exists for (the only admin lost their authenticator,
+    or the key was lost). Mirrors the LAST_ADMIN guard: there is always a way back.
+    """
+    from app.extensions import db
+    from app.models import User
+    from app.services.accounts.mfa import service as mfa
+
+    user = db.session.scalar(db.select(User).filter_by(email=email.strip().lower()))
+    if user is None:
+        raise click.ClickException(f"No user with email {email!r}.")
+    mfa.reset(user)
+    click.echo(click.style(f"Two-step verification cleared for {user.email}.", fg="green"))

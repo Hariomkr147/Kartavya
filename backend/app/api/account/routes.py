@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from flask import Blueprint
 
-from app.api.account.schemas import ChangePasswordRequest, UpdateProfileRequest, serialize_user
+from app.api.account.schemas import (
+    ChangePasswordRequest,
+    MfaCodeRequest,
+    MfaSetupRequest,
+    UpdateProfileRequest,
+    serialize_user,
+)
 from app.core.auth import require_auth
 from app.core.validation import validate_body
 
@@ -64,4 +70,49 @@ def change_my_password(body: ChangePasswordRequest):
         current_password=body.currentPassword,
         new_password=body.newPassword,
     )
+    return "", 204
+
+
+@bp.post("/users/me/mfa")
+@require_auth
+@validate_body(MfaSetupRequest)
+def start_mfa_setup(body: MfaSetupRequest):
+    """201 MfaSetupResponse. The secret is in this response and nowhere else, ever."""
+    from datetime import UTC, datetime
+
+    from app.core.auth import current_user
+    from app.services.accounts.mfa import service as mfa
+
+    prompt = mfa.start_setup(current_user(), body.method, datetime.now(UTC))
+    return {
+        "method": prompt.method.value,
+        "otpauthUri": prompt.otpauth_uri,
+        "secret": prompt.secret,
+    }, 201
+
+
+@bp.post("/users/me/mfa/confirm")
+@require_auth
+@validate_body(MfaCodeRequest)
+def confirm_mfa_setup(body: MfaCodeRequest):
+    """200 User — two-step verification is now on."""
+    from datetime import UTC, datetime
+
+    from app.core.auth import current_user
+    from app.services.accounts.mfa import service as mfa
+
+    return serialize_user(mfa.confirm_setup(current_user(), body.code, datetime.now(UTC)))
+
+
+@bp.post("/users/me/mfa/disable")
+@require_auth
+@validate_body(MfaCodeRequest)
+def disable_mfa(body: MfaCodeRequest):
+    """204. Needs a current code, so a stolen session alone cannot remove the second step."""
+    from datetime import UTC, datetime
+
+    from app.core.auth import current_user
+    from app.services.accounts.mfa import service as mfa
+
+    mfa.disable(current_user(), body.code, datetime.now(UTC))
     return "", 204
